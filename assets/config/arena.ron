@@ -1,0 +1,10 @@
+// Arène circulaire (cour d'un théâtre en ruine). Piliers : (x, z, rayon).
+(
+    radius: 16,
+    pillars: [
+        (11.3, 11.3, 0.8), (-11.3, 11.3, 0.8), (11.3, -11.3, 0.8), (-11.3, -11.3, 0.8),
+        (14.8, 0, 0.7), (-14.8, 0, 0.7), (0, 14.8, 0.7),
+    ],
+    player_spawn: (0, -10),
+    boss_spawn: (0, 6),
+)

@@ -1,0 +1,29 @@
+# Rust
+/target/
+
+# Build web (tools/build_web.sh)
+/dist/
+
+# Blender : sauvegardes automatiques et fichiers .blend régénérés par tools/build_assets.sh
+*.blend1
+*.blend@
+/tools/blender/blend/
+
+# Python
+__pycache__/
+*.pyc
+
+# Captures du mode SOULS_SHOTS (dossier courant par défaut)
+shot_*.png
+
+# État local de Claude Code
+/.claude/scheduled_tasks.lock
+/.claude/settings.local.json
+
+# Éditeurs et OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

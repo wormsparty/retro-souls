@@ -1,0 +1,118 @@
+// L'Automate du Carrousel : grand pantin mécanique armé d'une hallebarde.
+// Lent et télégraphié : longues anticipations, longues récupérations (fenêtres de punition).
+(
+    name: "L'Automate du Carrousel",
+    max_hp: 3200,
+    phase2_at: 0.5,
+    radius: 0.9,
+    height: 3.2,
+    walk_speed: 1.4,
+    strafe_speed: 0.8,
+    turn_rate: 110,
+    preferred_range: 2.8,
+    stagger_max: 100,
+    stagger_delay: 180,
+    stagger_decay: 7,
+    idle_ticks: (36, 80),
+    aggro_ticks: 240,
+
+    groggy: (anim: "groggy", total: 210),
+    fatal_received: (anim: "fatal_received", total: 120),
+    roar: (anim: "roar", total: 110, hyperarmor: (0, 110)),
+    death: (anim: "death", total: 160),
+
+    attacks: [
+        (
+            name: "double_taille",
+            min_range: 0, max_range: 3.8, max_angle: 60, weight: 3, cooldown: 120, phases: [1, 2],
+            mv: (
+                anim: "double_swing", total: 128, track_until: 36, track_rate: 100,
+                motion: [(start: 30, end: 44, speed: 1.6), (start: 64, end: 76, speed: 1.6)],
+                hits: [
+                    (start: 40, end: 48, damage: 85, stagger: 0, hitstop: 5, arc: (-85, 80),
+                     capsule: (a: (0.0, 1.3, 0.8), b: (0.0, 1.1, 3.5), r: 0.3)),
+                    (start: 72, end: 80, damage: 85, stagger: 0, hitstop: 5, arc: (80, -85),
+                     capsule: (a: (0.0, 1.0, 0.8), b: (0.0, 0.9, 3.5), r: 0.3)),
+                ],
+            ),
+            next: ("estoc_retarde", 0.25),
+        ),
+        (
+            name: "ecrasement",
+            min_range: 1.4, max_range: 4.2, max_angle: 45, weight: 3, cooldown: 150, phases: [1, 2],
+            mv: (
+                anim: "overhead_slam", total: 124, track_until: 44, track_rate: 90,
+                motion: [(start: 44, end: 54, speed: 2.0)],
+                hits: [(start: 54, end: 60, damage: 140, hitstop: 7, reaction: Heavy,
+                        capsule: (a: (0.0, 0.5, 0.8), b: (0.0, 0.3, 4.0), r: 0.45))],
+            ),
+        ),
+        (
+            name: "balayage",
+            min_range: 0, max_range: 3.6, max_angle: 180, weight: 2, cooldown: 300, phases: [1, 2],
+            mv: (
+                anim: "spin_sweep", total: 140, track_until: 30, track_rate: 80,
+                hits: [(start: 56, end: 76, damage: 95, hitstop: 5, arc: (-180, 180),
+                        capsule: (a: (0.0, 0.6, 0.6), b: (0.0, 0.5, 3.6), r: 0.35))],
+            ),
+        ),
+        (
+            name: "charge",
+            min_range: 5, max_range: 14, max_angle: 30, weight: 2, cooldown: 360, phases: [1, 2],
+            mv: (
+                anim: "charge", total: 120, track_until: 42, track_rate: 120,
+                motion: [(start: 40, end: 76, speed: 9.0, to_target: true, stop_dist: 0.5)],
+                hits: [(start: 44, end: 76, damage: 110, hitstop: 6, reaction: Heavy,
+                        capsule: (a: (0.0, 1.0, 0.6), b: (0.0, 1.0, 2.6), r: 0.5))],
+            ),
+        ),
+        (
+            name: "estoc_retarde",
+            min_range: 2, max_range: 4.6, max_angle: 40, weight: 2, cooldown: 240, phases: [1, 2],
+            mv: (
+                // La longue pause piège ceux qui spamment la garde.
+                anim: "delayed_thrust", total: 122, track_until: 56, track_rate: 120,
+                motion: [(start: 60, end: 68, speed: 4.0)],
+                hits: [(start: 63, end: 68, damage: 100, hitstop: 6,
+                        capsule: (a: (0.0, 1.4, 0.8), b: (0.0, 1.3, 4.3), r: 0.28))],
+            ),
+        ),
+        (
+            name: "furie_saut",
+            min_range: 3, max_range: 10, max_angle: 50, weight: 2, cooldown: 600, phases: [1, 2],
+            mv: (
+                anim: "fury_leap", total: 156, track_until: 44, track_rate: 140,
+                motion: [(start: 44, end: 72, speed: 12.0, to_target: true, stop_dist: 1.4)],
+                hits: [(start: 72, end: 78, damage: 175, hitstop: 9, reaction: Heavy, fury: true,
+                        capsule: (a: (0.0, 0.3, 1.0), b: (0.0, 0.3, 2.4), r: 1.5))],
+            ),
+        ),
+        // ---- Phase 2
+        (
+            name: "triple_combo",
+            min_range: 0, max_range: 3.8, max_angle: 60, weight: 3, cooldown: 200, phases: [2],
+            mv: (
+                anim: "triple_combo", total: 172, track_until: 100, track_rate: 90,
+                motion: [(start: 26, end: 38, speed: 1.6), (start: 56, end: 66, speed: 1.6), (start: 98, end: 108, speed: 2.0)],
+                hits: [
+                    (start: 34, end: 41, damage: 80, hitstop: 5, arc: (-85, 80),
+                     capsule: (a: (0.0, 1.3, 0.8), b: (0.0, 1.1, 3.5), r: 0.3)),
+                    (start: 62, end: 69, damage: 80, hitstop: 5, arc: (80, -85),
+                     capsule: (a: (0.0, 1.0, 0.8), b: (0.0, 0.9, 3.5), r: 0.3)),
+                    (start: 108, end: 114, damage: 130, hitstop: 7, reaction: Heavy,
+                     capsule: (a: (0.0, 0.5, 0.8), b: (0.0, 0.3, 4.0), r: 0.45)),
+                ],
+            ),
+        ),
+        (
+            name: "furie_estoc",
+            min_range: 2.5, max_range: 7.5, max_angle: 35, weight: 2, cooldown: 420, phases: [2],
+            mv: (
+                anim: "fury_thrust", total: 118, track_until: 46, track_rate: 140,
+                motion: [(start: 46, end: 58, speed: 10.0, to_target: true, stop_dist: 1.2)],
+                hits: [(start: 50, end: 58, damage: 160, hitstop: 8, reaction: Heavy, fury: true,
+                        capsule: (a: (0.0, 1.4, 0.8), b: (0.0, 1.3, 4.2), r: 0.32))],
+            ),
+        ),
+    ],
+)

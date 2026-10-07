@@ -1,0 +1,631 @@
+{
+  "boss": {
+    "charge": {
+      "counter": null,
+      "hits": [
+        [
+          44,
+          76
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 76,
+          "speed": 9.0,
+          "start": 40
+        }
+      ],
+      "total": 120
+    },
+    "death": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [],
+      "total": 160
+    },
+    "delayed_thrust": {
+      "counter": null,
+      "hits": [
+        [
+          63,
+          68
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 68,
+          "speed": 4.0,
+          "start": 60
+        }
+      ],
+      "total": 122
+    },
+    "double_swing": {
+      "counter": null,
+      "hits": [
+        [
+          40,
+          48
+        ],
+        [
+          72,
+          80
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 44,
+          "speed": 1.600000023841858,
+          "start": 30
+        },
+        {
+          "end": 76,
+          "speed": 1.600000023841858,
+          "start": 64
+        }
+      ],
+      "total": 128
+    },
+    "fatal_received": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [],
+      "total": 120
+    },
+    "fury_leap": {
+      "counter": null,
+      "hits": [
+        [
+          72,
+          78
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 72,
+          "speed": 12.0,
+          "start": 44
+        }
+      ],
+      "total": 156
+    },
+    "fury_thrust": {
+      "counter": null,
+      "hits": [
+        [
+          50,
+          58
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 58,
+          "speed": 10.0,
+          "start": 46
+        }
+      ],
+      "total": 118
+    },
+    "groggy": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [],
+      "total": 210
+    },
+    "overhead_slam": {
+      "counter": null,
+      "hits": [
+        [
+          54,
+          60
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 54,
+          "speed": 2.0,
+          "start": 44
+        }
+      ],
+      "total": 124
+    },
+    "roar": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [],
+      "total": 110
+    },
+    "spin_sweep": {
+      "counter": null,
+      "hits": [
+        [
+          56,
+          76
+        ]
+      ],
+      "iframes": null,
+      "motion": [],
+      "total": 140
+    },
+    "triple_combo": {
+      "counter": null,
+      "hits": [
+        [
+          34,
+          41
+        ],
+        [
+          62,
+          69
+        ],
+        [
+          108,
+          114
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 38,
+          "speed": 1.600000023841858,
+          "start": 26
+        },
+        {
+          "end": 66,
+          "speed": 1.600000023841858,
+          "start": 56
+        },
+        {
+          "end": 108,
+          "speed": 2.0,
+          "start": 98
+        }
+      ],
+      "total": 172
+    }
+  },
+  "heal_at": 24,
+  "player": {
+    "backstep": {
+      "counter": null,
+      "hits": [],
+      "iframes": [
+        1,
+        10
+      ],
+      "motion": [
+        {
+          "end": 11,
+          "speed": -6.0,
+          "start": 0
+        }
+      ],
+      "total": 22
+    },
+    "death": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [],
+      "total": 90
+    },
+    "dodge": {
+      "counter": null,
+      "hits": [],
+      "iframes": [
+        2,
+        16
+      ],
+      "motion": [
+        {
+          "end": 18,
+          "speed": 7.199999809265137,
+          "start": 0
+        }
+      ],
+      "total": 30
+    },
+    "greatsword_charge": {
+      "hits": [],
+      "motion": [],
+      "total": 54
+    },
+    "greatsword_counter": {
+      "counter": null,
+      "hits": [
+        [
+          10,
+          16
+        ]
+      ],
+      "iframes": [
+        0,
+        16
+      ],
+      "motion": [
+        {
+          "end": 11,
+          "speed": 5.5,
+          "start": 4
+        }
+      ],
+      "total": 48
+    },
+    "greatsword_fatal": {
+      "counter": null,
+      "hits": [
+        [
+          52,
+          54
+        ]
+      ],
+      "iframes": [
+        0,
+        104
+      ],
+      "motion": [],
+      "total": 104
+    },
+    "greatsword_heavy": {
+      "counter": null,
+      "hits": [
+        [
+          32,
+          38
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 30,
+          "speed": 2.4000000953674316,
+          "start": 16
+        }
+      ],
+      "total": 72
+    },
+    "greatsword_heavy_charged": {
+      "counter": null,
+      "hits": [
+        [
+          18,
+          24
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 18,
+          "speed": 3.799999952316284,
+          "start": 4
+        }
+      ],
+      "total": 70
+    },
+    "greatsword_light1": {
+      "counter": null,
+      "hits": [
+        [
+          20,
+          26
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 22,
+          "speed": 2.200000047683716,
+          "start": 10
+        }
+      ],
+      "total": 52
+    },
+    "greatsword_light2": {
+      "counter": null,
+      "hits": [
+        [
+          20,
+          26
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 22,
+          "speed": 2.200000047683716,
+          "start": 10
+        }
+      ],
+      "total": 52
+    },
+    "greatsword_light3": {
+      "counter": null,
+      "hits": [
+        [
+          26,
+          31
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 26,
+          "speed": 2.5999999046325684,
+          "start": 14
+        }
+      ],
+      "total": 64
+    },
+    "greatsword_special": {
+      "counter": [
+        4,
+        36
+      ],
+      "hits": [
+        [
+          39,
+          45
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 42,
+          "speed": 4.5,
+          "start": 36
+        }
+      ],
+      "total": 80
+    },
+    "guard_break": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 10,
+          "speed": -2.5,
+          "start": 0
+        }
+      ],
+      "total": 60
+    },
+    "guard_hit": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 6,
+          "speed": -2.0,
+          "start": 0
+        }
+      ],
+      "total": 16
+    },
+    "heal": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [],
+      "total": 42
+    },
+    "hit_heavy": {
+      "counter": null,
+      "hits": [],
+      "iframes": [
+        6,
+        70
+      ],
+      "motion": [
+        {
+          "end": 18,
+          "speed": -5.0,
+          "start": 0
+        }
+      ],
+      "total": 80
+    },
+    "hit_light": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 8,
+          "speed": -2.5,
+          "start": 0
+        }
+      ],
+      "total": 26
+    },
+    "perfect_guard": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [],
+      "total": 14
+    },
+    "rapier_charge": {
+      "hits": [],
+      "motion": [],
+      "total": 36
+    },
+    "rapier_fatal": {
+      "counter": null,
+      "hits": [
+        [
+          46,
+          48
+        ]
+      ],
+      "iframes": [
+        0,
+        96
+      ],
+      "motion": [],
+      "total": 96
+    },
+    "rapier_heavy": {
+      "counter": null,
+      "hits": [
+        [
+          14,
+          18
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 16,
+          "speed": 6.0,
+          "start": 8
+        }
+      ],
+      "total": 40
+    },
+    "rapier_heavy_charged": {
+      "counter": null,
+      "hits": [
+        [
+          8,
+          13
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 12,
+          "speed": 11.0,
+          "start": 2
+        }
+      ],
+      "total": 44
+    },
+    "rapier_light1": {
+      "counter": null,
+      "hits": [
+        [
+          8,
+          11
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 9,
+          "speed": 2.200000047683716,
+          "start": 3
+        }
+      ],
+      "total": 24
+    },
+    "rapier_light2": {
+      "counter": null,
+      "hits": [
+        [
+          7,
+          10
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 8,
+          "speed": 2.200000047683716,
+          "start": 2
+        }
+      ],
+      "total": 24
+    },
+    "rapier_light3": {
+      "counter": null,
+      "hits": [
+        [
+          8,
+          12
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 9,
+          "speed": 2.5999999046325684,
+          "start": 2
+        }
+      ],
+      "total": 26
+    },
+    "rapier_light4": {
+      "counter": null,
+      "hits": [
+        [
+          12,
+          15
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 13,
+          "speed": 4.5,
+          "start": 6
+        }
+      ],
+      "total": 36
+    },
+    "rapier_special": {
+      "counter": null,
+      "hits": [
+        [
+          13,
+          15
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          25,
+          27
+        ],
+        [
+          34,
+          38
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 13,
+          "speed": 13.0,
+          "start": 4
+        },
+        {
+          "end": 38,
+          "speed": 0.800000011920929,
+          "start": 13
+        }
+      ],
+      "total": 62
+    },
+    "switch": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [],
+      "total": 24
+    }
+  },
+  "switch_at": 12
+}

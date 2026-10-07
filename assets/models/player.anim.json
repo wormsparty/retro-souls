@@ -1,0 +1,320 @@
+{
+ "backstep": {
+  "frames": 22.0,
+  "loop": false,
+  "marks": [
+   0,
+   22
+  ]
+ },
+ "death": {
+  "frames": 90.0,
+  "loop": false,
+  "marks": [
+   0,
+   90
+  ]
+ },
+ "dodge": {
+  "frames": 30.0,
+  "loop": false,
+  "marks": [
+   0,
+   30
+  ]
+ },
+ "greatsword_charge": {
+  "frames": 54.0,
+  "loop": false,
+  "marks": [
+   0,
+   54
+  ]
+ },
+ "greatsword_counter": {
+  "frames": 48.0,
+  "loop": false,
+  "marks": [
+   0,
+   10,
+   16,
+   48
+  ]
+ },
+ "greatsword_fatal": {
+  "frames": 104.0,
+  "loop": false,
+  "marks": [
+   0,
+   52,
+   54,
+   104
+  ]
+ },
+ "greatsword_heavy": {
+  "frames": 72.0,
+  "loop": false,
+  "marks": [
+   0,
+   32,
+   38,
+   72
+  ]
+ },
+ "greatsword_heavy_charged": {
+  "frames": 70.0,
+  "loop": false,
+  "marks": [
+   0,
+   18,
+   24,
+   70
+  ]
+ },
+ "greatsword_light1": {
+  "frames": 52.0,
+  "loop": false,
+  "marks": [
+   0,
+   20,
+   26,
+   52
+  ]
+ },
+ "greatsword_light2": {
+  "frames": 52.0,
+  "loop": false,
+  "marks": [
+   0,
+   20,
+   26,
+   52
+  ]
+ },
+ "greatsword_light3": {
+  "frames": 64.0,
+  "loop": false,
+  "marks": [
+   0,
+   26,
+   31,
+   64
+  ]
+ },
+ "greatsword_special": {
+  "frames": 80.0,
+  "loop": false,
+  "marks": [
+   0,
+   39,
+   45,
+   80
+  ]
+ },
+ "guard": {
+  "frames": 120.0,
+  "loop": true,
+  "marks": [
+   0,
+   120.0
+  ]
+ },
+ "guard_break": {
+  "frames": 60.0,
+  "loop": false,
+  "marks": [
+   0,
+   60
+  ]
+ },
+ "guard_hit": {
+  "frames": 16.0,
+  "loop": false,
+  "marks": [
+   0,
+   16
+  ]
+ },
+ "guard_walk": {
+  "frames": 64.0,
+  "loop": true,
+  "marks": [
+   0,
+   64.0
+  ]
+ },
+ "heal": {
+  "frames": 42.0,
+  "loop": false,
+  "marks": [
+   0,
+   42
+  ]
+ },
+ "hit_heavy": {
+  "frames": 80.0,
+  "loop": false,
+  "marks": [
+   0,
+   80
+  ]
+ },
+ "hit_light": {
+  "frames": 26.0,
+  "loop": false,
+  "marks": [
+   0,
+   26
+  ]
+ },
+ "idle_greatsword": {
+  "frames": 120.0,
+  "loop": true,
+  "marks": [
+   0,
+   120.0
+  ]
+ },
+ "idle_rapier": {
+  "frames": 120.0,
+  "loop": true,
+  "marks": [
+   0,
+   120.0
+  ]
+ },
+ "perfect_guard": {
+  "frames": 14.0,
+  "loop": false,
+  "marks": [
+   0,
+   14
+  ]
+ },
+ "rapier_charge": {
+  "frames": 36.0,
+  "loop": false,
+  "marks": [
+   0,
+   36
+  ]
+ },
+ "rapier_fatal": {
+  "frames": 96.0,
+  "loop": false,
+  "marks": [
+   0,
+   46,
+   48,
+   96
+  ]
+ },
+ "rapier_heavy": {
+  "frames": 40.0,
+  "loop": false,
+  "marks": [
+   0,
+   14,
+   18,
+   40
+  ]
+ },
+ "rapier_heavy_charged": {
+  "frames": 44.0,
+  "loop": false,
+  "marks": [
+   0,
+   8,
+   13,
+   44
+  ]
+ },
+ "rapier_light1": {
+  "frames": 24.0,
+  "loop": false,
+  "marks": [
+   0,
+   8,
+   11,
+   24
+  ]
+ },
+ "rapier_light2": {
+  "frames": 24.0,
+  "loop": false,
+  "marks": [
+   0,
+   7,
+   10,
+   24
+  ]
+ },
+ "rapier_light3": {
+  "frames": 26.0,
+  "loop": false,
+  "marks": [
+   0,
+   8,
+   12,
+   26
+  ]
+ },
+ "rapier_light4": {
+  "frames": 36.0,
+  "loop": false,
+  "marks": [
+   0,
+   12,
+   15,
+   36
+  ]
+ },
+ "rapier_special": {
+  "frames": 62.0,
+  "loop": false,
+  "marks": [
+   0,
+   13,
+   15,
+   19,
+   21,
+   25,
+   27,
+   34,
+   38,
+   62
+  ]
+ },
+ "run": {
+  "frames": 40.0,
+  "loop": true,
+  "marks": [
+   0,
+   40.0
+  ]
+ },
+ "sprint": {
+  "frames": 30.0,
+  "loop": true,
+  "marks": [
+   0,
+   30.0
+  ]
+ },
+ "switch": {
+  "frames": 24.0,
+  "loop": false,
+  "marks": [
+   0,
+   24
+  ]
+ },
+ "walk": {
+  "frames": 64.0,
+  "loop": true,
+  "marks": [
+   0,
+   64.0
+  ]
+ }
+}

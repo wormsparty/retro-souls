@@ -1,0 +1,120 @@
+// Tuning du joueur. Durées en ticks (60/s), vitesses en m/s.
+// Rechargé à chaud en natif avec `cargo run --features dev`.
+(
+    max_hp: 500,
+    max_stamina: 120,
+    // Coût des attaques = dégâts × ce facteur (identique pour toutes les armes).
+    stamina_per_damage: 0.28,
+    // L'endurance peut passer en négatif ; il faut au moins 1 point pour agir.
+    stamina_floor: -60,
+    stamina_regen: 55,
+    stamina_regen_guarding: 22,
+    stamina_delay: 30,
+    run_speed: 4.2,
+    sprint_speed: 6.4,
+    sprint_stamina: 16,
+    sprint_hold: 14,
+    accel: 30,
+    turn_rate: 720,
+    radius: 0.4,
+    height: 1.8,
+    lock_range: 25,
+    input_buffer: 10,
+    regain_ticks: 360,
+    regain_ratio: 0.6,
+    special_segments: 3,
+    special_per_segment: 100,
+    special_per_damage: 0.45,
+    fatal_range: 2.2,
+    fatal_arc: 70,
+
+    guard: (
+        // ~133 ms : garde pressée au plus 8 ticks avant l'impact.
+        perfect_window: 8,
+        spam_window: 20,
+        spam_penalty: 2,
+        min_window: 3,
+        damage_ratio: 0.6,
+        stamina_ratio: 0.45,
+        perfect_stagger: 14,
+        perfect_special: 12,
+        perfect_hitstop: 7,
+        arc: 100,
+        walk_speed: 1.8,
+    ),
+
+    dodge: (
+        anim: "dodge",
+        total: 30,
+        iframes: (2, 16),
+        motion: [(start: 0, end: 18, speed: 7.2)],
+        stamina: 22,
+        chain_from: 24,
+        cancel_from: 22,
+    ),
+    backstep: (
+        anim: "backstep",
+        total: 22,
+        iframes: (1, 10),
+        motion: [(start: 0, end: 11, speed: -6.0)],
+        stamina: 15,
+        chain_from: 15,
+    ),
+    guard_hit: (
+        anim: "guard_hit",
+        total: 16,
+        motion: [(start: 0, end: 6, speed: -2.0)],
+        chain_from: 10,
+        cancel_from: 8,
+    ),
+    perfect_guard: (
+        anim: "perfect_guard",
+        total: 14,
+        chain_from: 3,
+        cancel_from: 3,
+    ),
+    guard_break: (
+        anim: "guard_break",
+        total: 60,
+        motion: [(start: 0, end: 10, speed: -2.5)],
+        cancel_from: 50,
+    ),
+    hit_light: (
+        anim: "hit_light",
+        total: 26,
+        motion: [(start: 0, end: 8, speed: -2.5)],
+        cancel_from: 20,
+    ),
+    hit_heavy: (
+        anim: "hit_heavy",
+        total: 80,
+        // Invulnérable pendant la chute et le relevé.
+        iframes: (6, 70),
+        motion: [(start: 0, end: 18, speed: -5.0)],
+        cancel_from: 66,
+    ),
+    switch: (
+        anim: "switch",
+        total: 24,
+        chain_from: 22,
+        cancel_from: 14,
+    ),
+    switch_at: 12,
+    death: (
+        anim: "death",
+        total: 90,
+    ),
+
+    // Soins : 3 charges (rechargées au checkpoint), style Lies of P.
+    heal_charges: 3,
+    heal_ratio: 0.4,
+    // Le soin s'applique à ce tick : touché avant, la charge est perdue.
+    heal_at: 24,
+    heal: (
+        anim: "heal",
+        total: 42,
+        walk: 1.3,
+        chain_from: 36,
+        cancel_from: 34,
+    ),
+)
