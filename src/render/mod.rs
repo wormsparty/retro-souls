@@ -2,6 +2,7 @@
 
 pub mod camera;
 pub mod models;
+pub mod preview;
 pub mod ps1;
 
 use bevy::prelude::*;
@@ -13,6 +14,8 @@ use crate::sim::math;
 pub enum AppState {
     #[default]
     Loading,
+    /// Écran titre (aucun combattant dans le monde).
+    Title,
     Playing,
 }
 
@@ -31,7 +34,7 @@ pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((ps1::Ps1Plugin, camera::CameraPlugin, models::ModelsPlugin))
+        app.add_plugins((ps1::Ps1Plugin, camera::CameraPlugin, models::ModelsPlugin, preview::PreviewPlugin))
             .add_systems(Update, interpolate.run_if(in_state(AppState::Playing)));
     }
 }

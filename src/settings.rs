@@ -1,8 +1,6 @@
 //! Options du joueur (affichage, son, caméra), sauvegardées et rechargées au démarrage.
 //!
-//! - natif : `settings.ron` dans le dossier de config de l'OS
-//!   (`~/.config/souls-ps1/`, `%APPDATA%\souls-ps1\`, `~/Library/Application Support/souls-ps1/`) ;
-//! - web : `localStorage` du navigateur.
+//! Voir `storage` pour l'emplacement du fichier (`settings.ron`).
 
 use bevy::audio::{GlobalVolume, Volume};
 use bevy::prelude::*;
@@ -11,6 +9,8 @@ use bevy::window::{
     VideoModeSelection, WindowMode,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::lang::Lang;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplayMode {
@@ -37,6 +37,8 @@ pub struct Settings {
     pub sensitivity: f32,
     pub invert_y: bool,
     pub camera_shake: bool,
+    /// `None` tant que le joueur n'a pas choisi (la question est posée au premier lancement).
+    pub language: Option<Lang>,
 }
 
 impl Default for Settings {
@@ -52,9 +54,12 @@ impl Default for Settings {
             sensitivity: 1.0,
             invert_y: false,
             camera_shake: true,
+            language: None,
         }
     }
 }
+
+const FILE: &str = "settings";
 
 pub const INTERNAL_HEIGHTS: [u32; 3] = [240, 360, 480];
 /// Tailles proposées en mode fenêtré (filtrées selon l'écran).
@@ -63,7 +68,7 @@ pub const WINDOWED_SIZES: [(u32, u32); 6] =
 
 impl Settings {
     pub fn load() -> Self {
-        storage::read()
+        crate::storage::read(FILE)
             .and_then(|s| ron::from_str::<Settings>(&s).ok())
             .map(Settings::sanitized)
             .unwrap_or_default()
@@ -71,7 +76,7 @@ impl Settings {
 
     pub fn save(&self) {
         match ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::default()) {
-            Ok(s) => storage::write(&s),
+            Ok(s) => crate::storage::write(FILE, &s),
             Err(e) => warn!("impossible d'enregistrer les options : {e}"),
         }
     }
@@ -83,27 +88,28 @@ impl Settings {
         if !INTERNAL_HEIGHTS.contains(&self.internal_height) {
             self.internal_height = 240;
         }
-        if cfg!(target_arch = "wasm32") && self.display == DisplayMode::Exclusive {
+        if !exclusive_supported() && self.display == DisplayMode::Exclusive {
             self.display = DisplayMode::Fullscreen;
         }
         self
     }
 
     /// Mode de fenêtre Bevy correspondant (le web passe par l'API Fullscreen du navigateur).
-    pub fn window_mode(&self, monitor: Option<&Monitor>) -> WindowMode {
+    ///
+    /// L'exclusif vise un écran précis : tant que les écrans ne sont pas connus (création de
+    /// la fenêtre), on reste en plein écran sans bordure — winit ne connaît pas encore
+    /// « l'écran courant » à ce moment-là et Bevy panique.
+    pub fn window_mode(&self, monitor: Option<(Entity, &Monitor)>) -> WindowMode {
         if cfg!(target_arch = "wasm32") {
             return WindowMode::Windowed;
         }
-        match self.display {
-            DisplayMode::Fullscreen => WindowMode::BorderlessFullscreen(MonitorSelection::Current),
-            DisplayMode::Windowed => WindowMode::Windowed,
-            DisplayMode::Exclusive => {
-                let mode = monitor.and_then(|m| self.pick_video_mode(m));
-                WindowMode::Fullscreen(
-                    MonitorSelection::Current,
-                    mode.map(VideoModeSelection::Specific).unwrap_or(VideoModeSelection::Current),
-                )
-            }
+        match (self.display, monitor) {
+            (DisplayMode::Windowed, _) => WindowMode::Windowed,
+            (DisplayMode::Exclusive, Some((e, m))) if exclusive_supported() => WindowMode::Fullscreen(
+                MonitorSelection::Entity(e),
+                self.pick_video_mode(m).map(VideoModeSelection::Specific).unwrap_or(VideoModeSelection::Current),
+            ),
+            _ => WindowMode::BorderlessFullscreen(MonitorSelection::Current),
         }
     }
 
@@ -126,6 +132,18 @@ impl Settings {
     pub fn present_mode(&self) -> PresentMode {
         if self.vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync }
     }
+}
+
+/// Le plein écran exclusif n'existe ni dans le navigateur ni sous Wayland (le protocole ne
+/// permet pas de changer de mode vidéo : winit l'ignore). Lancer avec `WAYLAND_DISPLAY=`
+/// fait passer le jeu par XWayland, où le compositeur l'émule.
+pub fn exclusive_supported() -> bool {
+    if cfg!(target_arch = "wasm32") {
+        return false;
+    }
+    // Même règle que winit pour choisir Wayland plutôt que X11.
+    let set = |v: &str| std::env::var(v).is_ok_and(|x| !x.is_empty());
+    !(cfg!(target_os = "linux") && (set("WAYLAND_DISPLAY") || set("WAYLAND_SOCKET")))
 }
 
 /// Écran de référence : le principal s'il est connu (pas toujours le cas sous Wayland), sinon le premier.
@@ -168,6 +186,7 @@ impl Plugin for SettingsPlugin {
         if !app.world().contains_resource::<Settings>() {
             app.insert_resource(Settings::load());
         }
+        crate::lang::set(app.world().resource::<Settings>().language.unwrap_or_default());
         app.add_systems(PostUpdate, apply_settings);
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Update, web_fullscreen);
@@ -178,7 +197,7 @@ impl Plugin for SettingsPlugin {
 fn apply_settings(
     settings: Res<Settings>,
     mut window: Single<&mut Window, With<PrimaryWindow>>,
-    monitors: Query<(&Monitor, Has<PrimaryMonitor>)>,
+    monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
     mut volume: ResMut<GlobalVolume>,
     mut ui_scale: ResMut<UiScale>,
     mut seen_monitors: Local<usize>,
@@ -190,8 +209,13 @@ fn apply_settings(
         ui_scale.0 = scale;
     }
     let s = &*settings;
+    crate::lang::set(s.language.unwrap_or_default());
     // Le mode exclusif dépend de l'écran, détecté après le démarrage : on réapplique alors.
-    let monitor = pick_monitor(monitors.iter());
+    let monitor = monitors
+        .iter()
+        .find(|(.., primary)| *primary)
+        .or(monitors.iter().next())
+        .map(|(e, m, _)| (e, m));
     let count = monitors.iter().count();
     let monitors_changed = count != *seen_monitors;
     *seen_monitors = count;
@@ -237,7 +261,7 @@ fn web_fullscreen(
         || keys.get_just_pressed().any(|k| *k != KeyCode::Escape)
         || gamepads.iter().any(|g| g.get_just_pressed().next().is_some());
     // Pas pendant le menu : Échap y fait sortir du plein écran du navigateur.
-    if gesture && !menu.open && settings.display != DisplayMode::Windowed {
+    if gesture && (!menu.open || menu.on_title()) && settings.display != DisplayMode::Windowed {
         web::request_fullscreen();
     }
 }
@@ -259,60 +283,6 @@ mod web {
             request_fullscreen();
         } else if doc.fullscreen_element().is_some() {
             doc.exit_fullscreen();
-        }
-    }
-}
-
-mod storage {
-    #[cfg(target_arch = "wasm32")]
-    const KEY: &str = "souls-ps1.settings";
-
-    #[cfg(target_arch = "wasm32")]
-    fn local() -> Option<web_sys::Storage> {
-        web_sys::window()?.local_storage().ok()?
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn read() -> Option<String> {
-        local()?.get_item(KEY).ok()?
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn write(s: &str) {
-        if let Some(l) = local() {
-            let _ = l.set_item(KEY, s);
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn path() -> Option<std::path::PathBuf> {
-        use std::env::var_os;
-        use std::path::PathBuf;
-        let base = if cfg!(target_os = "windows") {
-            var_os("APPDATA").map(PathBuf::from)
-        } else if cfg!(target_os = "macos") {
-            var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"))
-        } else {
-            var_os("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .or_else(|| var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        }?;
-        Some(base.join("souls-ps1").join("settings.ron"))
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn read() -> Option<String> {
-        std::fs::read_to_string(path()?).ok()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn write(s: &str) {
-        let Some(p) = path() else { return };
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Err(e) = std::fs::write(&p, s) {
-            bevy::log::warn!("impossible d'écrire {}: {e}", p.display());
         }
     }
 }

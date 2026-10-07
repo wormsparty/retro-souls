@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 
 use super::data::{BossMove, MoveDef, MoveRef, Tuning};
+use super::encounter::Encounter;
 use super::fighter::{Action, Body, Health, Hitstop};
 use super::player::{Player, run_frame};
 use super::rng::SimRng;
@@ -64,6 +65,7 @@ pub fn boss_act(
     tuning: Res<Tuning>,
     tick: Res<SimTick>,
     debug: Res<SimDebug>,
+    encounter: Res<Encounter>,
     mut rng: ResMut<SimRng>,
     mut events: ResMut<SimEvents>,
     mut bosses: Query<
@@ -136,7 +138,8 @@ pub fn boss_act(
             }
         }
 
-        if health.dead() {
+        // Endormi tant que personne n'est entré dans l'arène.
+        if health.dead() || !encounter.active {
             continue;
         }
         if boss.phase == 1 && health.cur <= health.max * bd.phase2_at {

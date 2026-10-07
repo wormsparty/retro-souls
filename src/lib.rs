@@ -9,10 +9,14 @@ pub mod debug;
 pub mod fx;
 pub mod hud;
 pub mod input;
+pub mod lang;
 pub mod menu;
 pub mod render;
+pub mod save;
 pub mod settings;
 pub mod sim;
+pub mod storage;
+pub mod ui;
 
 use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
@@ -55,6 +59,8 @@ pub fn run() {
     .init_state::<AppState>()
     .add_plugins((
         settings::SettingsPlugin,
+        lang::LangPlugin,
+        ui::UiPlugin,
         menu::MenuPlugin,
         sim::SimPlugin,
         config::ConfigPlugin,
@@ -62,6 +68,7 @@ pub fn run() {
         render::RenderPlugin,
         fx::FxPlugin,
         hud::HudPlugin,
+        save::SavePlugin,
         debug::DebugPlugin,
         debug::AutoShotPlugin,
     ))

@@ -1,7 +1,7 @@
 // L'Automate du Carrousel : grand pantin mécanique armé d'une hallebarde.
 // Lent et télégraphié : longues anticipations, longues récupérations (fenêtres de punition).
 (
-    name: "L'Automate du Carrousel",
+    name: (en: "The Carousel Automaton", fr: "L'Automate du Carrousel"),
     max_hp: 3200,
     phase2_at: 0.5,
     radius: 0.9,
@@ -15,6 +15,7 @@
     stagger_decay: 7,
     idle_ticks: (36, 80),
     aggro_ticks: 240,
+    souls: 1000,
 
     groggy: (anim: "groggy", total: 210),
     fatal_received: (anim: "fatal_received", total: 120),

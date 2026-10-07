@@ -45,9 +45,9 @@ def chest_geo(mb):
 def head_geo(mb):
     mb.cylinder((0, 0, 2.72), 0.07, 0.14, IRON, sides=6)
     mb.box((0, -0.01, 2.95), (0.3, 0.3, 0.36), PORCELAIN, taper=(0.85, 0.9))
-    mb.box((-0.07, -0.155, 2.98), (0.06, 0.01, 0.035), EYES)
-    mb.box((0.07, -0.155, 2.98), (0.06, 0.01, 0.035), EYES)
-    mb.box((0, -0.158, 2.86), (0.12, 0.01, 0.02), DARK)
+    mb.box((-0.07, -0.162, 2.98), (0.06, 0.016, 0.035), EYES)
+    mb.box((0.07, -0.162, 2.98), (0.06, 0.016, 0.035), EYES)
+    mb.box((0, -0.165, 2.86), (0.12, 0.016, 0.02), DARK)
     # Chapeau chapiteau de manège.
     mb.cylinder((0, 0, 3.16), 0.42, 0.08, GOLD, sides=10)
     mb.cylinder((0, 0, 3.36), 0.4, 0.34, CANOPY, sides=10, radius_top=0.0, caps=True)

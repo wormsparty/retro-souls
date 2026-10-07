@@ -224,6 +224,7 @@ fn setup_low_res(
         Camera { order: 0, clear_color: ClearColorConfig::Custom(Color::BLACK), ..default() },
         Msaa::Off,
         IsDefaultUiCamera,
+        bevy::ui_render::UiAntiAlias::Off,
         RenderLayers::layer(1),
     ));
     commands.spawn((

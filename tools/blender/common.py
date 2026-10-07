@@ -230,6 +230,40 @@ class MeshBuilder:
         for f in faces:
             self._face(f, mat, uv_scale=uv_scale)
 
+    def panel(self, origin, du, dv, mat, cell=1.0, tile=2.0):
+        """Quadrilatère (origin, origin+du, origin+du+dv, origin+dv) découpé en cases d'au plus
+        `cell` mètres, UV en coordonnées monde (une répétition de texture tous les `tile`
+        mètres) : les panneaux voisins se raccordent, et la déformation affine des textures
+        (PS1) reste limitée à chaque petite case."""
+        import mathutils
+        o, du, dv = mathutils.Vector(origin), mathutils.Vector(du), mathutils.Vector(dv)
+        nu, nv = max(1, math.ceil(du.length / cell - 1e-6)), max(1, math.ceil(dv.length / cell - 1e-6))
+        eu, ev = du.normalized(), dv.normalized()
+        grid = [[self.bm.verts.new(o + du * (i / nu) + dv * (j / nv)) for j in range(nv + 1)] for i in range(nu + 1)]
+        uv = lambda p: (p.dot(eu) / tile, p.dot(ev) / tile)
+        for i in range(nu):
+            for j in range(nv):
+                q = (grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1])
+                self._face(q, mat, uvs=[uv(v.co) for v in q])
+
+    def slab(self, center, size, mat, cell=1.0, tile=2.0, skip=("bottom",)):
+        """Boîte dont chaque face est un `panel` (subdivisée, UV monde). `skip` : faces omises
+        parmi bottom, top, -x, +x, -y, +y."""
+        cx, cy, cz = center
+        sx, sy, sz = size
+        x0, y0, z0 = cx - sx / 2, cy - sy / 2, cz - sz / 2
+        faces = {
+            "bottom": ((x0, y0, z0), (0, sy, 0), (sx, 0, 0)),
+            "top": ((x0, y0, z0 + sz), (sx, 0, 0), (0, sy, 0)),
+            "-y": ((x0, y0, z0), (sx, 0, 0), (0, 0, sz)),
+            "+x": ((x0 + sx, y0, z0), (0, sy, 0), (0, 0, sz)),
+            "+y": ((x0 + sx, y0 + sy, z0), (-sx, 0, 0), (0, 0, sz)),
+            "-x": ((x0, y0 + sy, z0), (0, -sy, 0), (0, 0, sz)),
+        }
+        for name, (o, du, dv) in faces.items():
+            if name not in skip:
+                self.panel(o, du, dv, mat, cell, tile)
+
     def seg(self, a, b, w, d, mat, taper=1.0):
         """Boîte allongée entre deux points (alignée sur Z si a et b sont alignés verticalement)."""
         ax, ay, az = a

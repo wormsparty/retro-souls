@@ -7,6 +7,8 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
+use crate::lang::LText;
+
 /// Capsule en repère local (segment `a`–`b` de rayon `r`).
 #[derive(Deserialize, Clone, Copy, Debug)]
 pub struct Capsule {
@@ -208,7 +210,7 @@ pub struct PlayerDef {
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct WeaponDef {
-    pub name: String,
+    pub name: LText,
     pub light: Vec<MoveDef>,
     pub heavy: MoveDef,
     pub heavy_charged: MoveDef,
@@ -246,7 +248,7 @@ pub struct BossAttack {
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct BossDef {
-    pub name: String,
+    pub name: LText,
     pub max_hp: f32,
     pub phase2_at: f32,
     pub radius: f32,
@@ -263,6 +265,8 @@ pub struct BossDef {
     pub idle_ticks: [u32; 2],
     /// Durée pendant laquelle le dernier attaquant garde l'aggro.
     pub aggro_ticks: u32,
+    /// Âmes gagnées en le battant.
+    pub souls: u32,
     pub groggy: MoveDef,
     pub fatal_received: MoveDef,
     pub roar: MoveDef,
@@ -275,8 +279,18 @@ pub struct ArenaDef {
     pub radius: f32,
     /// Piliers : (x, z, rayon).
     pub pillars: Vec<[f32; 3]>,
+    /// Point de réapparition du joueur (devant le checkpoint).
     pub player_spawn: [f32; 2],
     pub boss_spawn: [f32; 2],
+    /// Couloir d'accès, au sud de l'arène (vers -z) : demi-largeur et z du mur du fond.
+    pub corridor_half_width: f32,
+    pub corridor_end: f32,
+    /// Checkpoint (x, z), au bout du couloir.
+    pub checkpoint: [f32; 2],
+    /// Nom du checkpoint (menu de voyage).
+    pub checkpoint_name: LText,
+    /// Vue du checkpoint dans le menu de voyage : position de la caméra puis point visé (x, y, z).
+    pub checkpoint_view: [[f32; 3]; 2],
 }
 
 /// Ensemble des données de tuning utilisées par la simulation.

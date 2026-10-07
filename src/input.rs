@@ -16,9 +16,12 @@ use crate::sim::input::{PlayerInput, PlayerInputs, btn};
 #[derive(Resource, Default)]
 pub struct InputLatch {
     pressed: u16,
+    /// Boutons tenus à la fermeture d'un menu : ignorés jusqu'à ce qu'on les relâche
+    /// (le (A) qui valide le menu ne doit pas aussi agir en jeu).
+    suppressed: u16,
 }
 
-/// Dernier périphérique utilisé (pour les libellés du HUD).
+/// Dernier périphérique utilisé (libellés du HUD, page d'aide).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Device {
     #[default]
@@ -40,7 +43,7 @@ impl Plugin for InputPlugin {
         app.init_resource::<InputLatch>()
             .init_resource::<Device>()
             .init_resource::<LookInput>()
-            .add_systems(PreUpdate, latch_presses.after(bevy::input::InputSystems))
+            .add_systems(PreUpdate, (track_device, latch_presses).after(bevy::input::InputSystems))
             .add_systems(Update, (grab_cursor, read_look));
     }
 }
@@ -56,6 +59,12 @@ fn keyboard_buttons(
         mouse.is_some_and(|mouse| if pressed { mouse.just_pressed(m) } else { mouse.pressed(m) })
     };
     let mut b = 0;
+    if check_k(KeyCode::KeyG) {
+        b |= btn::INTERACT;
+    }
+    if check_k(KeyCode::KeyC) {
+        b |= btn::NEXT_ITEM;
+    }
     if check_m(MouseButton::Left) {
         b |= btn::LIGHT;
     }
@@ -78,7 +87,7 @@ fn keyboard_buttons(
         b |= btn::SWITCH;
     }
     if check_k(KeyCode::KeyF) {
-        b |= btn::HEAL;
+        b |= btn::ITEM;
     }
     b
 }
@@ -108,9 +117,44 @@ fn gamepad_buttons(g: &Gamepad, pressed: bool) -> u16 {
         b |= btn::SWITCH;
     }
     if check(GamepadButton::West) {
-        b |= btn::HEAL;
+        b |= btn::ITEM;
+    }
+    if check(GamepadButton::DPadDown) {
+        b |= btn::NEXT_ITEM;
+    }
+    if check(GamepadButton::South) {
+        b |= btn::INTERACT;
+    }
+    if check(GamepadButton::LeftThumb) {
+        b |= btn::SPRINT;
     }
     b
+}
+
+/// Retient le dernier périphérique utilisé, en jeu comme dans les menus.
+fn track_device(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    gamepads: Query<&Gamepad>,
+    mut device: ResMut<Device>,
+) {
+    let pad = gamepads.iter().any(|g| {
+        g.get_just_pressed().next().is_some() || g.left_stick().length() > 0.5 || g.right_stick().length() > 0.5
+    });
+    let kb = keys.get_just_pressed().next().is_some()
+        || mouse.get_just_pressed().next().is_some()
+        || motion.delta.length() > 4.0;
+    let new = if pad {
+        Device::Gamepad
+    } else if kb {
+        Device::Keyboard
+    } else {
+        return;
+    };
+    if *device != new {
+        *device = new;
+    }
 }
 
 fn latch_presses(
@@ -118,27 +162,19 @@ fn latch_presses(
     mouse: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
     mut latch: ResMut<InputLatch>,
-    mut device: ResMut<Device>,
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
     menu: Res<MenuState>,
 ) {
     if menu.open {
         // Les touches du menu ne doivent pas se retrouver dans le jeu à la fermeture.
         latch.pressed = 0;
+        latch.suppressed = u16::MAX;
         return;
     }
     let grabbed = cursor.grab_mode != CursorGrabMode::None;
-    let kb = keyboard_buttons(&keys, grabbed.then_some(&*mouse), true);
-    if kb != 0 || keys.get_just_pressed().next().is_some() {
-        *device = Device::Keyboard;
-    }
-    latch.pressed |= kb;
+    latch.pressed |= keyboard_buttons(&keys, grabbed.then_some(&*mouse), true);
     for g in &gamepads {
-        let gb = gamepad_buttons(g, true);
-        if gb != 0 || g.left_stick().length() > 0.5 {
-            *device = Device::Gamepad;
-        }
-        latch.pressed |= gb;
+        latch.pressed |= gamepad_buttons(g, true);
     }
 }
 
@@ -153,7 +189,12 @@ pub fn collect_local_input(
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
 ) {
     let grabbed = cursor.grab_mode != CursorGrabMode::None;
-    let mut buttons = keyboard_buttons(&keys, grabbed.then_some(&*mouse), false) | latch.pressed;
+    let mut held = keyboard_buttons(&keys, grabbed.then_some(&*mouse), false);
+    for g in &gamepads {
+        held |= gamepad_buttons(g, false);
+    }
+    latch.suppressed &= held;
+    let buttons = (held & !latch.suppressed) | latch.pressed;
     latch.pressed = 0;
 
     let mut stick = Vec2::ZERO;
@@ -171,7 +212,6 @@ pub fn collect_local_input(
     }
     stick = stick.normalize_or_zero();
     for g in &gamepads {
-        buttons |= gamepad_buttons(g, false);
         let s = g.left_stick();
         if s.length() > 0.15 {
             stick = s.clamp_length_max(1.0);

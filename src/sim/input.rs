@@ -14,8 +14,15 @@ pub mod btn {
     pub const DODGE: u16 = 1 << 4;
     pub const LOCK: u16 = 1 << 5;
     pub const SWITCH: u16 = 1 << 6;
-    pub const HEAL: u16 = 1 << 7;
-    pub const COUNT: usize = 8;
+    /// Utiliser l'objet de l'emplacement rapide sélectionné.
+    pub const ITEM: u16 = 1 << 7;
+    /// Emplacement rapide suivant.
+    pub const NEXT_ITEM: u16 = 1 << 8;
+    /// Interagir (se reposer au checkpoint).
+    pub const INTERACT: u16 = 1 << 9;
+    /// Lancer la course (clic du stick) : elle dure tant que le stick est poussé.
+    pub const SPRINT: u16 = 1 << 10;
+    pub const COUNT: usize = 11;
 }
 
 /// Input compact d'un joueur pour un tick (7 octets, prêt à être sérialisé pour le réseau).

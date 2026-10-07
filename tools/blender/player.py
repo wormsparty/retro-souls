@@ -33,22 +33,24 @@ def hips_geo(mb):
     # Pans du manteau (plus larges en bas).
     mb.box((0, 0.015, 0.72), (0.46, 0.3, 0.42), COAT, taper=(0.76, 0.72))
     mb.box((0, 0, 1.04), (0.34, 0.23, 0.05), LEATHER)
-    mb.box((0, -0.118, 1.04), (0.06, 0.01, 0.045), BRASS)
+    mb.box((0, -0.125, 1.04), (0.06, 0.02, 0.045), BRASS)
 
 
 def chest_geo(mb):
     mb.box((0, 0, 1.29), (0.34, 0.22, 0.42), COAT, taper=(1.25, 1.08))
-    mb.box((0, -0.105, 1.3), (0.1, 0.02, 0.36), SHIRT, taper=(1.4, 1))
+    # Plastron et boutons : nettement en saillie (≥ 1,5 cm) sur le manteau, sinon le
+    # vertex snapping fait clignoter les deux faces presque confondues.
+    mb.box((0, -0.115, 1.3), (0.1, 0.04, 0.36), SHIRT, taper=(1.4, 1))
     mb.box((0, 0.01, 1.5), (0.24, 0.2, 0.08), COAT_DARK)
     for z in (1.2, 1.3, 1.4):
-        mb.box((0.07, -0.118, z), (0.025, 0.01, 0.025), BRASS)
+        mb.box((0.085, -0.125, z), (0.025, 0.02, 0.025), BRASS)
 
 
 def head_geo(mb):
     mb.box((0, 0, 1.57), (0.09, 0.09, 0.07), SKIN)
     mb.box((0, -0.005, 1.67), (0.19, 0.21, 0.2), SKIN, taper=(0.92, 0.9))
-    mb.box((-0.045, -0.111, 1.68), (0.035, 0.01, 0.02), EYE)
-    mb.box((0.045, -0.111, 1.68), (0.035, 0.01, 0.02), EYE)
+    mb.box((-0.045, -0.114, 1.68), (0.035, 0.016, 0.02), EYE)
+    mb.box((0.045, -0.114, 1.68), (0.035, 0.016, 0.02), EYE)
     mb.box((0, 0.025, 1.74), (0.205, 0.19, 0.08), HAT)
     mb.cylinder((0, 0, 1.78), 0.24, 0.02, HAT, sides=8)
     mb.cylinder((0, 0, 1.86), 0.12, 0.15, HAT, sides=8, radius_top=0.105)

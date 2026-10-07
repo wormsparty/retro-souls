@@ -77,14 +77,10 @@ fn update_camera(
     let horiz = rig.pitch.cos() * rig.distance;
     let mut pos = rig.focus + back * horiz + Vec3::Y * (rig.pitch.sin() * rig.distance + 0.25);
     pos.y = pos.y.max(0.4);
-    // Ne pas sortir de l'arène (le mur cacherait tout).
-    let max_r = tuning.arena.radius + 0.2;
-    let flat = Vec2::new(pos.x, pos.z);
-    if flat.length() > max_r {
-        let c = flat.normalize() * max_r;
-        pos.x = c.x;
-        pos.z = c.y;
-    }
+    // Rester dans l'arène ou le couloir (un mur cacherait tout).
+    let y = pos.y;
+    pos = crate::sim::encounter::clamp_walkable(&tuning.arena, pos, 0.25, true);
+    pos.y = y;
     let mut look_at = rig.focus;
     if let Some((bi, bbody)) = lock {
         let boss_point = bi.pos + Vec3::Y * (bbody.height * 0.55);

@@ -4,8 +4,10 @@ use bevy::prelude::*;
 
 use super::boss::Boss;
 use super::data::{BossMove, MoveRef, PlayerMove, Tuning, WeaponMove};
+use super::encounter::{Encounter, near_checkpoint};
 use super::fighter::{Action, Body, Health, Hitstop};
 use super::input::{InputBuffer, PlayerInputs, btn};
+use super::items::{Inventory, Item};
 use super::{DT, SimEvent, SimEvents, SimTick, math};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -45,14 +47,19 @@ pub struct Player {
     pub lock: Option<Entity>,
     pub vel: Vec3,
     pub sprinting: bool,
+    /// Course lancée par `btn::SPRINT`, active jusqu'à ce que le joueur s'arrête.
+    pub sprint_latched: bool,
     pub dodge_held: u32,
     pub buffer: InputBuffer,
     /// Le changement d'arme de l'action `Switch` en cours a déjà été appliqué.
     pub switched: bool,
-    /// Charges de soin restantes.
-    pub heals: u8,
+    pub inventory: Inventory,
     /// Le soin de l'action `Heal` en cours a déjà été appliqué.
     pub healed: bool,
+    /// Monnaie, gagnée en battant le boss.
+    pub souls: u32,
+    /// Ticks passés à l'état `Dead` (réapparition au bout de `RESPAWN_TICKS`).
+    pub dead_ticks: u32,
 }
 
 impl Player {
@@ -76,11 +83,14 @@ impl Player {
             lock: None,
             vel: Vec3::ZERO,
             sprinting: false,
+            sprint_latched: false,
             dodge_held: 0,
             buffer: InputBuffer::default(),
             switched: false,
-            heals: t.player.heal_charges,
+            inventory: Inventory::new_game(t),
             healed: false,
+            souls: 0,
+            dead_ticks: 0,
         }
     }
 
@@ -124,6 +134,7 @@ pub fn player_act(
     tuning: Res<Tuning>,
     inputs: Res<PlayerInputs>,
     tick: Res<SimTick>,
+    encounter: Res<Encounter>,
     mut events: ResMut<SimEvents>,
     mut players: Query<
         (Entity, &mut Player, &mut Body, &mut Action, &mut Hitstop, &mut Health),
@@ -140,6 +151,9 @@ pub fn player_act(
         let pressed = p.buffer.update(inp.buttons, now);
         p.guard_held = inp.held(btn::GUARD);
         p.dodge_held = if inp.held(btn::DODGE) { p.dodge_held + 1 } else { 0 };
+        if pressed & btn::SPRINT != 0 {
+            p.sprint_latched = true;
+        }
 
         const STAMINA_BTNS: u16 = btn::LIGHT | btn::HEAVY | btn::DODGE | btn::SPECIAL;
         if pressed & STAMINA_BTNS != 0 && !p.can_act() && p.state != PState::Dead {
@@ -161,12 +175,12 @@ pub fn player_act(
             }
         }
 
-        // Verrouillage.
+        // Verrouillage (perdu à la mort du joueur ou de la cible).
         let alive = |e: Entity| bosses.get(e).is_ok_and(|(_, _, _, h)| !h.dead());
-        if p.lock.is_some_and(|e| !alive(e)) {
+        if health.dead() || p.lock.is_some_and(|e| !alive(e)) {
             p.lock = None;
         }
-        if pressed & btn::LOCK != 0 {
+        if pressed & btn::LOCK != 0 && !health.dead() {
             if p.lock.is_some() {
                 p.lock = None;
             } else {
@@ -210,6 +224,13 @@ pub fn player_act(
 
         if p.state == PState::Dead {
             continue;
+        }
+        if pressed & btn::NEXT_ITEM != 0 && !health.dead() {
+            let before = p.inventory.active;
+            p.inventory.cycle();
+            if p.inventory.active != before {
+                events.push(SimEvent::ItemCycled { entity });
+            }
         }
         if hitstop.0 > 0 {
             hitstop.0 -= 1;
@@ -271,7 +292,7 @@ pub fn player_act(
                 let interrupted = (can_cancel
                     && try_defensive(&mut p, &mut body, &mut action, &mut ctx))
                     || (can_chain
-                        && (try_heal(&mut p, &mut body, &mut action, &mut ctx)
+                        && (try_item(&mut p, &mut body, &mut action, &mut ctx)
                             || try_offensive(&mut p, &mut body, &mut action, &mut bosses, &mut ctx)));
                 if !interrupted {
                     run_frame(&mut body, &action, def, locked_pos, move_dir);
@@ -325,12 +346,14 @@ pub fn player_act(
                 if !p.guard_held && p.state == PState::Guard {
                     p.state = PState::Free;
                 }
-                if try_defensive(&mut p, &mut body, &mut action, &mut ctx)
+                if try_rest(&mut p, &body, &mut health, &encounter, &mut ctx) {
+                    // Repos : rien d'autre ce tick.
+                } else if try_defensive(&mut p, &mut body, &mut action, &mut ctx)
                     && p.state == PState::Acting
                 {
                     let def = action.def(t).expect("action");
                     run_frame(&mut body, &action, def, locked_pos, move_dir);
-                } else if try_heal(&mut p, &mut body, &mut action, &mut ctx)
+                } else if try_item(&mut p, &mut body, &mut action, &mut ctx)
                     || try_offensive(&mut p, &mut body, &mut action, &mut bosses, &mut ctx)
                 {
                     if p.state == PState::Acting {
@@ -453,18 +476,44 @@ fn try_offensive(
     false
 }
 
-/// Soin (consommable). Ne demande pas d'endurance.
-fn try_heal(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut Ctx) -> bool {
-    if !p.buffer.buffered(btn::HEAL, ctx.now, ctx.t.player.input_buffer) {
+/// Utilise l'objet de l'emplacement rapide sélectionné. Ne demande pas d'endurance.
+fn try_item(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut Ctx) -> bool {
+    if !p.buffer.buffered(btn::ITEM, ctx.now, ctx.t.player.input_buffer) {
         return false;
     }
-    p.buffer.consume(btn::HEAL);
-    if p.heals == 0 {
+    p.buffer.consume(btn::ITEM);
+    let Some(item) = p.inventory.active_item() else { return false };
+    if !p.inventory.consume(item) {
         return false;
     }
-    p.heals -= 1;
-    p.healed = false;
-    start_move(p, body, action, MoveRef::Player(PlayerMove::Heal), ctx);
+    match item {
+        Item::HealFlask => {
+            p.healed = false;
+            start_move(p, body, action, MoveRef::Player(PlayerMove::Heal), ctx);
+        }
+    }
+    true
+}
+
+/// Repos au checkpoint (hors combat) : PV, endurance et objets restaurés.
+fn try_rest(p: &mut Player, body: &Body, health: &mut Health, enc: &Encounter, ctx: &mut Ctx) -> bool {
+    if !p.buffer.buffered(btn::INTERACT, ctx.now, ctx.t.player.input_buffer) {
+        return false;
+    }
+    p.buffer.consume(btn::INTERACT);
+    if enc.active || !near_checkpoint(&ctx.t.arena, body.pos) {
+        return false;
+    }
+    health.cur = health.max;
+    p.stamina = ctx.t.player.max_stamina;
+    p.stamina_delay = 0;
+    p.regain = 0.0;
+    p.regain_timer = 0;
+    p.inventory.refill(ctx.t);
+    p.lock = None;
+    p.vel = Vec3::ZERO;
+    p.sprinting = false;
+    ctx.events.push(SimEvent::Rested { entity: ctx.entity });
     true
 }
 
@@ -495,6 +544,7 @@ fn start_move(p: &mut Player, body: &mut Body, action: &mut Action, mv: MoveRef,
     action.start(mv, dist);
     p.state = PState::Acting;
     p.sprinting = false;
+    p.sprint_latched = false;
 }
 
 /// Démarre une action subie (réaction à un coup, garde…), en dehors de la boucle d'input.
@@ -504,6 +554,7 @@ pub fn force_move(p: &mut Player, action: &mut Action, mv: MoveRef) {
     p.state = PState::Acting;
     p.charge = 0;
     p.sprinting = false;
+    p.sprint_latched = false;
     p.buffer.clear();
 }
 
@@ -546,11 +597,9 @@ fn locomotion(
 ) {
     let pd = &t.player;
     let guarding = p.state == PState::Guard;
-    p.sprinting = !guarding
-        && move_dir.is_some()
-        && stick_len > 0.5
-        && p.dodge_held >= pd.sprint_hold
-        && p.stamina > 0.0;
+    let can_sprint = !guarding && move_dir.is_some() && stick_len > 0.5 && p.stamina > 0.0;
+    p.sprint_latched &= can_sprint;
+    p.sprinting = can_sprint && (p.dodge_held >= pd.sprint_hold || p.sprint_latched);
     let speed = if guarding {
         pd.guard.walk_speed
     } else if p.sprinting {

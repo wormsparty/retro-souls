@@ -1,24 +1,107 @@
-//! Menu pause / options (Échap au clavier, Start à la manette).
+//! Menus : écran titre, pause, checkpoint (voyage, niveau, équipement), options, aide.
 //!
-//! Navigation : haut/bas pour choisir, gauche/droite pour changer une valeur,
-//! Entrée / (A) pour valider, Échap / (B) pour revenir au jeu. La souris marche aussi :
-//! survoler une ligne la sélectionne, clic sur ‹ / › pour changer la valeur.
+//! Navigation : haut/bas pour choisir, gauche/droite pour changer une valeur, Entrée / (A)
+//! pour valider, Échap / (B) pour revenir. Échap / Start ouvre le menu pause, Start le referme.
+//! La souris marche aussi : survoler une ligne la sélectionne (seulement si la souris bouge,
+//! pour ne pas voler la sélection quand une page s'ouvre sous le curseur), clic pour valider,
+//! clic sur ‹ / › pour changer la valeur.
+//!
+//! Les actions s'exécutent avec un accès complet au monde (`handle`), ce qui permet de lancer
+//! une partie, de sauvegarder ou d'appliquer un équipement directement.
 
 use bevy::prelude::*;
+use bevy::text::LineBreak;
 use bevy::window::{CursorGrabMode, CursorOptions, Monitor, PrimaryMonitor, PrimaryWindow};
 
-use crate::render::AppState;
+use crate::fx::FxState;
+use crate::input::Device;
+use crate::lang::{Lang, tr};
+use crate::render::camera::CameraRig;
+use crate::render::{AppState, LocalPlayer};
+use crate::save::{SaveData, SaveSlot};
 use crate::settings::{
     DisplayMode, INTERNAL_HEIGHTS, Settings, exclusive_sizes, refresh_rates, windowed_sizes,
 };
-use crate::sim::ResetFight;
+use crate::sim::data::Tuning;
+use crate::sim::encounter::{Encounter, Progress, SimCommand, SimCommands, apply_commands};
+use crate::sim::items::{Item, QUICK_SLOTS};
+use crate::sim::player::Player;
+use crate::sim::{ResetFight, SimEntity, SimEvent, SimEvents};
+use crate::render::preview::{CheckpointPreview, PREVIEW_SIZE};
+use crate::ui::{Glyph, Hint, Icons, Seg, UiFont, hint_node, i, icon_bundle, image_bundle, set_hint, t};
 
-#[derive(Resource, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Title,
+    ConfirmNew,
+    Pause,
+    Checkpoint,
+    /// Voyage rapide entre checkpoints (avec un aperçu du lieu).
+    Travel,
+    Equipment,
+    Options,
+    Help,
+    /// Choix de la langue au premier lancement.
+    Language,
+}
+
+#[derive(Resource)]
 pub struct MenuState {
     pub open: bool,
+    page: Page,
+    /// Pages précédentes (et ligne sélectionnée), pour revenir en arrière.
+    stack: Vec<(Page, usize)>,
     selected: usize,
     /// Répétition de navigation au stick/D-pad maintenu.
     repeat: f32,
+    /// Ouvert à cette frame : on ignore les entrées (le bouton qui l'a ouvert, par exemple (A)
+    /// pour se reposer, ne doit pas aussi valider la première ligne).
+    fresh: bool,
+    /// Dernière position connue du curseur (le survol ne compte que s'il a bougé).
+    cursor: Option<Vec2>,
+    /// Temps pendant lequel on ignore les mouvements du curseur après l'ouverture (il peut
+    /// sauter quand on le libère).
+    settle: f32,
+}
+
+impl Default for MenuState {
+    fn default() -> Self {
+        Self { open: false, page: Page::Pause, stack: Vec::new(), selected: 0, repeat: 0.0, fresh: false, cursor: None, settle: 0.0 }
+    }
+}
+
+impl MenuState {
+    pub fn on_title(&self) -> bool {
+        self.open && matches!(self.page, Page::Title | Page::Language)
+    }
+
+    /// Ouvre le menu sur une page (sans toucher au curseur).
+    pub fn open(&mut self, page: Page) {
+        self.open = true;
+        self.fresh = true;
+        self.settle = 0.25;
+        self.page = page;
+        self.stack.clear();
+        self.selected = 0;
+    }
+
+    fn push(&mut self, page: Page) {
+        self.stack.push((self.page, self.selected));
+        self.page = page;
+        self.selected = 0;
+    }
+
+    /// Revient à la page précédente ; faux s'il n'y en a pas.
+    fn back(&mut self) -> bool {
+        match self.stack.pop() {
+            Some((p, s)) => {
+                self.page = p;
+                self.selected = s;
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 pub fn menu_closed(menu: Res<MenuState>) -> bool {
@@ -26,8 +109,24 @@ pub fn menu_closed(menu: Res<MenuState>) -> bool {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Item {
+enum Act {
     Resume,
+    Leave,
+    NewGame,
+    ConfirmNew,
+    Load,
+    Open(Page),
+    Back,
+    ToTitle,
+    Quit,
+    ReviveBoss,
+    /// Monter de niveau (pas encore disponible : affiché grisé).
+    LevelUp,
+}
+
+/// Option de réglage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Opt {
     Display,
     Resolution,
     Refresh,
@@ -38,142 +137,189 @@ enum Item {
     Sensitivity,
     InvertY,
     Shake,
-    Restart,
-    Quit,
+    Language,
 }
 
-fn items() -> Vec<Item> {
-    use Item::*;
-    if cfg!(target_arch = "wasm32") {
-        // Dans le navigateur, résolution, fréquence et VSync sont gérées par le navigateur.
-        vec![Resume, Display, Internal, Master, Effects, Sensitivity, InvertY, Shake, Restart]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Entry {
+    Act(Act),
+    Opt(Opt),
+    /// Emplacement rapide d'objet.
+    Slot(u8),
+    /// Destination de voyage (index du checkpoint ; il n'y en a qu'un pour l'instant).
+    Place(u8),
+    /// Ligne d'aide (index dans `help_lines`), non sélectionnable.
+    Line(u8),
+    /// Langue proposée (page de choix de la langue).
+    Lang(Lang),
+}
+
+/// Ce dont dépend le contenu des pages.
+#[derive(Clone, Copy, PartialEq)]
+struct PageCtx {
+    has_save: bool,
+    boss_defeated: bool,
+    device: Device,
+}
+
+const NATIVE: bool = !cfg!(target_arch = "wasm32");
+
+/// Lignes de la page d'aide : action, touches.
+fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
+    let or = || t(tr("or", "ou"));
+    if device == Device::Gamepad {
+        vec![
+            (tr("Move / camera", "Déplacement / caméra"), vec![i(Glyph::StickL), t("/"), i(Glyph::StickR)]),
+            (tr("Light attack", "Attaque légère"), vec![i(Glyph::PadRB)]),
+            (tr("Heavy attack (hold: charge)", "Attaque lourde (maintenir : charge)"), vec![i(Glyph::PadRT)]),
+            (tr("Guard (well-timed: perfect)", "Garde (au bon moment : parfaite)"), vec![i(Glyph::PadLB)]),
+            (tr("Special attack", "Attaque spéciale"), vec![i(Glyph::PadLT)]),
+            (tr("Dodge", "Esquive"), vec![i(Glyph::PadB)]),
+            (tr("Sprint", "Course"), vec![t(tr("hold", "maintenir")), i(Glyph::PadB), or(), i(Glyph::StickL3)]),
+            (tr("Use item", "Utiliser l'objet"), vec![i(Glyph::PadX)]),
+            (tr("Next item", "Objet suivant"), vec![i(Glyph::DpadDown)]),
+            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::PadY)]),
+            (tr("Lock on", "Verrouillage"), vec![i(Glyph::StickR3)]),
+            (tr("Rest (checkpoint)", "Se reposer (checkpoint)"), vec![i(Glyph::PadA)]),
+            (tr("Menu", "Menu"), vec![i(Glyph::PadMenu)]),
+            (tr("Back (menus)", "Retour (menus)"), vec![i(Glyph::PadB)]),
+        ]
     } else {
-        vec![Resume, Display, Resolution, Refresh, VSync, Internal, Master, Effects, Sensitivity, InvertY, Shake, Restart, Quit]
+        vec![
+            (
+                tr("Move", "Déplacement"),
+                vec![i(Glyph::Key("W")), i(Glyph::Key("A")), i(Glyph::Key("S")), i(Glyph::Key("D")), t("AZERTY"), i(Glyph::Key("Z")), i(Glyph::Key("Q"))],
+            ),
+            (tr("Camera", "Caméra"), vec![i(Glyph::MouseMove), t(tr("(click to capture)", "(clic pour capturer)"))]),
+            (tr("Light attack", "Attaque légère"), vec![i(Glyph::MouseLeft)]),
+            (tr("Heavy attack (hold: charge)", "Attaque lourde (maintenir : charge)"), vec![i(Glyph::MouseRight)]),
+            (
+                tr("Guard (well-timed: perfect)", "Garde (au bon moment : parfaite)"),
+                vec![i(Glyph::Key("Q")), or(), i(Glyph::Key(tr("SHIFT", "MAJ"))), t("AZERTY"), i(Glyph::Key("A"))],
+            ),
+            (tr("Special attack", "Attaque spéciale"), vec![i(Glyph::Key("E"))]),
+            (tr("Dodge (hold: sprint)", "Esquive (maintenir : course)"), vec![i(Glyph::Key(tr("SPACE", "ESPACE")))]),
+            (tr("Use item", "Utiliser l'objet"), vec![i(Glyph::Key("F"))]),
+            (tr("Next item", "Objet suivant"), vec![i(Glyph::Key("C"))]),
+            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::Key("R"))]),
+            (tr("Lock on", "Verrouillage"), vec![i(Glyph::Key("TAB")), or(), i(Glyph::MouseMiddle)]),
+            (tr("Rest (checkpoint)", "Se reposer (checkpoint)"), vec![i(Glyph::Key("G"))]),
+            (tr("Menu", "Menu"), vec![i(Glyph::Key("ESC"))]),
+            (tr("Tuning (debug)", "Réglages (debug)"), vec![i(Glyph::Key("F1")), t(tr("to", "à")), i(Glyph::Key("F5"))]),
+        ]
     }
 }
 
-#[derive(Component)]
-struct MenuRoot;
-#[derive(Component)]
-struct Row(usize);
-#[derive(Component)]
-struct RowLabel(usize);
-#[derive(Component)]
-struct RowValue(usize);
-#[derive(Component)]
-struct Arrow(usize, i32);
+fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
+    use Act::*;
+    let mut v = match page {
+        // Avec une sauvegarde, « Continuer » vient en premier (choix par défaut).
+        Page::Title if c.has_save => vec![Entry::Act(Load), Entry::Act(NewGame), Entry::Act(Open(Page::Options))],
+        Page::Title => vec![Entry::Act(NewGame), Entry::Act(Load), Entry::Act(Open(Page::Options))],
+        Page::ConfirmNew => vec![Entry::Act(Back), Entry::Act(ConfirmNew)],
+        Page::Pause => vec![
+            Entry::Act(Resume),
+            Entry::Act(Open(Page::Equipment)),
+            Entry::Act(Open(Page::Options)),
+            Entry::Act(Open(Page::Help)),
+            Entry::Act(ToTitle),
+        ],
+        Page::Checkpoint => {
+            // « Partir » d'abord : c'est la ligne sélectionnée à l'ouverture.
+            let mut v = vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(LevelUp), Entry::Act(Open(Page::Equipment))];
+            if c.boss_defeated {
+                v.push(Entry::Act(ReviveBoss));
+            }
+            v
+        }
+        Page::Travel => vec![Entry::Place(0), Entry::Act(Back)],
+        Page::Equipment => (0..QUICK_SLOTS as u8).map(Entry::Slot).chain([Entry::Act(Back)]).collect(),
+        Page::Options => {
+            use Opt::*;
+            let opts: &[Opt] = if NATIVE {
+                &[Language, Display, Resolution, Refresh, VSync, Internal, Master, Effects, Sensitivity, InvertY, Shake]
+            } else {
+                // Dans le navigateur, résolution, fréquence et VSync sont gérées par le navigateur.
+                &[Language, Display, Internal, Master, Effects, Sensitivity, InvertY, Shake]
+            };
+            opts.iter().map(|o| Entry::Opt(*o)).chain([Entry::Act(Back)]).collect()
+        }
+        Page::Help => (0..help_lines(c.device).len() as u8).map(Entry::Line).chain([Entry::Act(Back)]).collect(),
+        Page::Language => Lang::ALL.into_iter().map(Entry::Lang).collect(),
+    };
+    if NATIVE && matches!(page, Page::Title | Page::Pause) {
+        v.push(Entry::Act(Quit));
+    }
+    v
+}
 
-pub struct MenuPlugin;
-
-impl Plugin for MenuPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<MenuState>()
-            .add_systems(Startup, spawn_menu)
-            .add_systems(
-                Update,
-                (toggle_menu, navigate, mouse_input, refresh_menu)
-                    .chain()
-                    .run_if(in_state(AppState::Playing)),
-            );
+fn selectable(e: Entry, c: &PageCtx) -> bool {
+    match e {
+        Entry::Line(..) | Entry::Act(Act::LevelUp) => false,
+        Entry::Act(Act::Load) => c.has_save,
+        _ => true,
     }
 }
 
-fn spawn_menu(mut commands: Commands, server: Res<AssetServer>) {
-    let serif: Handle<Font> = server.load("fonts/DejaVuSerif.ttf");
-    let font = |size: f32| TextFont { font: serif.clone().into(), font_size: FontSize::Px(size), ..default() };
-    commands
-        .spawn((
-            MenuRoot,
-            Node {
-                position_type: PositionType::Absolute,
-                width: percent(100),
-                height: percent(100),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.72)),
-            Visibility::Hidden,
-            ZIndex(50),
-        ))
-        .with_children(|c| {
-            c.spawn(Node {
-                flex_direction: FlexDirection::Column,
-                row_gap: px(6),
-                padding: UiRect::all(px(28)),
-                width: px(660),
-                ..default()
-            })
-            .with_children(|c| {
-                c.spawn((
-                    Text::new("PAUSE"),
-                    font(34.0),
-                    TextColor(Color::srgb(0.9, 0.82, 0.62)),
-                    Node { margin: UiRect::bottom(px(14)), ..default() },
-                ));
-                for (i, _) in items().iter().enumerate() {
-                    c.spawn((
-                        Row(i),
-                        Button,
-                        Node {
-                            flex_direction: FlexDirection::Row,
-                            justify_content: JustifyContent::SpaceBetween,
-                            align_items: AlignItems::Center,
-                            padding: UiRect::axes(px(12), px(5)),
-                            ..default()
-                        },
-                        BackgroundColor(Color::NONE),
-                    ))
-                    .with_children(|c| {
-                        c.spawn((Text::new(""), font(19.0), TextColor(Color::srgb(0.85, 0.82, 0.75)), RowLabel(i)));
-                        c.spawn(Node { flex_direction: FlexDirection::Row, column_gap: px(10), align_items: AlignItems::Center, ..default() })
-                            .with_children(|c| {
-                                c.spawn((Button, Text::new("‹"), font(21.0), TextColor(Color::srgb(0.9, 0.82, 0.62)), Arrow(i, -1)));
-                                c.spawn((
-                                    Text::new(""),
-                                    font(19.0),
-                                    TextColor(Color::srgb(0.95, 0.92, 0.85)),
-                                    Node { min_width: px(230), justify_content: JustifyContent::Center, ..default() },
-                                    RowValue(i),
-                                ));
-                                c.spawn((Button, Text::new("›"), font(21.0), TextColor(Color::srgb(0.9, 0.82, 0.62)), Arrow(i, 1)));
-                            });
-                    });
-                }
-                c.spawn((
-                    Text::new("↑↓ choisir · ←→ modifier · Entrée/(A) valider · Échap/(B) reprendre"),
-                    font(13.0),
-                    TextColor(Color::srgba(0.85, 0.82, 0.75, 0.7)),
-                    Node { margin: UiRect::top(px(16)), ..default() },
-                ));
-            });
-        });
-}
-
-fn set_open(menu: &mut MenuState, cursor: &mut CursorOptions, open: bool) {
-    menu.open = open;
-    if open {
-        menu.selected = 0;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
-    } else if !cfg!(target_arch = "wasm32") {
-        cursor.grab_mode = CursorGrabMode::Locked;
-        cursor.visible = false;
+fn act_label(a: Act) -> &'static str {
+    match a {
+        Act::Resume => tr("Resume", "Reprendre"),
+        Act::Leave => tr("Leave", "Partir"),
+        Act::NewGame => tr("New game", "Nouvelle partie"),
+        Act::ConfirmNew => tr("Start a new game", "Commencer une nouvelle partie"),
+        Act::Load => tr("Continue", "Continuer"),
+        Act::Open(Page::Equipment) => tr("Equipment", "Équipement"),
+        Act::Open(Page::Options) => tr("Options", "Options"),
+        Act::Open(Page::Help) => tr("Help", "Aide"),
+        Act::Open(Page::Travel) => tr("Travel", "Voyager"),
+        Act::Open(_) => "…",
+        Act::Back => tr("Back", "Retour"),
+        Act::ToTitle => tr("Return to title screen", "Retour à l'écran titre"),
+        Act::Quit => tr("Quit game", "Quitter le jeu"),
+        Act::ReviveBoss => tr("Revive the Automaton", "Ranimer l'Automate"),
+        Act::LevelUp => tr("Level up", "Monter de niveau"),
     }
 }
 
-fn toggle_menu(
-    keys: Res<ButtonInput<KeyCode>>,
-    gamepads: Query<&Gamepad>,
-    mut menu: ResMut<MenuState>,
-    mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
-) {
-    let start = keys.just_pressed(KeyCode::Escape)
-        || gamepads.iter().any(|g| g.just_pressed(GamepadButton::Start) || g.just_pressed(GamepadButton::Select));
-    let back = menu.open && gamepads.iter().any(|g| g.just_pressed(GamepadButton::East));
-    if start || back {
-        let open = !menu.open;
-        set_open(&mut menu, &mut cursor, open);
+fn opt_label(o: Opt) -> &'static str {
+    match o {
+        Opt::Display => tr("Display", "Affichage"),
+        Opt::Resolution => tr("Resolution", "Résolution"),
+        Opt::Refresh => tr("Refresh rate", "Fréquence"),
+        Opt::VSync => tr("Vertical sync", "Synchronisation verticale"),
+        Opt::Internal => tr("Internal resolution", "Résolution interne"),
+        Opt::Master => tr("Master volume", "Volume général"),
+        Opt::Effects => tr("Effects volume", "Volume des effets"),
+        Opt::Sensitivity => tr("Camera sensitivity", "Sensibilité de la caméra"),
+        Opt::InvertY => tr("Invert vertical axis", "Inverser l'axe vertical"),
+        Opt::Shake => tr("Camera shake", "Tremblements de caméra"),
+        Opt::Language => "Language / Langue",
+    }
+}
+
+fn page_title(p: Page, device: Device) -> &'static str {
+    match p {
+        Page::Title => "SOULS PS1",
+        Page::ConfirmNew => tr("NEW GAME", "NOUVELLE PARTIE"),
+        Page::Pause => "PAUSE",
+        Page::Checkpoint => "CHECKPOINT",
+        Page::Travel => tr("TRAVEL", "VOYAGER"),
+        Page::Equipment => tr("EQUIPMENT", "ÉQUIPEMENT"),
+        Page::Options => "OPTIONS",
+        Page::Help if device == Device::Gamepad => tr("HELP — GAMEPAD", "AIDE — MANETTE"),
+        Page::Help => tr("HELP — KEYBOARD AND MOUSE", "AIDE — CLAVIER ET SOURIS"),
+        Page::Language => "LANGUAGE / LANGUE",
+    }
+}
+
+fn page_info(p: Page) -> &'static str {
+    match p {
+        Page::Title => tr("The Carousel Automaton", "L'Automate du Carrousel"),
+        Page::ConfirmNew => tr("The current save will be overwritten.", "La sauvegarde actuelle sera remplacée."),
+        Page::Checkpoint => tr("You rest. HP, stamina and items restored.", "Vous vous reposez. PV, endurance et objets restaurés."),
+        Page::Travel => tr("Travel to a checkpoint you have already found.", "Rejoindre un checkpoint déjà découvert."),
+        Page::Equipment => tr("Quick slot items. In game, “Next item” cycles through them.", "Objets des emplacements rapides. En jeu, « Objet suivant » passe de l'un à l'autre."),
+        _ => "",
     }
 }
 
@@ -205,10 +351,10 @@ fn nearest(values: &[f32], v: f32) -> usize {
 const SENSITIVITIES: [f32; 12] = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0];
 
 fn display_modes() -> Vec<DisplayMode> {
-    if cfg!(target_arch = "wasm32") {
-        vec![DisplayMode::Fullscreen, DisplayMode::Windowed]
-    } else {
+    if crate::settings::exclusive_supported() {
         vec![DisplayMode::Fullscreen, DisplayMode::Exclusive, DisplayMode::Windowed]
+    } else {
+        vec![DisplayMode::Fullscreen, DisplayMode::Windowed]
     }
 }
 
@@ -228,30 +374,29 @@ fn current_resolution(s: &Settings, m: Option<&Monitor>) -> (u32, u32) {
     })
 }
 
-fn choices(item: Item, s: &Settings, m: Option<&Monitor>) -> Option<Choices> {
+fn choices(item: Opt, s: &Settings, m: Option<&Monitor>) -> Option<Choices> {
     let yes_no = |b: bool, on: &str, off: &str| Choices {
         labels: vec![off.into(), on.into()],
         current: b as usize,
         enabled: true,
     };
     Some(match item {
-        Item::Resume | Item::Restart | Item::Quit => return None,
-        Item::Display => {
+                Opt::Display => {
             let modes = display_modes();
             Choices {
                 labels: modes
                     .iter()
                     .map(|d| match d {
-                        DisplayMode::Fullscreen => "Plein écran",
-                        DisplayMode::Exclusive => "Plein écran exclusif",
-                        DisplayMode::Windowed => "Fenêtré",
+                        DisplayMode::Fullscreen => tr("Fullscreen", "Plein écran"),
+                        DisplayMode::Exclusive => tr("Exclusive fullscreen", "Plein écran exclusif"),
+                        DisplayMode::Windowed => tr("Windowed", "Fenêtré"),
                     }.into())
                     .collect(),
                 current: modes.iter().position(|d| *d == s.display).unwrap_or(0),
                 enabled: true,
             }
         }
-        Item::Resolution => {
+        Opt::Resolution => {
             let list = resolutions(s, m);
             if list.is_empty() {
                 let (w, h) = current_resolution(s, m);
@@ -264,7 +409,7 @@ fn choices(item: Item, s: &Settings, m: Option<&Monitor>) -> Option<Choices> {
                 enabled: true,
             }
         }
-        Item::Refresh => {
+        Opt::Refresh => {
             let auto = m.and_then(|m| m.refresh_rate_millihertz).map(|r| format!("Auto ({} Hz)", (r as f32 / 1000.0).round()));
             if s.display != DisplayMode::Exclusive {
                 return Some(Choices { labels: vec![auto.unwrap_or("Auto".into())], current: 0, enabled: false });
@@ -280,26 +425,31 @@ fn choices(item: Item, s: &Settings, m: Option<&Monitor>) -> Option<Choices> {
                 enabled: true,
             }
         }
-        Item::VSync => yes_no(s.vsync, "Activée", "Désactivée"),
-        Item::Internal => Choices {
+        Opt::VSync => yes_no(s.vsync, tr("On", "Activée"), tr("Off", "Désactivée")),
+        Opt::Internal => Choices {
             labels: INTERNAL_HEIGHTS.iter().map(|h| if *h == 240 { "240p (PS1)".into() } else { format!("{h}p") }).collect(),
             current: INTERNAL_HEIGHTS.iter().position(|h| *h == s.internal_height).unwrap_or(0),
             enabled: true,
         },
-        Item::Master => Choices { labels: steps01().iter().map(|v| pct(*v)).collect(), current: nearest(&steps01(), s.master_volume), enabled: true },
-        Item::Effects => Choices { labels: steps01().iter().map(|v| pct(*v)).collect(), current: nearest(&steps01(), s.effects_volume), enabled: true },
-        Item::Sensitivity => Choices {
+        Opt::Master => Choices { labels: steps01().iter().map(|v| pct(*v)).collect(), current: nearest(&steps01(), s.master_volume), enabled: true },
+        Opt::Effects => Choices { labels: steps01().iter().map(|v| pct(*v)).collect(), current: nearest(&steps01(), s.effects_volume), enabled: true },
+        Opt::Sensitivity => Choices {
             labels: SENSITIVITIES.iter().map(|v| format!("{v:.2}")).collect(),
             current: nearest(&SENSITIVITIES, s.sensitivity),
             enabled: true,
         },
-        Item::InvertY => yes_no(s.invert_y, "Oui", "Non"),
-        Item::Shake => yes_no(s.camera_shake, "Oui", "Non"),
+        Opt::InvertY => yes_no(s.invert_y, tr("Yes", "Oui"), tr("No", "Non")),
+        Opt::Shake => yes_no(s.camera_shake, tr("Yes", "Oui"), tr("No", "Non")),
+        Opt::Language => Choices {
+            labels: Lang::ALL.iter().map(|l| l.native_name().into()).collect(),
+            current: Lang::ALL.iter().position(|l| *l == s.language.unwrap_or_default()).unwrap_or(0),
+            enabled: true,
+        },
     })
 }
 
 /// Change la valeur d'une option de `delta` crans (sans boucler).
-fn change(item: Item, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
+fn change(item: Opt, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
     let Some(c) = choices(item, s, m) else { return };
     if !c.enabled || c.labels.len() < 2 {
         return;
@@ -309,240 +459,726 @@ fn change(item: Item, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
         return;
     }
     match item {
-        Item::Display => {
+        Opt::Display => {
             s.display = display_modes()[i];
             // La résolution choisie dépend du mode : on repart sur l'automatique.
             s.resolution = None;
             s.refresh_mhz = None;
         }
-        Item::Resolution => {
+        Opt::Resolution => {
             s.resolution = Some(resolutions(s, m)[i]);
             s.refresh_mhz = None;
         }
-        Item::Refresh => {
+        Opt::Refresh => {
             if let Some(m) = m {
                 s.refresh_mhz = Some(refresh_rates(m, current_resolution(s, Some(m)))[i]);
             }
         }
-        Item::VSync => s.vsync = i == 1,
-        Item::Internal => s.internal_height = INTERNAL_HEIGHTS[i],
-        Item::Master => s.master_volume = steps01()[i],
-        Item::Effects => s.effects_volume = steps01()[i],
-        Item::Sensitivity => s.sensitivity = SENSITIVITIES[i],
-        Item::InvertY => s.invert_y = i == 1,
-        Item::Shake => s.camera_shake = i == 1,
-        Item::Resume | Item::Restart | Item::Quit => {}
+        Opt::VSync => s.vsync = i == 1,
+        Opt::Internal => s.internal_height = INTERNAL_HEIGHTS[i],
+        Opt::Master => s.master_volume = steps01()[i],
+        Opt::Effects => s.effects_volume = steps01()[i],
+        Opt::Sensitivity => s.sensitivity = SENSITIVITIES[i],
+        Opt::InvertY => s.invert_y = i == 1,
+        Opt::Shake => s.camera_shake = i == 1,
+        Opt::Language => s.language = Some(Lang::ALL[i]),
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn activate(
-    item: Item,
-    menu: &mut MenuState,
-    cursor: &mut CursorOptions,
-    settings: &mut Settings,
-    m: Option<&Monitor>,
-    reset: &mut ResetFight,
-    exit: &mut MessageWriter<AppExit>,
-) {
-    match item {
-        Item::Resume => set_open(menu, cursor, false),
-        Item::Restart => {
-            reset.requested = true;
-            set_open(menu, cursor, false);
-        }
-        Item::Quit => {
-            exit.write(AppExit::Success);
-        }
-        // Valider une option la fait avancer d'un cran (en bouclant pour les choix binaires).
-        other => {
-            let before = settings.clone();
-            change(other, 1, settings, m);
-            if *settings == before {
-                if let Some(c) = choices(other, settings, m) {
-                    change(other, -(c.labels.len() as i32), settings, m);
-                }
-            }
-        }
+
+#[derive(Component)]
+struct MenuRoot;
+#[derive(Component)]
+struct MenuTitle;
+#[derive(Component)]
+struct MenuInfo;
+#[derive(Component)]
+struct MenuList;
+/// Aperçu du lieu (page de voyage).
+#[derive(Component)]
+struct MenuPreview;
+#[derive(Component)]
+struct MenuPreviewCaption;
+#[derive(Component)]
+struct MenuFooter;
+#[derive(Component)]
+struct Row(usize);
+#[derive(Component)]
+struct RowLabel(usize);
+#[derive(Component)]
+struct RowValue(usize);
+#[derive(Component)]
+struct Arrow(usize, i32);
+
+pub struct MenuPlugin;
+
+impl Plugin for MenuPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<MenuState>()
+            .add_systems(Startup, spawn_menu)
+            .add_systems(OnEnter(AppState::Title), enter_title)
+            .add_systems(
+                Update,
+                (open_on_rest.run_if(in_state(AppState::Playing)), menu_input, refresh_menu)
+                    .chain()
+                    .after(crate::fx::consume_events)
+                    .run_if(not(in_state(AppState::Loading))),
+            );
     }
 }
 
+fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<CheckpointPreview>) {
+    let text = Color::srgba(0.85, 0.82, 0.75, 0.75);
+    commands
+        .spawn((
+            MenuRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                height: percent(100),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.72)),
+            Visibility::Hidden,
+            ZIndex(50),
+        ))
+        .with_children(|c| {
+            c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(6), padding: UiRect::all(px(16)), width: px(960), ..default() })
+                .with_children(|c| {
+                    c.spawn((ui_font.text("", 2, Color::srgb(0.9, 0.82, 0.62)), MenuTitle));
+                    c.spawn((ui_font.text("", 1, text), Node { margin: UiRect::bottom(px(10)), ..default() }, MenuInfo));
+                    c.spawn(Node { flex_direction: FlexDirection::Row, column_gap: px(24), align_items: AlignItems::FlexStart, ..default() })
+                        .with_children(|c| {
+                            c.spawn((Node { flex_direction: FlexDirection::Column, row_gap: px(2), flex_grow: 1.0, ..default() }, MenuList));
+                            c.spawn((
+                                Node {
+                                    display: Display::None,
+                                    flex_direction: FlexDirection::Column,
+                                    row_gap: px(6),
+                                    padding: UiRect::all(px(4)),
+                                    border: UiRect::all(px(2)),
+                                    flex_shrink: 0.0,
+                                    ..default()
+                                },
+                                BorderColor::all(Color::srgb(0.62, 0.55, 0.42)),
+                                BackgroundColor(Color::BLACK),
+                                MenuPreview,
+                            ))
+                            .with_children(|c| {
+                                c.spawn(image_bundle(preview.image.clone(), PREVIEW_SIZE));
+                                c.spawn((ui_font.text("", 1, Color::srgb(0.9, 0.82, 0.62)), MenuPreviewCaption));
+                            });
+                        });
+                    c.spawn((Hint::new(1, text), Node { margin: UiRect::top(px(10)), ..hint_node() }, MenuFooter));
+                });
+        });
+}
+
+fn cursor_free(w: &mut World, free: bool) {
+    let mut q = w.query_filtered::<&mut CursorOptions, With<PrimaryWindow>>();
+    let Ok(mut c) = q.single_mut(w) else { return };
+    if free {
+        c.grab_mode = CursorGrabMode::None;
+        c.visible = true;
+    } else if NATIVE {
+        c.grab_mode = CursorGrabMode::Locked;
+        c.visible = false;
+    }
+}
+
+fn open_page(w: &mut World, page: Page) {
+    w.resource_mut::<MenuState>().open(page);
+    cursor_free(w, true);
+}
+
+fn close(w: &mut World) {
+    w.resource_mut::<MenuState>().open = false;
+    cursor_free(w, false);
+}
+
+/// Écran titre : plus aucun combattant dans le monde.
+pub fn enter_title(mut commands: Commands) {
+    commands.queue(|w: &mut World| {
+        let sim: Vec<Entity> = w.query_filtered::<Entity, With<SimEntity>>().iter(w).collect();
+        for e in sim {
+            w.despawn(e);
+        }
+        *w.resource_mut::<Encounter>() = Encounter::default();
+        w.resource_mut::<SimEvents>().0.clear();
+        w.resource_mut::<SimCommands>().0.clear();
+        w.resource_mut::<CameraRig>().initialized = false;
+        // Premier lancement : on demande d'abord la langue.
+        let page = if w.resource::<Settings>().language.is_none() { Page::Language } else { Page::Title };
+        open_page(w, page);
+    });
+}
+
+pub enum Launch {
+    New,
+    Load,
+}
+
+/// Lance une partie (nouvelle, ou depuis la sauvegarde).
+pub fn launch(w: &mut World, how: Launch) {
+    let t = w.resource::<Tuning>().clone();
+    let (progress, play_time) = match how {
+        Launch::New => (Progress::new_game(&t), 0.0),
+        Launch::Load => match w.resource::<SaveSlot>().data.clone() {
+            Some(d) => (d.progress, d.play_time),
+            None => return,
+        },
+    };
+    {
+        let mut slot = w.resource_mut::<SaveSlot>();
+        slot.play_time = play_time;
+        if matches!(how, Launch::New) {
+            slot.store(SaveData { version: crate::save::VERSION, play_time, progress: progress.clone() });
+        }
+    }
+    *w.resource_mut::<ResetFight>() = ResetFight { requested: true, players: 1, progress: Some(progress) };
+    w.resource_mut::<NextState<AppState>>().set(AppState::Playing);
+    close(w);
+}
+
+/// Repos au checkpoint : ouvre le menu du checkpoint.
+fn open_on_rest(mut commands: Commands, fx: Res<FxState>, local: Query<(), With<LocalPlayer>>) {
+    let rested = fx.last.iter().any(|e| matches!(e, SimEvent::Rested { entity } if local.contains(*entity)));
+    if rested {
+        commands.queue(|w: &mut World| open_page(w, Page::Checkpoint));
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Intent {
+    /// Ouvrir le menu pause.
+    Pause,
+    /// Page précédente (ou fermer).
+    Back,
+    /// Fermer le menu (Start).
+    Close,
+    Move(i32),
+    Change(i32),
+    Confirm,
+    Hover(usize),
+    Click(usize),
+    Arrow(usize, i32),
+}
+
 #[allow(clippy::too_many_arguments)]
-fn navigate(
+fn menu_input(
+    mut commands: Commands,
     time: Res<Time>,
+    state: Res<State<AppState>>,
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
-    monitors: Query<(&Monitor, Has<PrimaryMonitor>)>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    rows: Query<(&Row, &Interaction)>,
+    pressed: Query<(&Row, &Interaction), Changed<Interaction>>,
+    arrows: Query<(&Arrow, &Interaction), Changed<Interaction>>,
     mut menu: ResMut<MenuState>,
-    mut settings: ResMut<Settings>,
-    mut reset: ResMut<ResetFight>,
-    mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
-    mut exit: MessageWriter<AppExit>,
 ) {
-    if !menu.open {
+    let cursor = window.cursor_position();
+    let moved = menu.settle <= 0.0 && matches!((menu.cursor, cursor), (Some(a), Some(b)) if a.distance(b) > 0.5);
+    menu.settle -= time.delta_secs();
+    if cursor.is_some() {
+        menu.cursor = cursor;
+    }
+    if menu.fresh {
+        menu.fresh = false;
         return;
     }
-    let list = items();
-    let m = crate::settings::pick_monitor(monitors.iter());
+    let mut out = Vec::new();
     let k = |codes: &[KeyCode]| codes.iter().any(|c| keys.just_pressed(*c));
-    let mut dir = IVec2::ZERO;
-    if k(&[KeyCode::ArrowUp, KeyCode::KeyW]) {
-        dir.y -= 1;
-    }
-    if k(&[KeyCode::ArrowDown, KeyCode::KeyS]) {
-        dir.y += 1;
-    }
-    if k(&[KeyCode::ArrowLeft, KeyCode::KeyA]) {
-        dir.x -= 1;
-    }
-    if k(&[KeyCode::ArrowRight, KeyCode::KeyD]) {
-        dir.x += 1;
-    }
-    let mut confirm = k(&[KeyCode::Enter, KeyCode::Space]);
-    // Manette : D-pad ou stick, avec répétition quand on maintient.
-    let mut held = Vec2::ZERO;
-    for g in &gamepads {
-        confirm |= g.just_pressed(GamepadButton::South);
-        let mut v = g.left_stick();
-        if g.pressed(GamepadButton::DPadUp) {
-            v.y = 1.0;
-        }
-        if g.pressed(GamepadButton::DPadDown) {
-            v.y = -1.0;
-        }
-        if g.pressed(GamepadButton::DPadLeft) {
-            v.x = -1.0;
-        }
-        if g.pressed(GamepadButton::DPadRight) {
-            v.x = 1.0;
-        }
-        if v.length() > 0.6 {
-            held = v;
-        }
-    }
-    if held != Vec2::ZERO {
-        menu.repeat -= time.delta_secs();
-        if menu.repeat <= 0.0 {
-            if held.y.abs() > held.x.abs() {
-                dir.y += if held.y > 0.0 { -1 } else { 1 };
-            } else {
-                dir.x += if held.x > 0.0 { 1 } else { -1 };
-            }
-            menu.repeat = if menu.repeat < -1.0 { 0.35 } else { 0.16 };
+    let pad = |b: GamepadButton| gamepads.iter().any(|g| g.just_pressed(b));
+    let esc = keys.just_pressed(KeyCode::Escape);
+    let start = pad(GamepadButton::Start) || pad(GamepadButton::Select);
+    if !menu.open {
+        if (esc || start) && *state.get() == AppState::Playing {
+            out.push(Intent::Pause);
         }
     } else {
-        menu.repeat = -2.0;
-    }
-
-    if dir.y != 0 {
-        menu.selected = (menu.selected as i32 + dir.y).rem_euclid(list.len() as i32) as usize;
-    }
-    let item = list[menu.selected];
-    if dir.x != 0 {
-        change(item, dir.x, &mut settings, m);
-    }
-    if confirm {
-        activate(item, &mut menu, &mut cursor, &mut settings, m, &mut reset, &mut exit);
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn mouse_input(
-    rows: Query<(&Row, &Interaction), Changed<Interaction>>,
-    arrows: Query<(&Arrow, &Interaction), Changed<Interaction>>,
-    monitors: Query<(&Monitor, Has<PrimaryMonitor>)>,
-    mut menu: ResMut<MenuState>,
-    mut settings: ResMut<Settings>,
-    mut reset: ResMut<ResetFight>,
-    mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
-    mut exit: MessageWriter<AppExit>,
-) {
-    if !menu.open {
-        return;
-    }
-    let list = items();
-    let m = crate::settings::pick_monitor(monitors.iter());
-    for (a, i) in &arrows {
-        if *i == Interaction::Pressed {
-            menu.selected = a.0;
-            change(list[a.0], a.1, &mut settings, m);
-            return;
+        if esc || pad(GamepadButton::East) {
+            out.push(Intent::Back);
+        } else if start {
+            out.push(Intent::Close);
         }
-    }
-    for (r, i) in &rows {
-        match i {
-            Interaction::Hovered => menu.selected = r.0,
-            Interaction::Pressed => {
-                menu.selected = r.0;
-                if matches!(list[r.0], Item::Resume | Item::Restart | Item::Quit) {
-                    activate(list[r.0], &mut menu, &mut cursor, &mut settings, m, &mut reset, &mut exit);
-                    return;
+        if k(&[KeyCode::ArrowUp, KeyCode::KeyW]) {
+            out.push(Intent::Move(-1));
+        }
+        if k(&[KeyCode::ArrowDown, KeyCode::KeyS]) {
+            out.push(Intent::Move(1));
+        }
+        if k(&[KeyCode::ArrowLeft, KeyCode::KeyA]) {
+            out.push(Intent::Change(-1));
+        }
+        if k(&[KeyCode::ArrowRight, KeyCode::KeyD]) {
+            out.push(Intent::Change(1));
+        }
+        if k(&[KeyCode::Enter, KeyCode::Space]) || pad(GamepadButton::South) {
+            out.push(Intent::Confirm);
+        }
+        // Manette : D-pad ou stick, avec répétition quand on maintient.
+        let mut held = Vec2::ZERO;
+        for g in &gamepads {
+            let mut v = g.left_stick();
+            for (b, d) in [
+                (GamepadButton::DPadUp, Vec2::Y),
+                (GamepadButton::DPadDown, -Vec2::Y),
+                (GamepadButton::DPadLeft, -Vec2::X),
+                (GamepadButton::DPadRight, Vec2::X),
+            ] {
+                if g.pressed(b) {
+                    v = d;
                 }
             }
-            Interaction::None => {}
+            if v.length() > 0.6 {
+                held = v;
+            }
+        }
+        if held != Vec2::ZERO {
+            menu.repeat -= time.delta_secs();
+            if menu.repeat <= 0.0 {
+                out.push(if held.y.abs() > held.x.abs() {
+                    Intent::Move(if held.y > 0.0 { -1 } else { 1 })
+                } else {
+                    Intent::Change(if held.x > 0.0 { 1 } else { -1 })
+                });
+                menu.repeat = if menu.repeat < -1.0 { 0.35 } else { 0.16 };
+            }
+        } else {
+            menu.repeat = -2.0;
+        }
+        let mut arrow_clicked = false;
+        for (a, i) in &arrows {
+            if *i == Interaction::Pressed {
+                out.push(Intent::Arrow(a.0, a.1));
+                arrow_clicked = true;
+            }
+        }
+        // Survol : seulement quand la souris bouge (une page qui s'ouvre sous le curseur, au
+        // centre de l'écran, ne doit pas changer la ligne sélectionnée par défaut).
+        if moved {
+            for (r, i) in &rows {
+                if *i == Interaction::Hovered {
+                    out.push(Intent::Hover(r.0));
+                }
+            }
+        }
+        for (r, i) in &pressed {
+            if *i == Interaction::Pressed && !arrow_clicked {
+                out.push(Intent::Click(r.0));
+            }
+        }
+    }
+    if !out.is_empty() {
+        commands.queue(move |w: &mut World| {
+            for i in out {
+                handle(w, i);
+            }
+        });
+    }
+}
+
+fn page_ctx(w: &World) -> PageCtx {
+    PageCtx {
+        has_save: w.resource::<SaveSlot>().data.is_some(),
+        boss_defeated: w.resource::<Encounter>().boss_defeated,
+        device: *w.resource::<Device>(),
+    }
+}
+
+fn local_player(w: &mut World) -> Option<Player> {
+    let mut q = w.query::<&Player>();
+    q.iter(w).min_by_key(|p| p.id).cloned()
+}
+
+fn handle(w: &mut World, intent: Intent) {
+    let ctx = page_ctx(w);
+    let (open, page, selected) = {
+        let m = w.resource::<MenuState>();
+        (m.open, m.page, m.selected)
+    };
+    if !open {
+        if matches!(intent, Intent::Pause) {
+            open_page(w, Page::Pause);
+        }
+        return;
+    }
+    let list = entries(page, &ctx);
+    match intent {
+        Intent::Pause => {}
+        Intent::Back => {
+            if !w.resource_mut::<MenuState>().back() && !matches!(page, Page::Title | Page::Language) {
+                close(w);
+            }
+        }
+        Intent::Close => {
+            if !matches!(page, Page::Title | Page::Language) {
+                close(w);
+            }
+        }
+        Intent::Move(d) => {
+            let n = list.len() as i32;
+            let mut i = selected as i32;
+            for _ in 0..n {
+                i = (i + d).rem_euclid(n);
+                if selectable(list[i as usize], &ctx) {
+                    break;
+                }
+            }
+            w.resource_mut::<MenuState>().selected = i as usize;
+        }
+        Intent::Change(d) => {
+            if let Some(e) = list.get(selected) {
+                change_entry(w, *e, d);
+            }
+        }
+        Intent::Confirm => {
+            if let Some(e) = list.get(selected).filter(|e| selectable(**e, &ctx)) {
+                confirm(w, *e);
+            }
+        }
+        Intent::Hover(i) => {
+            if list.get(i).is_some_and(|e| selectable(*e, &ctx)) {
+                w.resource_mut::<MenuState>().selected = i;
+            }
+        }
+        Intent::Click(i) => {
+            if let Some(e) = list.get(i).filter(|e| selectable(**e, &ctx)) {
+                w.resource_mut::<MenuState>().selected = i;
+                if matches!(e, Entry::Act(_)) {
+                    confirm(w, *e);
+                }
+            }
+        }
+        Intent::Arrow(i, d) => {
+            if let Some(e) = list.get(i) {
+                w.resource_mut::<MenuState>().selected = i;
+                change_entry(w, *e, d);
+            }
         }
     }
 }
 
-fn label(item: Item) -> &'static str {
-    match item {
-        Item::Resume => "Reprendre",
-        Item::Display => "Affichage",
-        Item::Resolution => "Résolution",
-        Item::Refresh => "Fréquence",
-        Item::VSync => "Synchronisation verticale",
-        Item::Internal => "Résolution interne",
-        Item::Master => "Volume général",
-        Item::Effects => "Volume des effets",
-        Item::Sensitivity => "Sensibilité de la caméra",
-        Item::InvertY => "Inverser l'axe vertical",
-        Item::Shake => "Tremblements de caméra",
-        Item::Restart => "Recommencer le combat",
-        Item::Quit => "Quitter le jeu",
+fn change_entry(w: &mut World, e: Entry, d: i32) {
+    match e {
+        Entry::Opt(o) => {
+            let mon = monitor(w);
+            let mut s = w.resource::<Settings>().clone();
+            change(o, d, &mut s, mon.as_ref());
+            if *w.resource::<Settings>() != s {
+                *w.resource_mut::<Settings>() = s;
+            }
+        }
+        Entry::Slot(slot) => {
+            let Some(p) = local_player(w) else { return };
+            let choices = slot_choices(&p);
+            let cur = choices.iter().position(|c| *c == p.inventory.slots[slot as usize]).unwrap_or(0);
+            let i = (cur as i32 + d).rem_euclid(choices.len() as i32) as usize;
+            if i != cur {
+                w.resource_mut::<SimCommands>().0.push(SimCommand::Equip { player: p.id, slot, item: choices[i] });
+                // La sim est en pause pendant le menu : la commande est appliquée tout de suite.
+                let _ = w.run_system_cached(apply_commands);
+            }
+        }
+        _ => {}
     }
 }
 
-#[allow(clippy::type_complexity)]
+fn confirm(w: &mut World, e: Entry) {
+    match e {
+        Entry::Act(a) => act(w, a),
+        // Valider une option la fait avancer d'un cran (en bouclant pour les choix binaires).
+        Entry::Opt(o) => {
+            let mon = monitor(w);
+            let mut s = w.resource::<Settings>().clone();
+            let before = s.clone();
+            change(o, 1, &mut s, mon.as_ref());
+            if s == before
+                && let Some(c) = choices(o, &s, mon.as_ref())
+            {
+                change(o, -(c.labels.len() as i32), &mut s, mon.as_ref());
+            }
+            if s != before {
+                *w.resource_mut::<Settings>() = s;
+            }
+        }
+        Entry::Slot(_) => change_entry(w, e, 1),
+        // Un seul checkpoint pour l'instant, celui où l'on se trouve : rien à faire.
+        Entry::Place(_) => {
+            w.resource_mut::<MenuState>().back();
+        }
+        Entry::Line(..) => {}
+        Entry::Lang(l) => {
+            w.resource_mut::<Settings>().language = Some(l);
+            crate::lang::set(l);
+            w.resource_mut::<MenuState>().open(Page::Title);
+        }
+    }
+}
+
+fn act(w: &mut World, a: Act) {
+    match a {
+        Act::Resume | Act::Leave => close(w),
+        Act::NewGame => {
+            if w.resource::<SaveSlot>().data.is_some() {
+                w.resource_mut::<MenuState>().push(Page::ConfirmNew);
+            } else {
+                launch(w, Launch::New);
+            }
+        }
+        Act::ConfirmNew => launch(w, Launch::New),
+        Act::Load => launch(w, Launch::Load),
+        Act::Open(p) => w.resource_mut::<MenuState>().push(p),
+        Act::Back => {
+            w.resource_mut::<MenuState>().back();
+        }
+        Act::ToTitle => {
+            crate::save::save_now(w);
+            w.resource_mut::<NextState<AppState>>().set(AppState::Title);
+        }
+        Act::Quit => {
+            // La sauvegarde est écrite en fin de frame (voir `save`).
+            w.write_message(AppExit::Success);
+        }
+        Act::ReviveBoss => {
+            w.resource_mut::<SimCommands>().0.push(SimCommand::ReviveBoss);
+            let _ = w.run_system_cached(apply_commands);
+            crate::save::save_now(w);
+            w.resource_mut::<MenuState>().selected = 0;
+        }
+        Act::LevelUp => {}
+    }
+}
+
+fn monitor(w: &mut World) -> Option<Monitor> {
+    let mut q = w.query::<(&Monitor, Has<PrimaryMonitor>)>();
+    crate::settings::pick_monitor(q.iter(w)).cloned()
+}
+
+/// Choix possibles pour un emplacement rapide : vide, ou un des objets possédés.
+fn slot_choices(p: &Player) -> Vec<Option<Item>> {
+    std::iter::once(None).chain(Item::ALL.into_iter().filter(|i| p.inventory.owns(*i)).map(Some)).collect()
+}
+
+fn entry_value(e: Entry, s: &Settings, m: Option<&Monitor>, player: Option<&Player>, save: Option<&SaveData>) -> (String, bool) {
+    match e {
+        Entry::Opt(o) => choices(o, s, m).map(|c| (c.labels[c.current].clone(), c.enabled)).unwrap_or_default(),
+        Entry::Slot(i) => {
+            let item = player.and_then(|p| p.inventory.slots[i as usize].map(|it| (it, p.inventory.count(it))));
+            (item.map_or("—".into(), |(it, n)| format!("{} ×{n}", it.name())), true)
+        }
+        Entry::Act(Act::Load) => match save {
+            Some(_) => (String::new(), true),
+            None => (tr("No save", "Aucune sauvegarde").into(), false),
+        },
+        Entry::Place(_) => (tr("You are here", "Vous êtes ici").into(), false),
+        Entry::Act(Act::LevelUp) => (tr("Coming soon", "Bientôt").into(), false),
+        Entry::Line(..) | Entry::Lang(_) | Entry::Act(_) => (String::new(), true),
+    }
+}
+
+fn entry_label(e: Entry, t: &Tuning, device: Device) -> String {
+    match e {
+        Entry::Place(_) => t.arena.checkpoint_name.get().into(),
+        Entry::Act(a) => act_label(a).into(),
+        Entry::Opt(o) => opt_label(o).into(),
+        Entry::Slot(i) => format!("{} {}", tr("Slot", "Emplacement"), i + 1),
+        Entry::Line(l) => help_lines(device).get(l as usize).map_or("", |h| h.0).into(),
+        Entry::Lang(l) => l.native_name().into(),
+    }
+}
+
+/// Recrée les lignes de la liste.
+fn build_rows(w: &mut World, list: Entity, entries: &[Entry]) {
+    let ui_font = w.resource::<UiFont>().clone();
+    let help = help_lines(*w.resource::<Device>());
+    let (left, right) = w.resource_scope(|w, mut icons: Mut<Icons>| {
+        let mut images = w.resource_mut::<Assets<Image>>();
+        (icon_bundle(&mut icons, &mut images, Glyph::ValueLeft, 1), icon_bundle(&mut icons, &mut images, Glyph::ValueRight, 1))
+    });
+    let mut commands = w.commands();
+    commands.entity(list).despawn_children().with_children(|c| {
+        for (i, e) in entries.iter().enumerate() {
+            let line = matches!(e, Entry::Line(..));
+            c.spawn((
+                Row(i),
+                Button,
+                Node {
+                    flex_direction: FlexDirection::Row,
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::axes(px(12), px(if line { 0 } else { 4 })),
+                    ..default()
+                },
+                BackgroundColor(Color::NONE),
+            ))
+            .with_children(|c| {
+                c.spawn((
+                    ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)),
+                    TextLayout::linebreak(LineBreak::NoWrap),
+                    Node { flex_shrink: 0.0, margin: UiRect::right(px(16)), ..default() },
+                    RowLabel(i),
+                ));
+                if let Entry::Line(l) = e {
+                    // Aide : icônes des touches, alignées à gauche.
+                    let mut h = Hint::new(1, Color::srgb(0.85, 0.82, 0.75));
+                    h.segs = help.get(*l as usize).map(|h| h.1.clone()).unwrap_or_default();
+                    c.spawn(Node { width: px(340), flex_shrink: 0.0, ..default() }).with_children(|c| {
+                        c.spawn((h, hint_node()));
+                    });
+                    return;
+                }
+                if matches!(e, Entry::Lang(_)) {
+                    return;
+                }
+                c.spawn(Node { flex_direction: FlexDirection::Row, column_gap: px(10), align_items: AlignItems::Center, ..default() })
+                    .with_children(|c| {
+                        c.spawn((Button, left.clone(), Arrow(i, -1)));
+                        c.spawn((
+                            ui_font.text("", 1, Color::srgb(0.95, 0.92, 0.85)),
+                            Node { min_width: px(240), justify_content: JustifyContent::Center, ..default() },
+                            RowValue(i),
+                        ));
+                        c.spawn((Button, right.clone(), Arrow(i, 1)));
+                    });
+            });
+        }
+    });
+}
+
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn refresh_menu(
-    menu: Res<MenuState>,
-    settings: Res<Settings>,
+    mut commands: Commands,
+    mut menu: ResMut<MenuState>,
+    (settings, save, enc, device, tuning): (Res<Settings>, Res<SaveSlot>, Res<Encounter>, Res<Device>, Res<Tuning>),
+    mut preview: ResMut<CheckpointPreview>,
+    mut preview_node: Query<&mut Node, With<MenuPreview>>,
     monitors: Query<(&Monitor, Has<PrimaryMonitor>)>,
-    mut root: Single<&mut Visibility, With<MenuRoot>>,
-    mut rows: Query<(&Row, &mut BackgroundColor)>,
-    mut labels: Query<(&RowLabel, &mut Text, &mut TextColor), Without<RowValue>>,
-    mut values: Query<(&RowValue, &mut Text, &mut TextColor), Without<RowLabel>>,
+    players: Query<&Player, With<LocalPlayer>>,
+    mut root: Single<(&mut Visibility, &mut BackgroundColor), With<MenuRoot>>,
+    list: Single<Entity, With<MenuList>>,
+    mut texts: ParamSet<(
+        Query<&mut Text, With<MenuTitle>>,
+        Query<(&mut Text, &mut Node), (With<MenuInfo>, Without<MenuPreview>)>,
+        Query<&mut Hint, With<MenuFooter>>,
+        Query<(&RowLabel, &mut Text, &mut TextColor)>,
+        Query<(&RowValue, &mut Text, &mut TextColor)>,
+        Query<&mut Text, With<MenuPreviewCaption>>,
+    )>,
+    mut rows: Query<(&Row, &mut BackgroundColor), Without<MenuRoot>>,
     mut arrows: Query<(&Arrow, &mut Visibility), Without<MenuRoot>>,
+    mut built: Local<(Vec<Entry>, Option<Lang>)>,
 ) {
     let want = if menu.open { Visibility::Inherited } else { Visibility::Hidden };
-    if **root != want {
-        **root = want;
+    if *root.0 != want {
+        *root.0 = want;
+    }
+    // L'aperçu du lieu (et sa caméra) ne vit que sur la page de voyage.
+    let travel = menu.open && menu.page == Page::Travel;
+    if preview.shown != travel {
+        preview.shown = travel;
+    }
+    for mut n in &mut preview_node {
+        let want = if travel { Display::Flex } else { Display::None };
+        if n.display != want {
+            n.display = want;
+        }
     }
     if !menu.open {
         return;
     }
-    let list = items();
-    let m = crate::settings::pick_monitor(monitors.iter());
-    for (r, mut bg) in &mut rows {
-        bg.0 = if r.0 == menu.selected { Color::srgba(0.9, 0.82, 0.62, 0.16) } else { Color::NONE };
+    // L'écran titre masque complètement le monde.
+    root.1.0 = if menu.on_title() { Color::srgb(0.03, 0.025, 0.035) } else { Color::srgba(0.0, 0.0, 0.0, 0.72) };
+    let ctx = PageCtx { has_save: save.data.is_some(), boss_defeated: enc.boss_defeated, device: *device };
+    let list_entries = entries(menu.page, &ctx);
+    // Les lignes d'aide (icônes) dépendent aussi de la langue.
+    let key = (list_entries.clone(), Some(crate::lang::current()));
+    if *built != key {
+        let (list, entries) = (*list, list_entries.clone());
+        commands.queue(move |w: &mut World| build_rows(w, list, &entries));
+        *built = key;
+        // Les nouvelles lignes n'existent qu'à la frame suivante.
+        return;
     }
-    for (l, mut t, mut c) in &mut labels {
-        let s = label(list[l.0]);
+    if !list_entries.get(menu.selected).is_some_and(|e| selectable(*e, &ctx)) {
+        menu.selected = list_entries.iter().position(|e| selectable(*e, &ctx)).unwrap_or(0);
+    }
+    let set = |t: &mut Text, s: &str| {
         if t.0 != s {
             t.0 = s.into();
         }
-        c.0 = if l.0 == menu.selected { Color::srgb(1.0, 0.95, 0.85) } else { Color::srgb(0.78, 0.75, 0.68) };
+    };
+    for mut t in &mut texts.p0() {
+        set(&mut t, page_title(menu.page, *device));
     }
-    for (v, mut t, mut c) in &mut values {
-        let ch = choices(list[v.0], &settings, m);
-        let s = ch.as_ref().map(|c| c.labels[c.current].clone()).unwrap_or_default();
-        if t.0 != s {
-            t.0 = s;
+    for (mut t, mut n) in &mut texts.p1() {
+        let info = page_info(menu.page);
+        set(&mut t, info);
+        let want = if info.is_empty() { Display::None } else { Display::Flex };
+        if n.display != want {
+            n.display = want;
         }
-        let enabled = ch.as_ref().is_some_and(|c| c.enabled);
+    }
+    let mut footer = if menu.page == Page::Language {
+        // Rien à modifier sur cette page : choisir et valider.
+        let (nav, ok) = if *device == Device::Gamepad { (vec![i(Glyph::Dpad)], Glyph::PadA) } else { (vec![i(Glyph::Key("↑")), i(Glyph::Key("↓"))], Glyph::Key("↵")) };
+        nav.into_iter().chain([t("select / choisir"), i(ok), t("OK")]).collect()
+    } else if *device == Device::Gamepad {
+        vec![i(Glyph::Dpad), t(tr("select / change", "choisir / modifier")), i(Glyph::PadA), t(tr("confirm", "valider"))]
+    } else {
+        vec![
+            i(Glyph::Key("↑")),
+            i(Glyph::Key("↓")),
+            t(tr("select", "choisir")),
+            i(Glyph::Key("←")),
+            i(Glyph::Key("→")),
+            t(tr("change", "modifier")),
+            i(Glyph::Key("↵")),
+            t(tr("confirm", "valider")),
+        ]
+    };
+    if !menu.on_title() {
+        footer.extend([i(if *device == Device::Gamepad { Glyph::PadB } else { Glyph::Key("ESC") }), t(tr("back", "retour"))]);
+    }
+    for mut h in &mut texts.p2() {
+        set_hint(&mut h, footer.clone());
+    }
+    let m = crate::settings::pick_monitor(monitors.iter());
+    let player = players.iter().next();
+    for (r, mut bg) in &mut rows {
+        bg.0 = if r.0 == menu.selected { Color::srgba(0.9, 0.82, 0.62, 0.16) } else { Color::NONE };
+    }
+    for (l, mut t, mut c) in &mut texts.p3() {
+        let Some(e) = list_entries.get(l.0) else { continue };
+        set(&mut t, &entry_label(*e, &tuning, *device));
+        c.0 = if matches!(e, Entry::Line(..)) {
+            Color::srgb(0.78, 0.75, 0.68)
+        } else if !selectable(*e, &ctx) {
+            Color::srgba(0.6, 0.58, 0.55, 0.6)
+        } else if l.0 == menu.selected {
+            Color::srgb(1.0, 0.95, 0.85)
+        } else {
+            Color::srgb(0.78, 0.75, 0.68)
+        };
+    }
+    for (v, mut t, mut c) in &mut texts.p4() {
+        let Some(e) = list_entries.get(v.0) else { continue };
+        let (s, enabled) = entry_value(*e, &settings, m, player, save.data.as_ref());
+        set(&mut t, &s);
         c.0 = if enabled { Color::srgb(0.95, 0.92, 0.85) } else { Color::srgba(0.6, 0.58, 0.55, 0.6) };
     }
+    for mut t in &mut texts.p5() {
+        set(&mut t, tuning.arena.checkpoint_name.get());
+    }
     for (a, mut vis) in &mut arrows {
-        let show = choices(list[a.0], &settings, m).is_some_and(|c| c.enabled && c.labels.len() > 1);
+        let show = match list_entries.get(a.0) {
+            Some(Entry::Opt(o)) => choices(*o, &settings, m).is_some_and(|c| c.enabled && c.labels.len() > 1),
+            Some(Entry::Slot(_)) => player.is_some_and(|p| slot_choices(p).len() > 1),
+            _ => false,
+        };
         let w = if show { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != w {
             *vis = w;

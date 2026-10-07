@@ -96,4 +96,11 @@ for k, f in enumerate((523, 659, 784, 1046)):
             heal.append(0.0)
         heal[idx] += v
 write("heal", heal)
+# Âmes absorbées : souffle qui monte et carillon cristallin.
+souls = whoosh(1.0, 0.01, 0.12, peak=0.35)
+for i in range(len(souls)):
+    t = i / SR
+    bell = sum(a * math.sin(2 * math.pi * f * t + 3 * math.sin(2 * math.pi * 5.5 * t)) for f, a in ((1568, 0.5), (2093, 0.35), (2637, 0.25), (3136, 0.15)))
+    souls[i] = souls[i] * 0.9 + bell * env(max(t - 0.12, 0.0), 0.05, 0.3) * (0.0 if t < 0.12 else 0.45)
+write("souls", souls)
 print("sfx ok")

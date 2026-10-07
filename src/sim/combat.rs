@@ -5,13 +5,14 @@ use bevy::prelude::*;
 use super::boss::Boss;
 use super::data::{HitWindow, MoveDef, MoveRef, PlayerMove, Reaction, Tuning, WeaponMove};
 use super::fighter::{Action, Body, Health, Hitstop};
+use super::encounter::{CHECKPOINT_RADIUS, Encounter, checkpoint_pos, clamp_walkable};
 use super::player::{PState, Player, force_move};
 use super::{SimEvent, SimEvents, SimTick, math};
 
-/// Sépare les corps qui se chevauchent et les garde dans l'arène.
-pub fn separate_bodies(tuning: Res<Tuning>, mut q: Query<&mut Body>) {
+/// Sépare les corps qui se chevauchent et les garde dans la zone praticable.
+pub fn separate_bodies(tuning: Res<Tuning>, enc: Res<Encounter>, mut q: Query<(&mut Body, Has<Player>)>) {
     let mut combos = q.iter_combinations_mut();
-    while let Some([mut a, mut b]) = combos.fetch_next() {
+    while let Some([(mut a, _), (mut b, _)]) = combos.fetch_next() {
         let d = Vec3::new(b.pos.x - a.pos.x, 0.0, b.pos.z - a.pos.z);
         let dist = math::flat_len(d);
         let min = a.radius + b.radius;
@@ -25,23 +26,19 @@ pub fn separate_bodies(tuning: Res<Tuning>, mut q: Query<&mut Body>) {
         }
     }
     let arena = &tuning.arena;
-    for mut b in &mut q {
+    let cp = checkpoint_pos(arena);
+    let obstacles = arena.pillars.iter().copied().chain([[cp.x, cp.z, CHECKPOINT_RADIUS]]);
+    for (mut b, is_player) in &mut q {
         let r = b.radius;
-        for &[px, pz, pr] in &arena.pillars {
+        for [px, pz, pr] in obstacles.clone() {
             let d = Vec3::new(b.pos.x - px, 0.0, b.pos.z - pz);
             let dist = math::flat_len(d);
             if dist < pr + r && dist > 1e-4 {
                 b.pos += d / dist * (pr + r - dist);
             }
         }
-        let flat = Vec3::new(b.pos.x, 0.0, b.pos.z);
-        let dist = math::flat_len(flat);
-        let max = arena.radius - r;
-        if dist > max {
-            let clamped = flat / dist * max;
-            b.pos.x = clamped.x;
-            b.pos.z = clamped.z;
-        }
+        // Le couloir est fermé par la brume pendant le combat, et toujours interdit au boss.
+        b.pos = clamp_walkable(arena, b.pos, r, is_player && !enc.active);
         b.pos.y = 0.0;
     }
 }

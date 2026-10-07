@@ -8,3 +8,4 @@ for s in player boss weapons arena; do
     blender -b --factory-startup -P "tools/blender/$s.py" 2>&1 | grep -E "\[assets\]|Error|Traceback" || true
 done
 python3 tools/sfx.py
+python3 tools/pixel_font.py

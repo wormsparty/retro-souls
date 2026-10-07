@@ -4,7 +4,7 @@ Prototype de combat inspiré de *Lies of P* / *Dark Souls*, rendu façon PlaySta
 Rust + [Bevy 0.19](https://bevy.org) (natif et navigateur via WASM).
 
 Un joueur, deux armes (rapière et greatsword), un boss lent et télégraphié — l'Automate du
-Carrousel — dans une arène circulaire.
+Carrousel — dans une arène circulaire, précédée d'un couloir avec un checkpoint.
 
 ## Lancer
 
@@ -34,30 +34,51 @@ Blender 5.x et Python 3 ne servent qu'à régénérer les assets.
 | Garde (garde parfaite = au bon moment) | LB / L1 | Q ou Maj gauche |
 | Attaque spéciale de l'arme | LT / L2 | E |
 | Esquive (maintenir = sprint) | B / ○ | Espace |
+| Sprint (un clic, tant que le stick est poussé) | L3 | — |
 | Verrouillage | R3 | Tab ou clic molette |
 | Changer d'arme | Y / △ | R |
-| Soin (3 charges) | X / □ | F |
+| Utiliser l'objet sélectionné | X / □ | F |
+| Objet suivant (emplacements rapides) | croix ↓ | C |
+| Se reposer au checkpoint | A / ✕ | G |
 | Déplacement / caméra | sticks | WASD / souris |
-| Recommencer | A / Start (après la fin) | Entrée ou F5 |
+| Menu | Start | Échap |
 
 Les touches sont lues par position physique (disposition QWERTY/QWERTZ) : sur un clavier
 AZERTY, le déplacement est sur ZQSD et la garde sur A.
 
-Clic dans la fenêtre pour capturer la souris, Échap pour la libérer. H affiche ou masque l'aide.
+Clic dans la fenêtre pour capturer la souris, Échap pour la libérer. La page **Aide** du menu
+pause rappelle les contrôles du dernier périphérique utilisé (manette, ou clavier et souris).
 
-### Menu et options
+### Menus
 
-**Échap** (clavier) ou **Start** (manette) ouvre le menu pause. Le jeu démarre en plein écran.
+- **Écran titre** : Nouvelle partie (demande confirmation si une sauvegarde existe), Charger,
+  Options, Quitter.
+- **Pause** (Échap / Start) : Reprendre, Équipement, Options, Aide, Retour à l'écran titre, Quitter.
+- **Checkpoint** (en s'y reposant) : Partir (sélectionné par défaut), Voyager (liste des
+  checkpoints avec une vue du lieu ; un seul pour l'instant), Monter de niveau (grisé, à venir),
+  Équipement, Ranimer l'Automate (s'il a été vaincu).
+- **Équipement** : 4 emplacements rapides où équiper les objets de l'inventaire (pour l'instant :
+  la fiole de soin) ; en jeu, croix ↓ / C passe à l'emplacement équipé suivant.
+
+Échap / (B) revient à la page précédente. Le jeu démarre en plein écran.
 
 | Option | Valeurs |
 |---|---|
-| Affichage | Plein écran (sans bordure) · Plein écran exclusif · Fenêtré |
+| Affichage | Plein écran (sans bordure) · Plein écran exclusif (sauf Wayland et navigateur) · Fenêtré |
 | Résolution | taille de la fenêtre, ou mode vidéo en exclusif (natif uniquement) |
 | Fréquence | fréquences proposées par l'écran, en exclusif (natif uniquement) |
 | Synchronisation verticale | activée / désactivée (natif uniquement) |
 | Résolution interne | 240p (PS1), 360p, 480p |
 | Volume général, volume des effets | 0 à 100 % |
 | Sensibilité caméra, axe vertical inversé, tremblements de caméra | |
+
+Sous **Wayland**, le plein écran exclusif n'existe pas (le protocole ne permet pas de changer de
+mode vidéo ; winit l'ignore) : l'option n'est pas proposée. Pour l'avoir quand même, lancer le jeu
+via XWayland avec `WAYLAND_DISPLAY= cargo run --release` (le compositeur émule alors le changement
+de mode).
+
+Langue : anglais ou français, demandée au premier lancement (anglais par défaut) et modifiable
+dans les options.
 
 Les options sont enregistrées dès qu'on les change et reprises au lancement suivant :
 `~/.config/souls-ps1/settings.ron` (Linux), `%APPDATA%\souls-ps1\settings.ron` (Windows),
@@ -71,7 +92,7 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
 - **F2** : hitboxes (bleu = corps, orange = coup actif, rouge = furie, jaune = coup imminent)
 - **F3** : ralenti ×0,25 (les timings en ticks restent exacts)
 - **F4** : boss passif (il marche mais n'attaque plus)
-- **F5** : recommencer le combat
+- **F5** : recréer les combattants (progression gardée, le boss repart de zéro)
 
 ## Mécaniques
 
@@ -91,11 +112,28 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
 - **Endurance** : il faut au moins 1 point pour attaquer, esquiver ou lancer la spéciale ; une
   action peut faire passer l'endurance en négatif (jusqu'à -60), il faut alors attendre. Le coût
   d'une attaque = ses dégâts × `stamina_per_damage` : à dégâts égaux, même coût pour les deux armes.
-- **Soins** : 3 charges (rechargées aux checkpoints, à venir), +40 % des PV ; on peut marcher
-  lentement pendant. Touché avant que le soin s'applique : la charge est perdue.
+- **Fiole de soin** (objet de l'inventaire) : 3 charges, rechargées au checkpoint et à la mort,
+  +40 % des PV ; on peut marcher lentement pendant. Touché avant que le soin s'applique : la
+  charge est perdue.
 - **Jauge spéciale** (3 segments sous l'endurance) : se remplit en frappant et en garde parfaite ;
   chaque attaque spéciale consomme un segment.
 - **Boss** : 6 attaques en phase 1, 2 de plus en phase 2 (sous 50 % de PV), dont une furie.
+
+## Progression et sauvegarde
+
+- On commence au **checkpoint** (lanterne au bout du couloir). S'y reposer rend PV, endurance et
+  objets.
+- Entrer dans l'arène réveille le boss et une **brume** ferme le couloir jusqu'à la fin du combat.
+- Victoire : **+1000 âmes** (`souls` dans `boss.ron`), affichées en bas à droite au-dessus du
+  compteur, qui les absorbe avec un petit son ; le boss reste mort, on peut le ranimer depuis
+  le checkpoint.
+- Mort : « VOUS ÊTES MORT » (~4 s, l'écran s'assombrit puis passe au noir), puis retour au
+  checkpoint (âmes conservées), objets rechargés, boss réinitialisé.
+- **Sauvegarde automatique** façon Dark Souls (un seul emplacement) : à chaque événement important
+  (repos, entrée dans l'arène, victoire, mort, objet utilisé, menu ouvert/fermé), toutes les
+  5 secondes et en quittant ; le fichier n'est réécrit que s'il a changé. On reprend à l'endroit
+  où on a quitté, sauf en plein combat : on revient devant la brume et le boss repart de zéro.
+  Fichier `save.ron` à côté de `settings.ron` (`localStorage` dans le navigateur).
 
 ## Régler le feel
 
@@ -104,7 +142,8 @@ Toutes les valeurs de gameplay sont dans `assets/config/` et exprimées en **tic
 - `player.ron` : PV, endurance, vitesses, esquive (i-frames), garde parfaite, regain…
 - `weapons.ron` : chaque attaque (startup/actif/récupération, hitbox, dégâts, stagger, root motion)
 - `boss.ron` : PV, phases, stagger, pauses entre les attaques, chaque attaque et ses portées
-- `arena.ron` : taille de l'arène, piliers, points d'apparition
+- `arena.ron` : taille de l'arène, piliers, couloir, checkpoint (nom, vue du menu de voyage),
+  points d'apparition
 
 Avec `cargo run --features dev`, sauvegarder un fichier relance le combat avec les nouvelles
 valeurs. Les animations se recalent automatiquement si on modifie les fenêtres de frappe.
@@ -118,12 +157,18 @@ src/sim/      simulation déterministe à 60 Hz (aucune dépendance au rendu)
   player.rs     machine à états du joueur (combos, charge, garde, esquive, sprint…)
   boss.rs       IA du boss (aggro multi-joueurs, choix pondéré, cooldowns, phases)
   combat.rs     collisions, hitbox (capsules, balayages en arc), garde / parfaite / regain
+  encounter.rs  checkpoint, brume, victoire, mort/réapparition, progression, commandes des menus
+  items.rs      objets, inventaire, emplacements rapides
 src/input.rs  clavier/souris/manette → PlayerInput (appuis verrouillés entre deux ticks)
-src/render/   rendu PS1, caméra, modèles et pilotage des animations par l'état de la sim
+src/render/   rendu PS1, caméra, modèles et pilotage des animations par l'état de la sim,
+              aperçu des checkpoints (menu de voyage)
 src/fx.rs     sons, étincelles, tremblements déclenchés par les événements de la sim
-src/hud.rs    interface
+src/hud.rs    interface en jeu
+src/menu.rs   écran titre, pause, checkpoint, équipement, options, aide
+src/save.rs   sauvegarde automatique (storage.rs : fichiers / localStorage)
 tools/blender assets générés par script (modèles low-poly, animations calées sur les timings)
 tools/sfx.py  bruitages synthétisés
+tools/pixel_font.py  police bitmap de l'interface
 tests/sim.rs  tests de la simulation, dont le déterminisme
 ```
 
@@ -137,7 +182,7 @@ cible entre plusieurs joueurs.
 ## Régénérer les assets
 
 ```sh
-tools/build_assets.sh   # timings → Blender (joueur, boss, armes, arène) → bruitages
+tools/build_assets.sh   # timings → Blender (joueur, boss, armes, arène) → bruitages → police
 ```
 
 Les fichiers `.blend` sont écrits dans `tools/blender/blend/` pour retouche manuelle (non versionnés :
@@ -150,5 +195,8 @@ PREVIEW_WEAPON=rapier blender -b tools/blender/blend/player.blend -P tools/blend
 
 ## Crédits
 
-Polices DejaVu (licence libre, voir `assets/fonts/LICENSE-DejaVu.txt`). Tout le reste (modèles,
-textures, animations, sons) est généré par les scripts du dépôt.
+Tout est généré par les scripts du dépôt : modèles, textures, animations, sons, et la police
+bitmap de l'interface (`tools/pixel_font.py`, cadratin de 12 pixels, accents français). L'interface
+est dessinée sur une grille de gros pixels (≈ 360 lignes, un nombre entier de pixels de l'écran
+par point) comme le jeu ; les icônes de touches (clavier, souris, manette Xbox) et d'objets sont
+dessinées en pixel art par `src/ui.rs` et `src/hud.rs`.

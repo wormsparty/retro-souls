@@ -1,7 +1,9 @@
-"""Génère assets/models/arena.glb : cour circulaire d'un théâtre forain en ruine.
+"""Génère assets/models/arena.glb : cour circulaire d'un théâtre forain en ruine, et le
+couloir d'accès (au sud) au bout duquel se trouve la lanterne du checkpoint.
 
-Les piliers sont lus dans assets/config/arena.ron (mêmes positions que les collisions).
-Les empties « light_* » indiquent au jeu où placer les lumières des braseros.
+Les piliers, le couloir et le checkpoint sont lus dans assets/config/arena.ron (mêmes
+positions que les collisions). Les empties « light_* » indiquent au jeu où placer les
+lumières (« light_checkpoint » : la lanterne).
 """
 
 import math
@@ -18,6 +20,11 @@ RADIUS = float(re.search(r"radius:\s*([\d.]+)", ron).group(1))
 pillars_src = ron[ron.index("pillars"):]
 pillars_src = pillars_src[:pillars_src.index("]")]
 PILLARS = [tuple(float(v) for v in m) for m in re.findall(r"\(\s*(-?[\d.]+),\s*(-?[\d.]+),\s*(-?[\d.]+)\s*\)", pillars_src)]
+CORRIDOR_HW = float(re.search(r"corridor_half_width:\s*([\d.]+)", ron).group(1))
+# Le repère jeu (x, z) correspond à (x, -y) dans Blender : le couloir part vers +y.
+CORRIDOR_END = -float(re.search(r"corridor_end:\s*(-?[\d.]+)", ron).group(1))
+_cp = re.search(r"checkpoint:\s*\(\s*(-?[\d.]+),\s*(-?[\d.]+)\s*\)", ron)
+CHECKPOINT = (float(_cp.group(1)), -float(_cp.group(2)))
 
 FLOOR = material("a_floor", tex=tex_stone(seed=41))
 BRICK = material("a_brick", tex=tex_brick(seed=42))
@@ -64,11 +71,17 @@ def floor(mb):
     ring_quads(mb, 2.2, 2.6, 0.04, DARKSTONE, 24)
 
 
+GATE_SEGMENT = 7  # segment de mur centré sur +y (ouverture vers le couloir)
+
+
 def wall(mb):
     sides = 32
     r_in, r_out, h = RADIUS + 0.5, RADIUS + 1.3, 5.0
     for i in range(sides):
-        a0, a1 = 2 * math.pi * i / sides, 2 * math.pi * (i + 1) / sides
+        # Décalé d'un demi-segment pour qu'un segment soit centré sur l'axe du couloir.
+        a0, a1 = 2 * math.pi * (i + 0.5) / sides, 2 * math.pi * (i + 1.5) / sides
+        if i == GATE_SEGMENT:
+            continue
         c0, s0, c1, s1 = math.cos(a0), math.sin(a0), math.cos(a1), math.sin(a1)
         hh = h - (1.6 if i % 5 == 2 else 0) - (0.7 if i % 3 == 0 else 0)  # créneaux en ruine
         vi = [mb.bm.verts.new(p) for p in ((r_in * c1, r_in * s1, 0), (r_in * c0, r_in * s0, 0),
@@ -80,8 +93,8 @@ def wall(mb):
         vt = [mb.bm.verts.new(p) for p in ((r_in * c0, r_in * s0, hh), (r_out * c0, r_out * s0, hh),
                                            (r_out * c1, r_out * s1, hh), (r_in * c1, r_in * s1, hh))]
         mb._face(vt, STONE)
-        # Contreforts.
-        if i % 4 == 0:
+        # Contreforts (pas contre l'ouverture).
+        if i % 4 == 0 and i not in (GATE_SEGMENT, GATE_SEGMENT + 1):
             mb.box((r_in * c0 - 0.3 * c0, r_in * s0 - 0.3 * s0, h / 2 - 0.4), (0.7, 0.7, h - 0.8), STONE)
 
 
@@ -122,12 +135,64 @@ def carousel(mb):
     mb.box((cx - 3.0, cy - 0.5, 1.3), (0.4, 1.2, 0.9), WOOD)
 
 
+def corridor(mb):
+    """Couloir sans faces coplanaires (le vertex snapping les ferait clignoter) et en panneaux
+    subdivisés (sinon la texture affine se déforme sur les longs murs)."""
+    hw, y1, h = CORRIDOR_HW, CORRIDOR_END, 4.6
+    yp0, yp1 = RADIUS + 0.4, RADIUS + 1.5  # porche
+    # Porche : deux piliers (en saillie de 15 cm dans le couloir) et un linteau.
+    for sx in (-1, 1):
+        mb.slab((sx * (hw + 0.25), (yp0 + yp1) / 2, 2.9), (0.8, yp1 - yp0, 5.8), STONE)
+    mb.slab((0, (yp0 + yp1) / 2, 5.2), (2 * hw + 1.5, yp1 - yp0 + 0.1, 0.8), STONE)
+    mb.box((0, (yp0 + yp1) / 2, 6.01), (2 * hw + 0.6, 0.9, 0.8), DARKSTONE, taper=(0.5, 1.0))
+    # Sol : il reprend exactement le bord du sol de l'arène (polygone à 48 côtés, dont un
+    # sommet est sur l'axe du couloir) au lieu de le chevaucher.
+    r = RADIUS + 1.5
+    a = 2 * math.pi * 11 / 48
+    ex, ey = r * math.cos(a), r * math.sin(a)
+    start = lambda x: r - (r - ey) * abs(x) / ex
+    cols = [-hw + 2 * hw * i / 4 for i in range(5)]
+    n = math.ceil((y1 - r))
+    rows = [[mb.bm.verts.new((x, start(x) + (y1 - start(x)) * j / n, 0)) for x in cols] for j in range(n + 1)]
+    for j in range(n):
+        for i in range(4):
+            q = (rows[j][i], rows[j][i + 1], rows[j + 1][i + 1], rows[j + 1][i])
+            mb._face(q, FLOOR, uvs=[(v.co.x / 2, v.co.y / 2) for v in q])
+    # Murs de brique (du porche au mur du fond), piliers engagés et poutres tous les 4 m.
+    for sx in (-1, 1):
+        mb.slab((sx * (hw + 0.3), (yp1 + y1) / 2, h / 2), (0.6, y1 - yp1, h), BRICK, tile=2.4,
+                skip=("bottom", "-y", "+y"))
+        for k in range(1, int((y1 - yp0) / 4) + 1):
+            y = yp0 + k * 4.0 - 1.0
+            mb.slab((sx * (hw - 0.05), y, (h + 0.1) / 2), (0.3, 0.5, h + 0.1), STONE, cell=0.8)
+    for k in range(1, int((y1 - yp0) / 4) + 1):
+        mb.slab((0, yp0 + k * 4.0 - 1.0, h - 0.2), (2 * hw + 0.6, 0.35, 0.35), WOOD, cell=0.8)
+    mb.slab((0, y1 + 0.3, h / 2), (2 * hw + 1.2, 0.6, h), BRICK, tile=2.4)
+
+
+def checkpoint(mb):
+    """Lanterne sur un socle de pierre : le point de repos."""
+    x, y = CHECKPOINT
+    mb.cylinder((x, y, 0.15), 0.55, 0.3, STONE, sides=8)
+    mb.cylinder((x, y, 0.45), 0.4, 0.3, DARKSTONE, sides=8, radius_top=0.3)
+    mb.cylinder((x, y, 1.15), 0.07, 1.1, IRON, sides=6)
+    mb.box((x, y, 1.72), (0.3, 0.3, 0.05), IRON)
+    mb.box((x, y, 1.9), (0.22, 0.22, 0.32), FIRE)
+    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+        mb.box((x + sx * 0.12, y + sy * 0.12, 1.9), (0.04, 0.04, 0.36), IRON)
+    mb.box((x, y, 2.1), (0.34, 0.34, 0.12), IRON, taper=(0.3, 0.3))
+    mb.cylinder((x, y, 2.23), 0.04, 0.12, IRON, sides=6)
+    return (x, y, 1.95)
+
+
 def skyline(mb):
     for i in range(20):
         a = 2 * math.pi * (i + 0.3) / 20
         d = RADIUS + 16 + (i * 7 % 5) * 2.5
         if abs(math.cos(a)) < 0.4 and math.sin(a) < 0:
             continue  # laisse voir le manège
+        if abs(d * math.cos(a)) < 7 + CORRIDOR_HW and d * math.sin(a) > RADIUS:
+            continue  # ne pas empiéter sur le couloir
         h = 8 + (i * 13 % 7) * 2.0
         mb.box((d * math.cos(a), d * math.sin(a), h / 2), (6, 5, h), DARKSTONE, taper=(0.9, 0.9), uv_scale=(2, 3))
         mb.box((d * math.cos(a), d * math.sin(a), h + 1.2), (6.2, 5.2, 2.4), DARKSTONE, taper=(0.1, 0.9))
@@ -142,8 +207,13 @@ o = bpy.data.objects.new("braziers", mb.finish("braziers_mesh"))
 sc.collection.objects.link(o)
 obj("carousel", carousel)
 obj("skyline", skyline)
-for i, p in enumerate(lights):
-    e = bpy.data.objects.new(f"light_{i}", None)
+obj("corridor", corridor)
+mb = MeshBuilder()
+cp_light = checkpoint(mb)
+o = bpy.data.objects.new("checkpoint", mb.finish("checkpoint_mesh"))
+sc.collection.objects.link(o)
+for name, p in [(f"light_{i}", p) for i, p in enumerate(lights)] + [("light_checkpoint", cp_light)]:
+    e = bpy.data.objects.new(name, None)
     e.location = p
     sc.collection.objects.link(e)
 export("arena")

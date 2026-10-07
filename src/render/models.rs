@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use bevy::animation::AnimationPlayer;
+use bevy::camera::visibility::RenderLayers;
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
@@ -84,8 +85,13 @@ pub struct TintFlash {
     pub white: f32,
 }
 
+/// Lumières de la scène : braseros, et la lanterne du checkpoint (`true`).
 #[derive(Resource, Default)]
-pub struct BrazierLights(pub Vec<Vec3>);
+pub struct BrazierLights(pub Vec<(Vec3, bool)>);
+
+/// Brume qui ferme l'arène pendant le combat.
+#[derive(Component)]
+struct FogGate;
 
 pub struct ModelsPlugin;
 
@@ -94,13 +100,14 @@ impl Plugin for ModelsPlugin {
         app.init_resource::<BrazierLights>()
             .add_systems(Startup, load_assets)
             .add_systems(Update, wait_for_assets.run_if(in_state(AppState::Loading)))
-            .add_systems(OnEnter(AppState::Playing), spawn_arena)
+            .add_systems(OnExit(AppState::Loading), (spawn_arena, spawn_fog_gate))
             .add_systems(
                 Update,
-                (attach_visuals, drive_player_anims, drive_boss_anims, weapon_visibility, boss_tint, flicker)
+                (attach_visuals, drive_player_anims, drive_boss_anims, weapon_visibility, boss_tint, fog_gate)
                     .run_if(in_state(AppState::Playing))
                     .after(super::interpolate),
             )
+            .add_systems(Update, flicker.run_if(not(in_state(AppState::Loading))))
             .add_observer(on_scene_ready);
     }
 }
@@ -142,7 +149,7 @@ fn wait_for_assets(
         player: build_anims(p, include_str!("../../assets/models/player.anim.json"), &mut graphs),
         boss: build_anims(b, include_str!("../../assets/models/boss.anim.json"), &mut graphs),
     });
-    next.set(AppState::Playing);
+    next.set(AppState::Title);
 }
 
 fn scene_of(gltfs: &Assets<Gltf>, h: &Handle<Gltf>) -> Handle<bevy::world_serialization::WorldAsset> {
@@ -193,6 +200,7 @@ fn on_scene_ready(
     names: Query<&Name>,
     transforms: Query<&Transform>,
     anim_players: Query<(), With<AnimationPlayer>>,
+    meshes: Query<(), With<Mesh3d>>,
     mut drivers: Query<&mut AnimDriver>,
     models: Option<Res<Models>>,
     assets: Res<GameAssets>,
@@ -203,6 +211,10 @@ fn on_scene_ready(
     let Ok(vs) = scenes.get(root) else { return };
     let Some(models) = models else { return };
     for d in children.iter_descendants(root) {
+        // Le décor est aussi filmé par la caméra d'aperçu du menu de voyage.
+        if vs.kind == VisualKind::Arena && meshes.contains(d) {
+            commands.entity(d).insert(RenderLayers::from_layers(&[0, super::preview::PREVIEW_LAYER]));
+        }
         if anim_players.contains(d) {
             let graph = match vs.kind {
                 VisualKind::Player => models.player.graph.clone(),
@@ -228,7 +240,7 @@ fn on_scene_ready(
         }
         if vs.kind == VisualKind::Arena && name.as_str().starts_with("light_") {
             if let Ok(t) = transforms.get(d) {
-                braziers.0.push(t.translation);
+                braziers.0.push((t.translation, name.as_str() == "light_checkpoint"));
             }
         }
     }
@@ -428,20 +440,84 @@ fn boss_tint(
     }
 }
 
-fn flicker(time: Res<Time>, braziers: Res<BrazierLights>, mut lighting: ResMut<Ps1Lighting>) {
+/// Lumières ponctuelles : le shader n'en gère que 4, on garde les plus proches de la caméra.
+fn flicker(
+    time: Res<Time>,
+    braziers: Res<BrazierLights>,
+    rig: Res<super::camera::CameraRig>,
+    mut lighting: ResMut<Ps1Lighting>,
+) {
     let t = time.elapsed_secs();
-    lighting.lights = braziers
+    let mut lights: Vec<PointLightPs1> = braziers
         .0
         .iter()
         .enumerate()
-        .map(|(i, p)| {
+        .map(|(i, (p, checkpoint))| {
             let f = i as f32 * 1.7;
-            PointLightPs1 {
-                pos: *p,
-                radius: 9.0,
-                color: Vec3::new(1.0, 0.55, 0.22),
-                intensity: 1.1 + 0.15 * (t * 9.0 + f).sin() + 0.1 * (t * 23.0 + f * 2.0).sin(),
+            if *checkpoint {
+                // Lanterne du checkpoint : lumière dorée, qui « respire » lentement.
+                PointLightPs1 {
+                    pos: *p,
+                    radius: 8.0,
+                    color: Vec3::new(1.0, 0.82, 0.45),
+                    intensity: 1.2 + 0.15 * (t * 1.6).sin(),
+                }
+            } else {
+                PointLightPs1 {
+                    pos: *p,
+                    radius: 9.0,
+                    color: Vec3::new(1.0, 0.55, 0.22),
+                    intensity: 1.1 + 0.15 * (t * 9.0 + f).sin() + 0.1 * (t * 23.0 + f * 2.0).sin(),
+                }
             }
         })
         .collect();
+    lights.sort_by(|a, b| a.pos.distance_squared(rig.focus).total_cmp(&b.pos.distance_squared(rig.focus)));
+    lights.truncate(4);
+    lighting.lights = lights;
+}
+
+fn spawn_fog_gate(
+    mut commands: Commands,
+    tuning: Res<Tuning>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<Ps1Material>>,
+) {
+    let a = &tuning.arena;
+    let mut m = Ps1Material::unlit(Color::srgba(0.55, 0.58, 0.68, 0.3));
+    m.alpha_mode = AlphaMode::Blend;
+    // Deux voiles légèrement décalés, pour un peu d'épaisseur.
+    let mesh = meshes.add(Rectangle::new(a.corridor_half_width * 2.0 + 0.6, 4.2));
+    let center = crate::sim::encounter::fog_gate(a) + Vec3::Y * 2.1;
+    for (dz, flip) in [(0.0, false), (-0.25, true)] {
+        let rot = if flip { Quat::from_rotation_y(std::f32::consts::PI) } else { Quat::IDENTITY };
+        commands.spawn((
+            FogGate,
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(mats.add(m.clone())),
+            Transform::from_translation(center + Vec3::Z * dz).with_rotation(rot),
+            Visibility::Hidden,
+        ));
+    }
+}
+
+/// La brume n'apparaît que pendant le combat, et ondule doucement.
+fn fog_gate(
+    time: Res<Time>,
+    enc: Res<crate::sim::encounter::Encounter>,
+    mut q: Query<(&mut Visibility, &MeshMaterial3d<Ps1Material>), With<FogGate>>,
+    mut mats: ResMut<Assets<Ps1Material>>,
+) {
+    let t = time.elapsed_secs();
+    for (i, (mut vis, h)) in q.iter_mut().enumerate() {
+        let want = if enc.active { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        if enc.active {
+            if let Some(mut m) = mats.get_mut(&h.0) {
+                m.params.base_color.w = 0.26 + 0.08 * (t * 1.3 + i as f32 * 2.0).sin();
+            }
+        }
+    }
 }

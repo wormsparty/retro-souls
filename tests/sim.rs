@@ -3,16 +3,31 @@
 use bevy::prelude::*;
 use souls::sim::boss::Boss;
 use souls::sim::data::{BossMove, MoveRef, PlayerMove, Tuning};
+use souls::sim::encounter::{Encounter, SimCommand, SimCommands, checkpoint_pos};
+use souls::sim::items::Item;
 use souls::sim::fighter::{Action, Body, Health};
 use souls::sim::input::{PlayerInput, PlayerInputs, btn};
 use souls::sim::player::{PState, Player};
 use souls::sim::{SimDebug, SimEvent, SimEvents, SimPlugin, SimSchedule, math, state_hash};
 
+/// Combat en cours : le joueur est placé dans l'arène, face au boss (qui se réveille).
 fn new_app() -> App {
     let mut app = App::new();
     app.add_plugins(SimPlugin);
     app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
     step(&mut app, PlayerInput::default()); // spawn
+    let p = player(&mut app);
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -10.0);
+    step(&mut app, PlayerInput::default());
+    assert!(app.world().resource::<Encounter>().active);
+    app
+}
+
+/// Partie qui commence, comme en jeu : devant le checkpoint, boss endormi.
+fn fresh_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(SimPlugin);
+    step(&mut app, PlayerInput::default());
     app
 }
 
@@ -260,12 +275,21 @@ fn run_scripted(n: u32) -> (u64, f32, f32) {
     let mut app = App::new();
     app.add_plugins(SimPlugin);
     let mut hashes = 0u64;
+    let mut min_hp = (f32::MAX, f32::MAX);
     for i in 0..n {
+        if i == 1 {
+            // Directement dans l'arène.
+            let p = player(&mut app);
+            app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -8.0);
+        }
         step(&mut app, scripted_input(i));
         hashes = hashes.rotate_left(5) ^ state_hash(app.world_mut());
+        // Plus bas PV atteints (le joueur peut mourir et réapparaître en cours de route).
+        let (p, b) = (player(&mut app), boss(&mut app));
+        min_hp.0 = min_hp.0.min(hp(&mut app, p));
+        min_hp.1 = min_hp.1.min(hp(&mut app, b));
     }
-    let (p, b) = (player(&mut app), boss(&mut app));
-    (hashes, hp(&mut app, p), hp(&mut app, b))
+    (hashes, min_hp.0, min_hp.1)
 }
 
 #[test]
@@ -323,26 +347,26 @@ fn heal_restores_health_and_is_lost_if_interrupted() {
     let mut app = new_app();
     let p = player(&mut app);
     app.world_mut().get_mut::<Health>(p).unwrap().cur = 100.0;
-    step(&mut app, PlayerInput { buttons: btn::HEAL, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::ITEM, ..IDLE });
     steps(&mut app, t.player.heal.total + 2, IDLE);
     let expected = 100.0 + t.player.max_hp * t.player.heal_ratio;
     assert!((hp(&mut app, p) - expected).abs() < 1e-3);
-    assert_eq!(app.world().get::<Player>(p).unwrap().heals, t.player.heal_charges - 1);
+    assert_eq!(app.world().get::<Player>(p).unwrap().inventory.count(Item::HealFlask), t.player.heal_charges - 1);
 
     // Touché avant l'application : charge perdue, pas de soin.
     let mut app = new_app();
     let hit_start = boss_attack(&mut app, "ecrasement", 2.6);
     let p = player(&mut app);
     steps(&mut app, hit_start + 1 - 5, IDLE);
-    step(&mut app, PlayerInput { buttons: btn::HEAL, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::ITEM, ..IDLE });
     steps(&mut app, 60, IDLE);
     let pl = app.world().get::<Player>(p).unwrap();
-    assert_eq!(pl.heals, t.player.heal_charges - 1);
+    assert_eq!(pl.inventory.count(Item::HealFlask), t.player.heal_charges - 1);
     assert!(hp(&mut app, p) < t.player.max_hp);
     // Plus de charges : rien ne se passe.
-    app.world_mut().get_mut::<Player>(p).unwrap().heals = 0;
+    while app.world_mut().get_mut::<Player>(p).unwrap().inventory.consume(Item::HealFlask) {}
     steps(&mut app, 120, IDLE);
-    step(&mut app, PlayerInput { buttons: btn::HEAL, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::ITEM, ..IDLE });
     assert_ne!(app.world().get::<Player>(p).unwrap().state, PState::Acting);
 }
 
@@ -367,4 +391,147 @@ fn charged_heavy_releases_automatically_at_full_charge() {
         step(&mut app, IDLE);
         assert!(app.world().get::<Action>(p).unwrap().is(MoveRef::Weapon(w, WeaponMove::Heavy)));
     }
+}
+
+fn body(app: &mut App, e: Entity) -> Body {
+    *app.world().get::<Body>(e).unwrap()
+}
+
+#[test]
+fn boss_sleeps_until_player_enters_and_fog_closes_corridor() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let (p, b) = (player(&mut app), boss(&mut app));
+    // Départ devant le checkpoint, dans le couloir.
+    let start = body(&mut app, p).pos;
+    assert!(start.distance(checkpoint_pos(&t.arena)) < 2.5);
+    assert!(!app.world().resource::<Encounter>().active);
+    let boss_start = body(&mut app, b).pos;
+    steps(&mut app, 120, IDLE);
+    assert_eq!(body(&mut app, b).pos, boss_start, "le boss dort");
+    // Marcher vers l'arène (la caméra regarde vers +z).
+    let fwd = PlayerInput { move_y: 127, ..IDLE };
+    let mut n = 0;
+    while !app.world().resource::<Encounter>().active {
+        step(&mut app, fwd);
+        n += 1;
+        assert!(n < 600, "jamais entré dans l'arène");
+    }
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossAwake)));
+    assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(BossMove::Roar)));
+    // Impossible de ressortir : la brume bloque le couloir.
+    steps(&mut app, 240, PlayerInput { move_y: -127, ..IDLE });
+    let pos = body(&mut app, p).pos;
+    assert!(math::flat_len(pos) <= t.arena.radius, "{pos:?}");
+}
+
+#[test]
+fn defeating_boss_gives_souls_and_persists_until_revived() {
+    let mut app = new_app();
+    let t = tuning(&app);
+    let (p, b) = (player(&mut app), boss(&mut app));
+    // Boss à un PV, juste devant le joueur.
+    app.world_mut().get_mut::<Health>(b).unwrap().cur = 1.0;
+    app.world_mut().get_mut::<Action>(b).unwrap().stop();
+    app.world_mut().get_mut::<Body>(b).unwrap().pos = Vec3::new(0.0, 0.0, -8.0);
+    app.world_mut().get_mut::<Body>(p).unwrap().yaw = 0.0;
+    step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
+    steps(&mut app, 40, IDLE);
+    let enc = *app.world().resource::<Encounter>();
+    assert!(enc.boss_defeated && !enc.active);
+    assert_eq!(app.world().get::<Player>(p).unwrap().souls, t.boss.souls);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossDefeated { .. })));
+
+    // Recréer les combattants (rechargement) : pas de boss, les âmes sont gardées.
+    app.world_mut().resource_mut::<souls::sim::ResetFight>().requested = true;
+    step(&mut app, IDLE);
+    assert_eq!(app.world_mut().query::<&Boss>().iter(app.world()).count(), 0);
+    let p = player(&mut app);
+    assert_eq!(app.world().get::<Player>(p).unwrap().souls, t.boss.souls);
+
+    // Ranimer le boss depuis le checkpoint.
+    app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::ReviveBoss);
+    step(&mut app, IDLE);
+    let b = boss(&mut app);
+    assert_eq!(hp(&mut app, b), t.boss.max_hp);
+    assert!(!app.world().resource::<Encounter>().boss_defeated);
+}
+
+#[test]
+fn death_respawns_at_checkpoint_with_items_refilled() {
+    let mut app = new_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    {
+        let mut pl = app.world_mut().get_mut::<Player>(p).unwrap();
+        pl.souls = 300;
+        pl.inventory.consume(Item::HealFlask);
+    }
+    let b = boss(&mut app);
+    app.world_mut().get_mut::<Health>(b).unwrap().cur = 500.0;
+    app.world_mut().get_mut::<Health>(p).unwrap().cur = 10.0;
+    let hit_start = boss_attack(&mut app, "ecrasement", 2.6);
+    steps(&mut app, hit_start + 30 + t.player.death.total + souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    let p = player(&mut app);
+    let pl = app.world().get::<Player>(p).unwrap().clone();
+    assert_eq!(pl.state, PState::Free);
+    assert_eq!(pl.souls, 300);
+    assert_eq!(pl.inventory.count(Item::HealFlask), t.player.heal_charges);
+    assert_eq!(hp(&mut app, p), t.player.max_hp);
+    assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t.arena)) < 2.5);
+    // Le boss repart de zéro et se rendort.
+    let b = boss(&mut app);
+    assert_eq!(hp(&mut app, b), t.boss.max_hp);
+    assert!(!app.world().resource::<Encounter>().active);
+}
+
+#[test]
+fn resting_at_checkpoint_restores_everything() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    app.world_mut().get_mut::<Health>(p).unwrap().cur = 50.0;
+    while app.world_mut().get_mut::<Player>(p).unwrap().inventory.consume(Item::HealFlask) {}
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Rested { .. })));
+    assert_eq!(hp(&mut app, p), t.player.max_hp);
+    assert_eq!(app.world().get::<Player>(p).unwrap().inventory.count(Item::HealFlask), t.player.heal_charges);
+    // Loin du checkpoint : rien.
+    app.world_mut().get_mut::<Body>(p).unwrap().pos.z += 6.0;
+    steps(&mut app, 10, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(!events(&mut app).iter().any(|e| matches!(e, SimEvent::Rested { .. })));
+}
+
+#[test]
+fn quick_slots_cycle_and_empty_slot_does_nothing() {
+    let mut app = fresh_app();
+    let p = player(&mut app);
+    // Déplacer la fiole dans l'emplacement 2 : la sélection suit.
+    app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::Equip { player: 0, slot: 1, item: Some(Item::HealFlask) });
+    step(&mut app, IDLE);
+    assert_eq!(app.world().get::<Player>(p).unwrap().inventory.active, 1);
+    // Retirer l'objet : utiliser ne fait rien.
+    app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::Equip { player: 0, slot: 1, item: None });
+    step(&mut app, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::ITEM, ..IDLE });
+    assert_ne!(app.world().get::<Player>(p).unwrap().state, PState::Acting);
+    step(&mut app, PlayerInput { buttons: btn::NEXT_ITEM, ..IDLE });
+}
+
+#[test]
+fn l3_click_starts_sprint_until_stick_released() {
+    let mut app = fresh_app();
+    let p = player(&mut app);
+    let fwd = PlayerInput { move_y: 127, ..default() };
+    steps(&mut app, 10, fwd);
+    assert!(!app.world().get::<Player>(p).unwrap().sprinting);
+    // Un simple clic suffit : la course continue sans maintenir le bouton.
+    step(&mut app, PlayerInput { buttons: btn::SPRINT, ..fwd });
+    steps(&mut app, 10, fwd);
+    assert!(app.world().get::<Player>(p).unwrap().sprinting);
+    // Lâcher le stick arrête la course ; repartir ne la relance pas.
+    steps(&mut app, 2, PlayerInput::default());
+    steps(&mut app, 5, fwd);
+    assert!(!app.world().get::<Player>(p).unwrap().sprinting);
 }

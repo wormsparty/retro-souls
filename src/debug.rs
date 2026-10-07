@@ -25,10 +25,10 @@ pub struct DebugPlugin;
 impl Plugin for DebugPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DebugUi>()
-            .add_systems(Startup, |mut commands: Commands, server: Res<AssetServer>| {
+            .add_systems(Startup, |mut commands: Commands, font: Res<crate::ui::UiFont>| {
                 commands.spawn((
                     Text::new(""),
-                    TextFont { font: server.load("fonts/DejaVuSansMono.ttf").into(), font_size: FontSize::Px(13.0), ..default() },
+                    font.at(1),
                     TextColor(Color::srgb(0.6, 1.0, 0.6)),
                     Node { position_type: PositionType::Absolute, left: px(28), top: px(96), ..default() },
                     DebugText,
@@ -43,7 +43,12 @@ fn keys(
     mut ui: ResMut<DebugUi>,
     mut sim: ResMut<SimDebug>,
     mut fixed: ResMut<Time<Fixed>>,
+    mut reset: ResMut<crate::sim::ResetFight>,
 ) {
+    if input.just_pressed(KeyCode::F5) {
+        // Recrée les combattants en gardant la progression (le boss repart de zéro).
+        reset.requested = true;
+    }
     if input.just_pressed(KeyCode::F1) {
         ui.overlay = !ui.overlay;
     }
@@ -163,7 +168,51 @@ impl Plugin for AutoShotPlugin {
         let times = spec.split(',').filter_map(|s| s.trim().parse().ok()).collect();
         let dir = std::env::var("SOULS_SHOT_DIR").unwrap_or_else(|_| ".".into());
         app.insert_resource(AutoShots { times, dir, done: 0 })
-            .add_systems(Update, autoshot.run_if(in_state(AppState::Playing)));
+            .add_systems(Update, autoshot.run_if(not(in_state(AppState::Loading))));
+        // `SOULS_PAD=1` : libellés manette.
+        if std::env::var("SOULS_PAD").is_ok() {
+            app.add_systems(PostStartup, |mut d: ResMut<crate::input::Device>| *d = crate::input::Device::Gamepad);
+        }
+        // Pas d'écriture de sauvegarde pendant les captures ; `SOULS_TITLE` reste sur l'écran titre.
+        app.add_systems(PostStartup, |mut slot: ResMut<crate::save::SaveSlot>| slot.disabled = true);
+        if std::env::var("SOULS_TITLE").is_err() {
+            app.add_systems(OnEnter(AppState::Title), (|mut commands: Commands| {
+                commands.queue(|w: &mut World| {
+                    crate::menu::launch(w, crate::menu::Launch::New);
+                    // Position de départ optionnelle : SOULS_START=x,z[,yaw en degrés].
+                    let start = std::env::var("SOULS_START").ok().map(|s| {
+                        s.split(',').filter_map(|p| p.trim().parse().ok()).collect::<Vec<f32>>()
+                    });
+                    if let (Some(v), Some(p)) = (start, w.resource_mut::<crate::sim::ResetFight>().progress.as_mut())
+                        && v.len() >= 2
+                    {
+                        p.pos = Some([v[0], v[1], v.get(2).copied().unwrap_or(0.0).to_radians()]);
+                    }
+                    // PV de départ optionnels : SOULS_HP=1 (vérifier la mort et la réapparition).
+                    if let (Some(hp), Some(p)) = (
+                        std::env::var("SOULS_HP").ok().and_then(|h| h.parse().ok()),
+                        w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
+                    ) {
+                        p.hp = Some(hp);
+                    }
+                });
+            })
+            .after(crate::menu::enter_title));
+        }
+        // `SOULS_REST=1` : appuie sur « interagir » une seconde après le début (repos au checkpoint).
+        if std::env::var("SOULS_REST").is_ok() {
+            app.add_systems(
+                FixedUpdate,
+                (|tick: Res<SimTick>, mut inputs: ResMut<crate::sim::input::PlayerInputs>| {
+                    if tick.0 == 60 {
+                        inputs.0[0].buttons |= crate::sim::input::btn::INTERACT;
+                    }
+                })
+                .after(crate::input::collect_local_input)
+                .before(crate::sim::run_sim_tick)
+                .run_if(in_state(AppState::Playing)),
+            );
+        }
         if std::env::var("SOULS_AUTOPILOT").is_ok() {
             app.add_systems(
                 FixedUpdate,
@@ -187,8 +236,20 @@ fn autoshot(
     use bevy::render::view::screenshot::{Screenshot, save_to_disk};
     let t0 = *start.get_or_insert(time.elapsed_secs());
     let t = time.elapsed_secs() - t0;
-    if std::env::var("SOULS_OPEN_MENU").is_ok() && t > 1.0 && !menu.open {
-        menu.open = true;
+    if let Ok(page) = std::env::var("SOULS_OPEN_MENU")
+        && t > 1.0
+        && !menu.open
+    {
+        use crate::menu::Page;
+        menu.open(match page.as_str() {
+            "help" => Page::Help,
+            "equip" => Page::Equipment,
+            "options" => Page::Options,
+            "checkpoint" => Page::Checkpoint,
+            "travel" => Page::Travel,
+            "language" => Page::Language,
+            _ => Page::Pause,
+        });
     }
     if let Some(&at) = shots.times.get(shots.done) {
         if t >= at {
@@ -219,7 +280,7 @@ fn autopilot(
         i.buttons |= btn::SWITCH;
     }
     if t % 480 == 400 {
-        i.buttons |= btn::HEAL;
+        i.buttons |= btn::ITEM;
     }
     let dist = pb.pos.distance(bb.pos);
     if t > 40 && dist > 3.2 {

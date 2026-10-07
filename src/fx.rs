@@ -51,8 +51,8 @@ impl Plugin for FxPlugin {
     }
 }
 
-const SOUNDS: [&str; 14] = [
-    "heal",
+const SOUNDS: [&str; 15] = [
+    "heal", "souls",
     "perfect_guard", "guard", "guard_break", "hit", "hit_heavy", "slam", "swing", "swing_heavy",
     "dodge", "fury", "fatal", "roar", "switch",
 ];
@@ -77,7 +77,7 @@ fn setup(
     });
 }
 
-fn play(commands: &mut Commands, sounds: &Sounds, name: &str, volume: f32) {
+pub fn play(commands: &mut Commands, sounds: &Sounds, name: &str, volume: f32) {
     let volume = volume * sounds.1;
     if let Some(h) = sounds.0.get(name) {
         commands.spawn((
@@ -189,6 +189,21 @@ pub fn consume_events(
                 }
             }
             SimEvent::NoStamina { .. } => fx.no_stamina = 1.0,
+            SimEvent::ItemCycled { .. } => play(&mut commands, &sounds, "switch", 0.35),
+            SimEvent::BossAwake => {
+                play(&mut commands, &sounds, "roar", 1.0);
+                rig.shake = rig.shake.max(0.8);
+            }
+            SimEvent::BossRevived => play(&mut commands, &sounds, "roar", 0.5),
+            SimEvent::BossDefeated { .. } => {}
+            SimEvent::Rested { entity } => {
+                play(&mut commands, &sounds, "heal", 0.9);
+                if let Ok(t) = transforms.get(entity) {
+                    burst(&mut commands, &sparks, &sparks.heal, t.translation() + Vec3::Y * 1.0, 24, 2.0, seed);
+                }
+            }
+            // Nouveaux combattants : la caméra se recale derrière le joueur.
+            SimEvent::Respawned => rig.initialized = false,
         }
     }
 }
