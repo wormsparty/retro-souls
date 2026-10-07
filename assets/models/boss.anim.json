@@ -75,12 +75,40 @@
    210
   ]
  },
+ "ground_quake": {
+  "frames": 150.0,
+  "loop": false,
+  "marks": [
+   0,
+   76,
+   96,
+   150
+  ]
+ },
  "idle": {
   "frames": 140.0,
   "loop": true,
   "marks": [
    0,
    140.0
+  ]
+ },
+ "leap_back": {
+  "frames": 64.0,
+  "loop": false,
+  "marks": [
+   0,
+   64
+  ]
+ },
+ "leap_slam": {
+  "frames": 170.0,
+  "loop": false,
+  "marks": [
+   0,
+   92,
+   102,
+   170
   ]
  },
  "overhead_slam": {

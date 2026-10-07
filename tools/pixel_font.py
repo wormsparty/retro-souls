@@ -1,4 +1,4 @@
-"""Génère assets/fonts/souls-ps1.ttf : police bitmap façon PS1 (chaque pixel est un carré).
+"""Génère assets/fonts/giants-flame.ttf : police bitmap façon PS1 (chaque pixel est un carré).
 
 python3 tools/pixel_font.py   (nécessite fontTools)
 
@@ -12,7 +12,7 @@ import os
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts", "souls-ps1.ttf")
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts", "giants-flame.ttf")
 UNIT = 100
 EM = 12
 
@@ -259,7 +259,7 @@ def main():
     fb.setupHorizontalMetrics(metrics)
     asc, desc = 10 * UNIT, -2 * UNIT
     fb.setupHorizontalHeader(ascent=asc, descent=desc, lineGap=0)
-    fb.setupNameTable({"familyName": "Souls PS1", "styleName": "Regular"})
+    fb.setupNameTable({"familyName": "Giant's Flame", "styleName": "Regular"})
     fb.setupOS2(sTypoAscender=asc, sTypoDescender=desc, sTypoLineGap=0, usWinAscent=asc, usWinDescent=-desc,
                 sxHeight=5 * UNIT, sCapHeight=7 * UNIT, fsSelection=0x40)
     fb.setupPost()

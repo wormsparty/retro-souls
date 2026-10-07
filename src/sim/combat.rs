@@ -168,7 +168,10 @@ pub fn resolve_hits(
                 php.cur = (php.cur + heal).min(php.max);
                 p.regain -= heal;
             }
-            p.special += dmg * t.player.special_per_damage;
+            // Les coups de la spéciale ne rechargent pas la jauge (sinon elle se rembourse).
+            if !matches!(hit.mv, MoveRef::Weapon(_, WeaponMove::Special | WeaponMove::SpecialCounter)) {
+                p.special += dmg * t.player.special_per_damage;
+            }
             pstop.0 = pstop.0.max(h.hitstop);
             bstop.0 = bstop.0.max(h.hitstop);
             let pos = impact_point(pbody, bbody);
@@ -201,8 +204,8 @@ pub fn resolve_hits(
                 <= t.player.guard.arc.to_radians();
             let g = &t.player.guard;
 
-            // Contre de la posture (spéciale de l'épée longue).
-            if let Some(MoveRef::Weapon(w, WeaponMove::Special)) = pact.mv {
+            // Contre de la posture (spéciale de l'épée longue). Une onde de choc ne se contre pas.
+            if let (Some(MoveRef::Weapon(w, WeaponMove::Special)), false) = (pact.mv, h.aoe) {
                 let def = t.get(MoveRef::Weapon(w, WeaponMove::Special));
                 if facing
                     && MoveDef::in_window(def.counter, pact.tick)
@@ -222,7 +225,7 @@ pub fn resolve_hits(
             let in_guard = p.state == PState::Guard
                 || pact.is(MoveRef::Player(PlayerMove::GuardHit))
                 || pact.is(MoveRef::Player(PlayerMove::PerfectGuard));
-            if p.guard_held && facing && in_guard {
+            if p.guard_held && facing && in_guard && !h.aoe {
                 if now.saturating_sub(p.guard_start) <= p.perfect_window(t) {
                     // Garde parfaite : aucun dégât, stagger pour le boss.
                     force_move(&mut p, &mut pact, MoveRef::Player(PlayerMove::PerfectGuard));

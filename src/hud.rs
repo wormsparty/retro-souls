@@ -1,4 +1,4 @@
-//! Interface : barres du joueur et du boss, objet rapide, âmes, réticule de verrouillage,
+//! Interface : barres du joueur et du boss, objet rapide, braises, réticule de verrouillage,
 //! invite d'interaction, bannières et fondu à la mort.
 
 use bevy::asset::RenderAssetUsages;
@@ -25,7 +25,7 @@ const HP_PX: f32 = 0.6; // px par PV
 const ST_PX: f32 = 2.0; // px par point d'endurance
 const TEXT: Color = Color::srgb(0.85, 0.82, 0.75);
 const GOLD: Color = Color::srgb(0.9, 0.75, 0.4);
-/// Durée d'affichage d'un gain d'âmes (le compteur l'absorbe après la première seconde).
+/// Durée d'affichage d'un gain de braises (le compteur l'absorbe après la première seconde).
 const GAIN_SHOW: f32 = 4.0;
 
 #[derive(Component)]
@@ -53,9 +53,9 @@ struct ItemHint;
 #[derive(Component)]
 struct SlotPip(u8);
 #[derive(Component)]
-struct SoulsText;
+struct EmbersText;
 #[derive(Component)]
-struct SoulsGain;
+struct EmbersGain;
 #[derive(Component)]
 struct Prompt;
 #[derive(Component)]
@@ -99,12 +99,12 @@ struct Outcome {
     duration: Option<f32>,
 }
 
-/// Valeurs animées : compteur d'âmes, fondu au noir.
+/// Valeurs animées : compteur de braises, fondu au noir.
 #[derive(Resource, Default)]
 struct HudAnim {
-    souls_shown: f32,
-    /// Âmes du joueur à la frame précédente (détection des gains).
-    souls_known: u32,
+    embers_shown: f32,
+    /// Braises du joueur à la frame précédente (détection des gains).
+    embers_known: u32,
     gain: u32,
     gain_timer: f32,
     /// Le compteur a commencé à absorber le gain (son joué).
@@ -127,12 +127,12 @@ impl Plugin for HudPlugin {
             })
             .add_systems(OnEnter(AppState::Playing), |mut out: ResMut<Outcome>, mut anim: ResMut<HudAnim>| {
                 *out = Outcome::default();
-                *anim = HudAnim { fade: 1.0, souls_shown: -1.0, ..default() };
+                *anim = HudAnim { fade: 1.0, embers_shown: -1.0, ..default() };
             })
             .add_systems(Update, show_root)
             .add_systems(
                 Update,
-                (update_bars, update_boss, update_item, souls, prompt, outcome, overlay, reticle, weapon_label)
+                (update_bars, update_boss, update_item, embers, prompt, outcome, overlay, reticle, weapon_label)
                     .run_if(in_state(AppState::Playing))
                     .after(crate::fx::consume_events),
             );
@@ -146,46 +146,16 @@ fn bar(width: f32, height: f32, color: Color, kind: Bar) -> impl Bundle {
 /// Taille des icônes d'objets, en pixels (= points).
 const ITEM_ICON: usize = 24;
 
-/// Fiole de soin façon icône PS1 : petit rendu « 3D » (panse sphérique éclairée, reflet,
-/// liquide vert lumineux) ramené à 15 bits par canal avec le même tramage 4×4 que le jeu.
-fn flask_icon() -> Image {
-    const N: usize = ITEM_ICON;
+/// Icône façon PS1 de `n`×`n` pixels : `shade(x, y)` donne la couleur de chaque pixel (centre
+/// du pixel, en pixels depuis le coin haut gauche) ou `None` s'il est transparent. Les couleurs
+/// sont ramenées à 15 bits par canal avec le même tramage 4×4 que le jeu ; avec `outline`,
+/// l'icône reçoit un contour sombre d'un pixel pour se détacher du fond.
+fn ps1_icon(n: usize, outline: bool, shade: impl Fn(f32, f32) -> Option<Vec3>) -> Image {
     const BAYER: [f32; 16] = [0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0];
-    let light = Vec3::new(-0.55, 0.6, 0.6).normalize();
-    let (cx, cy, r) = (12.0, 15.0, 8.2);
-    let mut data = Vec::with_capacity(N * N * 4);
-    for y in 0..N {
-        for x in 0..N {
-            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            let (dx, dy) = ((fx - cx) / r, (fy - cy) / r);
-            let d2 = dx * dx + dy * dy;
-            let neck = (fx - cx).abs() <= 2.6 && (3.0..8.5).contains(&fy);
-            let lip = (fx - cx).abs() <= 3.4 && (5.0..6.5).contains(&fy);
-            let cork = (fx - cx).abs() <= 2.2 && (0.5..4.0).contains(&fy);
-            let rgb: Option<Vec3> = if cork {
-                let k = 0.75 + 0.35 * (1.0 - (fx - cx + 1.0).abs() / 3.0) - (fy - 0.5) * 0.06;
-                Some(Vec3::new(0.55, 0.36, 0.2) * k)
-            } else if lip || (neck && d2 > 1.0) {
-                let k = 0.5 + 0.5 * (1.0 - ((fx - cx + 0.8) / 3.4).abs()).max(0.0);
-                Some(Vec3::new(0.55, 0.62, 0.66) * k + Vec3::splat(0.08))
-            } else if d2 <= 1.0 {
-                let n = Vec3::new(dx, -dy, (1.0 - d2).sqrt());
-                let diffuse = n.dot(light).max(0.0);
-                let spec = n.dot((light + Vec3::Z).normalize()).max(0.0).powf(24.0);
-                let rim = (1.0 - n.z).powf(2.0);
-                // Liquide sous la ligne de niveau (légère ondulation), verre vide au-dessus.
-                let level = cy - 2.0 + 0.6 * ((fx - cx) * 0.9).sin();
-                let base = if fy > level {
-                    let glow = 0.35 + 0.65 * (1.0 - d2);
-                    Vec3::new(0.12, 0.62, 0.3) * (0.35 + 0.75 * diffuse) + Vec3::new(0.1, 0.35, 0.12) * glow
-                } else {
-                    Vec3::new(0.28, 0.33, 0.38) * (0.4 + 0.6 * diffuse)
-                };
-                Some(base + Vec3::new(0.55, 0.65, 0.7) * rim * 0.45 + Vec3::splat(spec * 1.1))
-            } else {
-                None
-            };
-            let px = match rgb {
+    let mut data = Vec::with_capacity(n * n * 4);
+    for y in 0..n {
+        for x in 0..n {
+            let px = match shade(x as f32 + 0.5, y as f32 + 0.5) {
                 Some(c) => {
                     let d = BAYER[(y % 4) * 4 + x % 4] / 16.0 - 0.5;
                     let q = |v: f32| ((v.clamp(0.0, 1.0) * 31.0 + d).round().clamp(0.0, 31.0) / 31.0 * 255.0) as u8;
@@ -196,19 +166,20 @@ fn flask_icon() -> Image {
             data.extend(px);
         }
     }
-    // Contour sombre d'un pixel, pour détacher l'icône du fond.
-    let alpha = |x: i32, y: i32| (0..N as i32).contains(&x) && (0..N as i32).contains(&y) && data[(y as usize * N + x as usize) * 4 + 3] == 255;
-    let edge: Vec<usize> = (0..N * N)
-        .filter(|&i| {
-            let (x, y) = ((i % N) as i32, (i / N) as i32);
-            !alpha(x, y) && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| alpha(x + dx, y + dy))
-        })
-        .collect();
-    for i in edge {
-        data[i * 4..i * 4 + 4].copy_from_slice(&[16, 12, 12, 255]);
+    if outline {
+        let alpha = |x: i32, y: i32| (0..n as i32).contains(&x) && (0..n as i32).contains(&y) && data[(y as usize * n + x as usize) * 4 + 3] == 255;
+        let edge: Vec<usize> = (0..n * n)
+            .filter(|&i| {
+                let (x, y) = ((i % n) as i32, (i / n) as i32);
+                !alpha(x, y) && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| alpha(x + dx, y + dy))
+            })
+            .collect();
+        for i in edge {
+            data[i * 4..i * 4 + 4].copy_from_slice(&[16, 12, 12, 255]);
+        }
     }
     Image::new(
-        Extent3d { width: N as u32, height: N as u32, depth_or_array_layers: 1 },
+        Extent3d { width: n as u32, height: n as u32, depth_or_array_layers: 1 },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8UnormSrgb,
@@ -216,8 +187,92 @@ fn flask_icon() -> Image {
     )
 }
 
+/// Fiole de soin : petit rendu « 3D » (panse sphérique éclairée, reflet, liquide vert lumineux).
+fn flask_icon() -> Image {
+    let light = Vec3::new(-0.55, 0.6, 0.6).normalize();
+    let (cx, cy, r) = (12.0, 15.0, 8.2);
+    ps1_icon(ITEM_ICON, true, |fx, fy| {
+        let (dx, dy) = ((fx - cx) / r, (fy - cy) / r);
+        let d2 = dx * dx + dy * dy;
+        let neck = (fx - cx).abs() <= 2.6 && (3.0..8.5).contains(&fy);
+        let lip = (fx - cx).abs() <= 3.4 && (5.0..6.5).contains(&fy);
+        let cork = (fx - cx).abs() <= 2.2 && (0.5..4.0).contains(&fy);
+        if cork {
+            let k = 0.75 + 0.35 * (1.0 - (fx - cx + 1.0).abs() / 3.0) - (fy - 0.5) * 0.06;
+            Some(Vec3::new(0.55, 0.36, 0.2) * k)
+        } else if lip || (neck && d2 > 1.0) {
+            let k = 0.5 + 0.5 * (1.0 - ((fx - cx + 0.8) / 3.4).abs()).max(0.0);
+            Some(Vec3::new(0.55, 0.62, 0.66) * k + Vec3::splat(0.08))
+        } else if d2 <= 1.0 {
+            let n = Vec3::new(dx, -dy, (1.0 - d2).sqrt());
+            let diffuse = n.dot(light).max(0.0);
+            let spec = n.dot((light + Vec3::Z).normalize()).max(0.0).powf(24.0);
+            let rim = (1.0 - n.z).powf(2.0);
+            // Liquide sous la ligne de niveau (légère ondulation), verre vide au-dessus.
+            let level = cy - 2.0 + 0.6 * ((fx - cx) * 0.9).sin();
+            let base = if fy > level {
+                let glow = 0.35 + 0.65 * (1.0 - d2);
+                Vec3::new(0.12, 0.62, 0.3) * (0.35 + 0.75 * diffuse) + Vec3::new(0.1, 0.35, 0.12) * glow
+            } else {
+                Vec3::new(0.28, 0.33, 0.38) * (0.4 + 0.6 * diffuse)
+            };
+            Some(base + Vec3::new(0.55, 0.65, 0.7) * rim * 0.45 + Vec3::splat(spec * 1.1))
+        } else {
+            None
+        }
+    })
+}
+
+/// Taille de l'icône des braises, en pixels (= points) : dessinée à sa taille d'affichage.
+const EMBER_ICON: usize = 16;
+
+/// Flamme (braises) : trois langues déchiquetées sur un foyer arrondi, rouge sombre sur les
+/// bords, cœur ocre pâle, et deux escarbilles qui s'en échappent. Pas de contour : la
+/// silhouette reste irrégulière, comme une texture basse résolution.
+fn flame_icon() -> Image {
+    // Langues : (x de la base, x de la pointe, y de la pointe, demi-largeur à la base).
+    const TONGUES: [(f32, f32, f32, f32); 3] = [(8.0, 8.4, 0.5, 4.2), (6.2, 2.6, 4.5, 2.4), (10.0, 13.0, 3.0, 2.2)];
+    // Hauteur où les langues atteignent leur pleine largeur ; le foyer s'arrondit en dessous.
+    const BASE: f32 = 12.0;
+    const FOOT: f32 = 3.6;
+    let hash = |x: i32, y: i32| {
+        let n = (x as u32).wrapping_mul(374_761_393).wrapping_add((y as u32).wrapping_mul(668_265_263));
+        let n = (n ^ (n >> 13)).wrapping_mul(1_274_126_177);
+        ((n ^ (n >> 16)) & 0xffff) as f32 / 65535.0
+    };
+    let tongue = |fx: f32, fy: f32, (bx, tx, ty, w): (f32, f32, f32, f32)| -> f32 {
+        if fy < ty || fy > BASE + FOOT {
+            return 0.0;
+        }
+        let k = ((fy - ty) / (BASE - ty)).min(1.0);
+        let axis = tx + (bx - tx) * k.powf(0.7);
+        let half = if fy <= BASE { w * k.powf(1.1) } else { w * (1.0 - ((fy - BASE) / FOOT).powi(2)).max(0.0).sqrt() };
+        // Bords rongés : la largeur varie d'un pixel à l'autre.
+        let half = half + (hash(fx as i32, fy as i32) - 0.5) * 0.9 * k;
+        (1.0 - (fx - axis).abs() / half.max(1e-3)).max(0.0)
+    };
+    ps1_icon(EMBER_ICON, false, |fx, fy| {
+        match (fx as i32, fy as i32) {
+            (3, 2) => return Some(Vec3::new(0.95, 0.55, 0.15)),
+            (13, 0) => return Some(Vec3::new(0.8, 0.3, 0.08)),
+            _ => {}
+        }
+        let v = TONGUES.iter().enumerate().map(|(i, &t)| tongue(fx, fy, t) * if i == 0 { 1.0 } else { 0.75 }).fold(0.0, f32::max);
+        if v <= 0.0 {
+            return None;
+        }
+        let core = ((v - 0.35) * 1.6).clamp(0.0, 1.0) * ((fy - 6.0) / 7.0).clamp(0.0, 1.0);
+        let heat = (v * 1.5).min(1.0) * (0.45 + 0.55 * (fy / BASE).min(1.0));
+        let outer = Vec3::new(0.38, 0.05, 0.04);
+        let mid = Vec3::new(0.85, 0.32, 0.06);
+        let hot = Vec3::new(1.0, 0.82, 0.45);
+        Some(outer.lerp(mid, heat.clamp(0.0, 1.0)).lerp(hot, core))
+    })
+}
+
 fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut images: ResMut<Assets<Image>>) {
     let icons = ItemIcons { flask: images.add(flask_icon()) };
+    let flame = images.add(flame_icon());
     let p = &tuning.player;
     commands.spawn((
         font.text("", 1, TEXT),
@@ -326,7 +381,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
         });
     commands.insert_resource(icons);
 
-    // Âmes, en bas à droite.
+    // Braises, en bas à droite.
     commands
         .spawn((
             ChildOf(root),
@@ -341,22 +396,28 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
             },
         ))
         .with_children(|c| {
-            c.spawn((font.text("", 1, GOLD), SoulsGain));
+            c.spawn((font.text("", 1, GOLD), EmbersGain));
             c.spawn((
                 Node {
                     flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Baseline,
-                    column_gap: px(10),
-                    padding: UiRect::axes(px(12), px(4)),
-                    border: UiRect::bottom(px(1)),
+                    align_items: AlignItems::Center,
+                    column_gap: px(6),
+                    padding: UiRect { left: px(10), right: px(4), top: px(2), bottom: px(2) },
+                    border: UiRect::all(px(1)),
                     ..default()
                 },
-                BorderColor::all(Color::srgba(0.9, 0.75, 0.4, 0.5)),
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+                // Biseau d'un pixel : arête claire en haut à gauche, sombre en bas à droite.
+                BorderColor {
+                    top: Color::srgb(0.42, 0.37, 0.3),
+                    left: Color::srgb(0.42, 0.37, 0.3),
+                    bottom: Color::srgb(0.08, 0.06, 0.05),
+                    right: Color::srgb(0.08, 0.06, 0.05),
+                },
+                BackgroundColor(Color::srgba(0.05, 0.04, 0.03, 0.7)),
             ))
             .with_children(|c| {
-                c.spawn((font.text("", 1, Color::srgba(0.9, 0.75, 0.4, 0.8)), Localized::tr("Souls", "Âmes")));
-                c.spawn((font.text("0", 1, Color::srgb(0.95, 0.92, 0.85)), SoulsText));
+                c.spawn((font.text("0", 1, Color::srgb(0.95, 0.92, 0.85)), EmbersText));
+                c.spawn(image_bundle(flame, UVec2::splat(EMBER_ICON as u32)));
             });
         });
 
@@ -528,41 +589,41 @@ fn update_item(
 }
 
 #[allow(clippy::type_complexity)]
-fn souls(
+fn embers(
     mut commands: Commands,
     time: Res<Time>,
     sounds: Res<Sounds>,
     players: Query<&Player, With<LocalPlayer>>,
     mut anim: ResMut<HudAnim>,
-    mut total: Query<&mut Text, (With<SoulsText>, Without<SoulsGain>)>,
-    mut gain: Query<(&mut Text, &mut TextColor), (With<SoulsGain>, Without<SoulsText>)>,
+    mut total: Query<&mut Text, (With<EmbersText>, Without<EmbersGain>)>,
+    mut gain: Query<(&mut Text, &mut TextColor), (With<EmbersGain>, Without<EmbersText>)>,
 ) {
     let Ok(p) = players.single() else { return };
     let dt = time.delta_secs();
-    if anim.souls_shown < 0.0 {
-        anim.souls_shown = p.souls as f32;
-        anim.souls_known = p.souls;
+    if anim.embers_shown < 0.0 {
+        anim.embers_shown = p.embers as f32;
+        anim.embers_known = p.embers;
     }
-    // Âmes gagnées : « +N » au-dessus du compteur, qui les absorbe après un instant.
-    if p.souls > anim.souls_known {
-        anim.gain = if anim.gain_timer > 0.0 { anim.gain + p.souls - anim.souls_known } else { p.souls - anim.souls_known };
+    // Braises gagnées : « +N » au-dessus du compteur, qui les absorbe après un instant.
+    if p.embers > anim.embers_known {
+        anim.gain = if anim.gain_timer > 0.0 { anim.gain + p.embers - anim.embers_known } else { p.embers - anim.embers_known };
         anim.gain_timer = GAIN_SHOW;
         anim.absorbing = false;
     }
-    anim.souls_known = p.souls;
-    let target = p.souls as f32;
+    anim.embers_known = p.embers;
+    let target = p.embers as f32;
     let absorb = anim.gain_timer < GAIN_SHOW - 1.0;
     if absorb && !anim.absorbing && anim.gain > 0 {
         anim.absorbing = true;
-        play(&mut commands, &sounds, "souls", 0.8);
+        play(&mut commands, &sounds, "embers", 0.8);
     }
-    if absorb || anim.souls_shown > target {
-        let diff = target - anim.souls_shown;
-        anim.souls_shown += diff.signum() * (diff.abs() * 4.0 * dt).max(60.0 * dt).min(diff.abs());
+    if absorb || anim.embers_shown > target {
+        let diff = target - anim.embers_shown;
+        anim.embers_shown += diff.signum() * (diff.abs() * 4.0 * dt).max(60.0 * dt).min(diff.abs());
     }
     anim.gain_timer = (anim.gain_timer - dt).max(0.0);
     for mut t in &mut total {
-        set_text(&mut t, (anim.souls_shown.round() as u32).to_string());
+        set_text(&mut t, (anim.embers_shown.round() as u32).to_string());
     }
     for (mut t, mut c) in &mut gain {
         set_text(&mut t, if anim.gain_timer > 0.0 { format!("+{}", anim.gain) } else { String::new() });
@@ -671,7 +732,7 @@ fn outcome(
             SimEvent::PlayerDied => {
                 *out = Outcome { text: Some((("YOU DIED", "VOUS ÊTES MORT"), Color::srgb(0.75, 0.12, 0.08))), ..default() };
             }
-            // Les âmes gagnées s'affichent en bas à droite (voir `souls`).
+            // Les braises gagnées s'affichent en bas à droite (voir `embers`).
             SimEvent::BossDefeated { .. } => {
                 *out = Outcome { text: Some((("AUTOMATON DESTROYED", "AUTOMATE DÉTRUIT"), Color::srgb(0.9, 0.75, 0.35))), timer: 0.0, duration: Some(5.0) };
             }

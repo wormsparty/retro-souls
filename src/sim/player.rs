@@ -56,8 +56,8 @@ pub struct Player {
     pub inventory: Inventory,
     /// Le soin de l'action `Heal` en cours a déjà été appliqué.
     pub healed: bool,
-    /// Monnaie, gagnée en battant le boss.
-    pub souls: u32,
+    /// Braises (monnaie), gagnées en battant le boss.
+    pub embers: u32,
     /// Ticks passés à l'état `Dead` (réapparition au bout de `RESPAWN_TICKS`).
     pub dead_ticks: u32,
 }
@@ -89,7 +89,7 @@ impl Player {
             switched: false,
             inventory: Inventory::new_game(t),
             healed: false,
-            souls: 0,
+            embers: 0,
             dead_ticks: 0,
         }
     }
@@ -576,14 +576,18 @@ pub fn run_frame(
     }
     for m in &def.motion {
         if action.tick >= m.start && action.tick < m.end {
-            let speed = if m.to_target {
-                let span = (m.end - m.start).max(1) as f32 * DT;
-                ((action.target_dist - m.stop_dist).max(0.0) / span).min(m.speed)
-            } else {
-                m.speed
-            };
-            body.pos += math::forward(body.yaw) * speed * DT;
+            body.pos += math::forward(body.yaw) * motion_speed(m, action.target_dist) * DT;
         }
+    }
+}
+
+/// Vitesse d'un segment de root motion (vers l'avant), selon la distance à la cible figée.
+pub fn motion_speed(m: &super::data::Motion, target_dist: f32) -> f32 {
+    if m.to_target {
+        let span = (m.end - m.start).max(1) as f32 * DT;
+        ((target_dist - m.stop_dist).max(0.0) / span).min(m.speed)
+    } else {
+        m.speed
     }
 }
 

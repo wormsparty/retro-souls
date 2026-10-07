@@ -32,7 +32,7 @@ pub fn run() {
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Souls PS1".into(),
+                    title: "Giant's Flame".into(),
                     canvas: Some("#bevy".into()),
                     fit_canvas_to_parent: true,
                     prevent_default_event_handling: true,

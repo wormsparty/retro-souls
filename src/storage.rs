@@ -1,7 +1,7 @@
 //! Petits fichiers texte persistants (options, sauvegarde) :
 //! - natif : `<nom>.ron` dans le dossier de config de l'OS
-//!   (`~/.config/souls-ps1/`, `%APPDATA%\souls-ps1\`, `~/Library/Application Support/souls-ps1/`) ;
-//! - web : `localStorage` du navigateur, clé `souls-ps1.<nom>`.
+//!   (`~/.config/giants-flame/`, `%APPDATA%\giants-flame\`, `~/Library/Application Support/giants-flame/`) ;
+//! - web : `localStorage` du navigateur, clé `giants-flame.<nom>`.
 
 #[cfg(target_arch = "wasm32")]
 fn local() -> Option<web_sys::Storage> {
@@ -10,13 +10,13 @@ fn local() -> Option<web_sys::Storage> {
 
 #[cfg(target_arch = "wasm32")]
 pub fn read(name: &str) -> Option<String> {
-    local()?.get_item(&format!("souls-ps1.{name}")).ok()?
+    local()?.get_item(&format!("giants-flame.{name}")).ok()?
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn write(name: &str, s: &str) {
     if let Some(l) = local() {
-        let _ = l.set_item(&format!("souls-ps1.{name}"), s);
+        let _ = l.set_item(&format!("giants-flame.{name}"), s);
     }
 }
 
@@ -33,7 +33,7 @@ fn path(name: &str) -> Option<std::path::PathBuf> {
             .map(PathBuf::from)
             .or_else(|| var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
     }?;
-    Some(base.join("souls-ps1").join(format!("{name}.ron")))
+    Some(base.join("giants-flame").join(format!("{name}.ron")))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

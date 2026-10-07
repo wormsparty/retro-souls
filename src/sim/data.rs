@@ -45,6 +45,10 @@ pub struct HitWindow {
     /// Attaque furie : imparable en garde normale.
     #[serde(default)]
     pub fury: bool,
+    /// Zone d'effet (onde de choc) : ni garde ni garde parfaite, seulement la fuite ou les
+    /// i-frames. La capsule est affichée au sol pendant l'anticipation.
+    #[serde(default)]
+    pub aoe: bool,
     /// Ticks de hitstop appliqués aux deux combattants à l'impact.
     #[serde(default = "default_hitstop")]
     pub hitstop: u8,
@@ -63,11 +67,15 @@ pub struct Motion {
     #[serde(default)]
     pub speed: f32,
     /// Si vrai, la vitesse est calculée pour atterrir à `stop_dist` de la cible
-    /// (distance figée au début du mouvement), plafonnée par `speed`.
+    /// (distance figée au début de l'action), plafonnée par `speed`.
     #[serde(default)]
     pub to_target: bool,
     #[serde(default)]
     pub stop_dist: f32,
+    /// Avec `to_target` : la distance est re-mesurée à chaque tick jusqu'au début du
+    /// mouvement (et non figée au début de l'action). Sert aux sauts qui retombent sur la cible.
+    #[serde(default)]
+    pub retarget: bool,
 }
 
 /// Définition d'une action (attaque, esquive, réaction…).
@@ -265,8 +273,9 @@ pub struct BossDef {
     pub idle_ticks: [u32; 2],
     /// Durée pendant laquelle le dernier attaquant garde l'aggro.
     pub aggro_ticks: u32,
-    /// Âmes gagnées en le battant.
-    pub souls: u32,
+    /// Braises gagnées en le battant.
+    #[serde(alias = "souls")]
+    pub embers: u32,
     pub groggy: MoveDef,
     pub fatal_received: MoveDef,
     pub roar: MoveDef,

@@ -2699,6 +2699,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "giants-flame"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "getrandom 0.3.4",
+ "libm",
+ "ron 0.11.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "web-sys",
+]
+
+[[package]]
 name = "gilrs"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4847,20 +4861,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "souls"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "getrandom 0.3.4",
- "libm",
- "ron 0.11.0",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "web-sys",
 ]
 
 [[package]]

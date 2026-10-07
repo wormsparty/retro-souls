@@ -233,6 +233,27 @@ anim("fury_leap", [
     ("h0", merge(SLAM, legs(-60, 80, 40, 60, -0.5))), ("h0e+40", merge(SLAM, legs(-60, 80, 40, 60, -0.5))),
     ("T", STANCE),
 ])
+# Zones d'effet et sauts.
+PLANTED = merge(SLAM, legs(-60, 80, 40, 60, -0.5))
+anim("ground_quake", [
+    (0, STANCE), (24, with_hips(OVER, t=(0, 0, 0.06))),
+    (50, with_hips(merge(OVER, {"chest": (-24, 0, 0), "head": (-18, 0, 0)}), t=(0, 0.04, 0.12))),
+    ("h0-8", with_hips(merge(OVER, {"chest": (-30, 0, 0), "head": (-22, 0, 0)}), t=(0, 0.06, 0.2))),
+    ("h0", PLANTED), ("h0e+24", PLANTED), ("T", STANCE),
+])
+AIR = merge(legs(-55, 95, -35, 80, 0), {"chest": (18, 0, 0), "head": (-8, 0, 0)}, FWD)
+anim("leap_back", [
+    (0, STANCE), (12, CROUCH), (18, with_hips(AIR, t=(0, 0, 0.9))), (26, with_hips(AIR, t=(0, 0, 1.4))),
+    (34, with_hips(AIR, t=(0, 0, 0.7))), (40, with_hips(CROUCH, t=(0, 0, 0.05))), (52, STANCE), ("T", STANCE),
+])
+anim("leap_slam", [
+    (0, STANCE), (30, CROUCH), (44, with_hips(CROUCH, t=(0, 0, -0.1))),
+    (54, with_hips(merge(OVER, legs(-30, 60, 10, 40)), t=(0, 0, 2.6))),
+    (70, with_hips(merge(OVER, legs(-40, 70, 0, 50)), t=(0, 0, 4.0))),
+    (84, with_hips(merge(OVER, {"chest": (10, 0, 0)}), t=(0, 0, 2.0))),
+    ("h0-2", with_hips(merge(OVER, {"chest": (20, 0, 0)}), t=(0, 0, 0.4))),
+    ("h0", PLANTED), ("h0e+40", PLANTED), ("T", STANCE),
+])
 w3, a3, b3, f3 = swing(-70, 70)
 w4, a4, b4, f4 = swing(70, -70, low=True)
 anim("triple_combo", [

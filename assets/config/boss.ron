@@ -1,5 +1,6 @@
 // L'Automate du Carrousel : grand pantin mécanique armé d'une hallebarde.
 // Lent et télégraphié : longues anticipations, longues récupérations (fenêtres de punition).
+// Ondes de choc et sauts l'obligent à se déplacer et à faire bouger le joueur.
 (
     name: (en: "The Carousel Automaton", fr: "L'Automate du Carrousel"),
     max_hp: 3200,
@@ -15,7 +16,7 @@
     stagger_decay: 7,
     idle_ticks: (36, 80),
     aggro_ticks: 240,
-    souls: 1000,
+    embers: 1000,
 
     groggy: (anim: "groggy", total: 210),
     fatal_received: (anim: "fatal_received", total: 120),
@@ -86,6 +87,40 @@
                 motion: [(start: 44, end: 72, speed: 12.0, to_target: true, stop_dist: 1.4)],
                 hits: [(start: 72, end: 78, damage: 175, hitstop: 9, reaction: Heavy, fury: true,
                         capsule: (a: (0.0, 0.3, 1.0), b: (0.0, 0.3, 2.4), r: 1.5))],
+            ),
+        ),
+        // ---- Zones d'effet et sauts : obligent à bouger. `aoe` : ni garde ni parade, la zone
+        // est marquée au sol pendant l'anticipation.
+        (
+            // Plante la hallebarde : l'onde de choc dure plus longtemps que les i-frames d'une
+            // roulade sur place, il faut sortir du cercle.
+            name: "onde_de_choc",
+            min_range: 0, max_range: 5, max_angle: 180, weight: 3, cooldown: 540, phases: [1, 2],
+            mv: (
+                anim: "ground_quake", total: 150, track_until: 24, track_rate: 60,
+                hits: [(start: 76, end: 96, damage: 150, hitstop: 6, reaction: Heavy, aoe: true,
+                        capsule: (a: (0.0, 0.3, 0.6), b: (0.0, 0.3, 0.6), r: 5.0))],
+            ),
+        ),
+        (
+            // Bond en arrière pour reprendre de la distance, souvent suivi du saut écrasant.
+            name: "bond_arriere",
+            min_range: 0, max_range: 3.5, max_angle: 180, weight: 2, cooldown: 420, phases: [1, 2],
+            mv: (
+                anim: "leap_back", total: 64, track_until: 64, track_rate: 120,
+                motion: [(start: 14, end: 38, speed: -14.0)],
+            ),
+            next: ("saut_ecrasant", 0.7),
+        ),
+        (
+            // Saut très haut qui retombe là où se trouvait la cible au décollage.
+            name: "saut_ecrasant",
+            min_range: 4.5, max_range: 13, max_angle: 60, weight: 2, cooldown: 480, phases: [1, 2],
+            mv: (
+                anim: "leap_slam", total: 170, track_until: 46, track_rate: 160,
+                motion: [(start: 46, end: 92, speed: 16.0, to_target: true, retarget: true, stop_dist: 0.0)],
+                hits: [(start: 92, end: 102, damage: 160, hitstop: 8, reaction: Heavy, aoe: true,
+                        capsule: (a: (0.0, 0.3, 0.0), b: (0.0, 0.3, 0.0), r: 3.2))],
             ),
         ),
         // ---- Phase 2

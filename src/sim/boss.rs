@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use super::data::{BossMove, MoveDef, MoveRef, Tuning};
 use super::encounter::Encounter;
 use super::fighter::{Action, Body, Health, Hitstop};
-use super::player::{Player, run_frame};
+use super::player::{Player, motion_speed, run_frame};
 use super::rng::SimRng;
 use super::{DT, SimDebug, SimEvent, SimEvents, SimTick, math};
 
@@ -103,7 +103,17 @@ pub fn boss_act(
         if let Some(mv) = action.mv {
             let def = t.get(mv);
             if action.tick < def.total {
+                // Saut qui retombe sur la cible : distance suivie jusqu'au décollage.
+                if let Some(tp) = target_pos
+                    && def.motion.iter().any(|m| m.to_target && m.retarget && action.tick <= m.start)
+                {
+                    action.target_dist = math::flat_len(tp - body.pos);
+                }
                 run_frame(&mut body, &action, def, target_pos, None);
+                for h in def.hits.iter().filter(|h| h.aoe && h.start == action.tick) {
+                    let (a, _, r) = super::combat::hit_capsule(&body, h, action.tick as f32);
+                    events.push(SimEvent::Shockwave { pos: Vec3::new(a.x, 0.0, a.z), radius: r });
+                }
                 continue;
             }
             match mv {
@@ -242,6 +252,25 @@ pub fn boss_end_tick(tuning: Res<Tuning>, mut q: Query<(&mut Boss, &Action)>) {
             boss.stagger = (boss.stagger - bd.stagger_decay * DT).max(0.0);
         }
     }
+}
+
+/// Zone d'effet annoncée par l'action en cours : centre au sol à l'impact (en extrapolant le
+/// déplacement restant), rayon, et avancement de l'anticipation (0 → 1 à l'impact).
+/// Sert à dessiner l'alerte au sol ; `None` hors anticipation ou pendant l'impact passé.
+pub fn aoe_telegraph(body: &Body, action: &Action, t: &Tuning) -> Option<(Vec3, f32, f32)> {
+    let def = action.def(t)?;
+    let h = def.hits.iter().find(|h| h.aoe && action.tick < h.end)?;
+    let mut pos = body.pos;
+    let f = math::forward(body.yaw);
+    for tick in action.tick..h.start {
+        for m in def.motion.iter().filter(|m| tick >= m.start && tick < m.end) {
+            pos += f * motion_speed(m, action.target_dist) * DT;
+        }
+    }
+    let at = Body { pos, ..*body };
+    let (a, _, r) = super::combat::hit_capsule(&at, h, h.start as f32);
+    let progress = (action.tick as f32 / h.start.max(1) as f32).min(1.0);
+    Some((Vec3::new(a.x, 0.0, a.z), r, progress))
 }
 
 /// Vrai si l'action courante du boss contient une attaque furie pas encore déclenchée.

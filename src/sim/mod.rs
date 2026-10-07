@@ -55,6 +55,8 @@ pub enum SimEvent {
     Swing { entity: Entity, heavy: bool },
     Dodge { entity: Entity },
     FuryWarn { entity: Entity },
+    /// Impact d'une attaque de zone (`aoe`) : centre au sol et rayon.
+    Shockwave { pos: Vec3, radius: f32 },
     Groggy { entity: Entity },
     Fatal { pos: Vec3 },
     BossPhase2,
@@ -68,7 +70,7 @@ pub enum SimEvent {
     ItemCycled { entity: Entity },
     /// Le joueur est entré dans l'arène : le boss se réveille, la brume se ferme.
     BossAwake,
-    BossDefeated { souls: u32 },
+    BossDefeated { embers: u32 },
     BossRevived,
     /// Repos au checkpoint (PV, objets et endurance restaurés).
     Rested { entity: Entity },
@@ -196,7 +198,7 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
         };
         let pos = encounter::clamp_walkable(&t.arena, pos + Vec3::X * id as f32 * 1.0, t.player.radius, true);
         let mut p = player::Player::new(id, t);
-        p.souls = progress.souls;
+        p.embers = progress.embers;
         p.weapon = progress.weapon.min(t.weapons.len().saturating_sub(1) as u8);
         p.inventory = progress.inventory.clone();
         let mut hp = Health::new(t.player.max_hp);
@@ -280,7 +282,7 @@ pub fn state_hash(world: &mut World) -> u64 {
         p.regain.to_bits().hash(&mut h);
         p.special.to_bits().hash(&mut h);
         p.inventory.hash(&mut h);
-        p.souls.hash(&mut h);
+        p.embers.hash(&mut h);
     }
     let mut qb = world.query::<&boss::Boss>();
     for b in qb.iter(world) {

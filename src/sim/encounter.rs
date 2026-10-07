@@ -1,5 +1,5 @@
 //! Déroulement de la partie autour du combat : checkpoint au bout du couloir, entrée dans
-//! l'arène (le boss se réveille et la brume ferme le couloir), victoire (âmes), mort et
+//! l'arène (le boss se réveille et la brume ferme le couloir), victoire (braises), mort et
 //! réapparition au checkpoint, commandes venues des menus.
 //!
 //! C'est de la simulation : tout ce qui change l'état passe par ici, au tick près.
@@ -34,7 +34,9 @@ const ENTER_MARGIN: f32 = 1.5;
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Progress {
-    pub souls: u32,
+    /// Monnaie (braises). L'ancien nom `souls` est accepté pour les vieilles sauvegardes.
+    #[serde(alias = "souls")]
+    pub embers: u32,
     pub boss_defeated: bool,
     pub weapon: u8,
     pub inventory: Inventory,
@@ -66,7 +68,7 @@ impl Progress {
             Some([body.pos.x, body.pos.z, body.yaw])
         };
         Self {
-            souls: p.souls,
+            embers: p.embers,
             boss_defeated: enc.boss_defeated,
             weapon: p.weapon,
             inventory,
@@ -156,9 +158,9 @@ pub fn encounter_tick(
         enc.active = false;
         enc.boss_defeated = true;
         for (mut p, ..) in &mut players {
-            p.souls = p.souls.saturating_add(t.boss.souls);
+            p.embers = p.embers.saturating_add(t.boss.embers);
         }
-        events.push(SimEvent::BossDefeated { souls: t.boss.souls });
+        events.push(SimEvent::BossDefeated { embers: t.boss.embers });
     }
 
     // Tout le monde est mort : retour au checkpoint, le boss repart de zéro.

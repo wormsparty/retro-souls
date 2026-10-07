@@ -43,11 +43,12 @@
         walk_speed: 1.8,
     ),
 
+    // Roulade : ~3,5 m (élan rapide puis glissade), de quoi sortir d'une zone d'effet.
     dodge: (
         anim: "dodge",
         total: 30,
         iframes: (2, 16),
-        motion: [(start: 0, end: 18, speed: 7.2)],
+        motion: [(start: 0, end: 15, speed: 11.5), (start: 15, end: 23, speed: 4.5)],
         stamina: 22,
         chain_from: 24,
         cancel_from: 22,
@@ -56,7 +57,7 @@
         anim: "backstep",
         total: 22,
         iframes: (1, 10),
-        motion: [(start: 0, end: 11, speed: -6.0)],
+        motion: [(start: 0, end: 12, speed: -8.5)],
         stamina: 15,
         chain_from: 15,
     ),

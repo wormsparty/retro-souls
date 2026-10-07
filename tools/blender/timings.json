@@ -120,6 +120,49 @@
       "motion": [],
       "total": 210
     },
+    "ground_quake": {
+      "counter": null,
+      "hits": [
+        [
+          76,
+          96
+        ]
+      ],
+      "iframes": null,
+      "motion": [],
+      "total": 150
+    },
+    "leap_back": {
+      "counter": null,
+      "hits": [],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 38,
+          "speed": -14.0,
+          "start": 14
+        }
+      ],
+      "total": 64
+    },
+    "leap_slam": {
+      "counter": null,
+      "hits": [
+        [
+          92,
+          102
+        ]
+      ],
+      "iframes": null,
+      "motion": [
+        {
+          "end": 92,
+          "speed": 16.0,
+          "start": 46
+        }
+      ],
+      "total": 170
+    },
     "overhead_slam": {
       "counter": null,
       "hits": [
@@ -205,8 +248,8 @@
       ],
       "motion": [
         {
-          "end": 11,
-          "speed": -6.0,
+          "end": 12,
+          "speed": -8.5,
           "start": 0
         }
       ],
@@ -228,9 +271,14 @@
       ],
       "motion": [
         {
-          "end": 18,
-          "speed": 7.199999809265137,
+          "end": 15,
+          "speed": 11.5,
           "start": 0
+        },
+        {
+          "end": 23,
+          "speed": 4.5,
+          "start": 15
         }
       ],
       "total": 30

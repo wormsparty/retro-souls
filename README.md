@@ -1,4 +1,4 @@
-# Souls PS1 — prototype de combat
+# Giant's Flame — prototype de combat
 
 Prototype de combat inspiré de *Lies of P* / *Dark Souls*, rendu façon PlayStation 1, en
 Rust + [Bevy 0.19](https://bevy.org) (natif et navigateur via WASM).
@@ -81,8 +81,8 @@ Langue : anglais ou français, demandée au premier lancement (anglais par défa
 dans les options.
 
 Les options sont enregistrées dès qu'on les change et reprises au lancement suivant :
-`~/.config/souls-ps1/settings.ron` (Linux), `%APPDATA%\souls-ps1\settings.ron` (Windows),
-`~/Library/Application Support/souls-ps1/settings.ron` (macOS), `localStorage` dans le navigateur.
+`~/.config/giants-flame/settings.ron` (Linux), `%APPDATA%\giants-flame\settings.ron` (Windows),
+`~/Library/Application Support/giants-flame/settings.ron` (macOS), `localStorage` dans le navigateur.
 Dans le navigateur, le plein écran s'active au premier clic ou à la première touche (le navigateur
 l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
 
@@ -102,6 +102,11 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
   frappant le boss dans les 6 secondes. Plus d'endurance → garde brisée.
 - **Attaques furie** (le boss rougeoie) : la garde normale ne sert à rien, il faut une garde
   parfaite ou une esquive.
+- **Attaques de zone** (cercle rouge au sol, qui se remplit jusqu'à l'impact) : ni garde ni
+  garde parfaite. L'*onde de choc* dure plus longtemps que les i-frames d'une roulade : il faut
+  sortir du cercle. Le *bond arrière* est souvent suivi du *saut écrasant*, qui retombe là où se
+  trouvait le joueur au décollage.
+- **Roulade** : ~3,5 m (pas en arrière : ~1,7 m).
 - **Groggy** : jauge de stagger du boss pleine (gardes parfaites, attaques lourdes chargées) →
   il tombe à genoux ; attaque légère de face pour le **coup fatal**.
 - **Rapière** : combo de 4 estocs rapides ; lourde chargée en fente ; spéciale *Fente éclair*
@@ -116,19 +121,21 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
   +40 % des PV ; on peut marcher lentement pendant. Touché avant que le soin s'applique : la
   charge est perdue.
 - **Jauge spéciale** (3 segments sous l'endurance) : se remplit en frappant et en garde parfaite ;
-  chaque attaque spéciale consomme un segment.
-- **Boss** : 6 attaques en phase 1, 2 de plus en phase 2 (sous 50 % de PV), dont une furie.
+  chaque attaque spéciale consomme un segment. Les coups de la spéciale ne rechargent pas la jauge,
+  et son coût d'endurance est fixe (pas proportionnel à ses gros dégâts).
+- **Boss** : 9 attaques en phase 1 (dont une furie et deux attaques de zone), 2 de plus en
+  phase 2 (sous 50 % de PV).
 
 ## Progression et sauvegarde
 
 - On commence au **checkpoint** (lanterne au bout du couloir). S'y reposer rend PV, endurance et
   objets.
 - Entrer dans l'arène réveille le boss et une **brume** ferme le couloir jusqu'à la fin du combat.
-- Victoire : **+1000 âmes** (`souls` dans `boss.ron`), affichées en bas à droite au-dessus du
+- Victoire : **+1000 braises** (`embers` dans `boss.ron`, icône de flamme), affichées en bas à droite au-dessus du
   compteur, qui les absorbe avec un petit son ; le boss reste mort, on peut le ranimer depuis
   le checkpoint.
 - Mort : « VOUS ÊTES MORT » (~4 s, l'écran s'assombrit puis passe au noir), puis retour au
-  checkpoint (âmes conservées), objets rechargés, boss réinitialisé.
+  checkpoint (braises conservées), objets rechargés, boss réinitialisé.
 - **Sauvegarde automatique** façon Dark Souls (un seul emplacement) : à chaque événement important
   (repos, entrée dans l'arène, victoire, mort, objet utilisé, menu ouvert/fermé), toutes les
   5 secondes et en quittant ; le fichier n'est réécrit que s'il a changé. On reprend à l'endroit

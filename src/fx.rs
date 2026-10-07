@@ -1,5 +1,5 @@
 //! Retours sensoriels déclenchés par les événements de la simulation : sons, étincelles,
-//! tremblement de caméra, flash du boss.
+//! tremblement de caméra, flash du boss, alertes au sol des attaques de zone.
 
 use bevy::prelude::*;
 
@@ -7,6 +7,9 @@ use crate::render::AppState;
 use crate::render::camera::CameraRig;
 use crate::render::models::TintFlash;
 use crate::render::ps1::Ps1Material;
+use crate::sim::boss::{Boss, aoe_telegraph};
+use crate::sim::data::Tuning;
+use crate::sim::fighter::{Action, Body};
 use crate::sim::{SimEvent, SimEvents};
 
 #[derive(Resource)]
@@ -21,7 +24,25 @@ pub struct SparkAssets {
     hit: Handle<Ps1Material>,
     fury: Handle<Ps1Material>,
     heal: Handle<Ps1Material>,
+    /// Anneau de rayon 1 couché au sol (onde de choc).
+    ring: Handle<Mesh>,
 }
+
+/// Alerte au sol d'une attaque de zone : contour du cercle (`fill: false`) et disque qui
+/// grandit jusqu'à l'impact (`fill: true`).
+#[derive(Component)]
+struct AoeMarker {
+    fill: bool,
+}
+
+/// Anneau de l'onde de choc, qui s'élargit et s'efface après l'impact.
+#[derive(Component)]
+struct Shock {
+    radius: f32,
+    life: f32,
+}
+
+const SHOCK_LIFE: f32 = 0.35;
 
 #[derive(Component)]
 struct Particle {
@@ -47,12 +68,15 @@ impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FxState>()
             .add_systems(Startup, setup)
-            .add_systems(Update, (consume_events, update_particles).run_if(in_state(AppState::Playing)));
+            .add_systems(
+                Update,
+                (consume_events, update_particles, aoe_markers, update_shocks).run_if(in_state(AppState::Playing)),
+            );
     }
 }
 
 const SOUNDS: [&str; 15] = [
-    "heal", "souls",
+    "heal", "embers",
     "perfect_guard", "guard", "guard_break", "hit", "hit_heavy", "slam", "swing", "swing_heavy",
     "dodge", "fury", "fatal", "roar", "switch",
 ];
@@ -67,6 +91,10 @@ fn setup(
         SOUNDS.iter().map(|s| (*s, server.load(format!("audio/{s}.wav")))).collect(),
         1.0,
     ));
+    // Disques et anneaux de rayon 1, couchés au sol (mis à l'échelle du rayon de la zone).
+    let flat = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
+    let ring = meshes.add(Annulus::new(0.93, 1.0).mesh().resolution(40));
+    let disc = meshes.add(Circle::new(1.0).mesh().resolution(40));
     commands.insert_resource(SparkAssets {
         mesh: meshes.add(Cuboid::new(0.05, 0.05, 0.05)),
         perfect: mats.add(Ps1Material::unlit(Color::srgb(1.0, 0.95, 0.6))),
@@ -74,7 +102,25 @@ fn setup(
         hit: mats.add(Ps1Material::unlit(Color::srgb(0.45, 0.05, 0.04))),
         fury: mats.add(Ps1Material::unlit(Color::srgb(1.0, 0.1, 0.05))),
         heal: mats.add(Ps1Material::unlit(Color::srgb(0.45, 1.0, 0.55))),
+        ring: ring.clone(),
     });
+    let blend = |c: Color| {
+        let mut m = Ps1Material::unlit(c);
+        m.alpha_mode = AlphaMode::Blend;
+        m
+    };
+    for (fill, mesh, color, y) in [
+        (false, ring, Color::srgba(1.0, 0.3, 0.08, 0.9), 0.05),
+        (true, disc, Color::srgba(0.9, 0.12, 0.04, 0.35), 0.04),
+    ] {
+        commands.spawn((
+            Mesh3d(mesh),
+            MeshMaterial3d(mats.add(blend(color))),
+            flat.with_translation(Vec3::Y * y),
+            Visibility::Hidden,
+            AoeMarker { fill },
+        ));
+    }
 }
 
 pub fn play(commands: &mut Commands, sounds: &Sounds, name: &str, volume: f32) {
@@ -202,9 +248,68 @@ pub fn consume_events(
                     burst(&mut commands, &sparks, &sparks.heal, t.translation() + Vec3::Y * 1.0, 24, 2.0, seed);
                 }
             }
+            SimEvent::Shockwave { pos, radius } => {
+                play(&mut commands, &sounds, "slam", 1.0);
+                rig.shake = rig.shake.max(1.0);
+                commands.spawn((
+                    Mesh3d(sparks.ring.clone()),
+                    MeshMaterial3d(sparks.fury.clone()),
+                    Transform::from_translation(pos + Vec3::Y * 0.08)
+                        .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
+                        .with_scale(Vec3::splat(0.3)),
+                    Shock { radius, life: SHOCK_LIFE },
+                ));
+                // Gerbe de débris tout autour du cercle.
+                let n = (radius * 8.0) as usize;
+                for i in 0..n {
+                    let a = i as f32 / n as f32 * std::f32::consts::TAU;
+                    let p = pos + Vec3::new(a.cos(), 0.1, a.sin()) * radius * 0.85;
+                    burst(&mut commands, &sparks, &sparks.guard, p, 2, 3.0, seed.wrapping_add(i as u32 * 31));
+                }
+            }
             // Nouveaux combattants : la caméra se recale derrière le joueur.
             SimEvent::Respawned => rig.initialized = false,
         }
+    }
+}
+
+/// Place l'alerte au sol de la prochaine attaque de zone du boss (contour fixe, disque qui
+/// se remplit jusqu'à l'impact, clignotement à l'approche).
+fn aoe_markers(
+    tuning: Res<Tuning>,
+    time: Res<Time>,
+    bosses: Query<(&Body, &Action), With<Boss>>,
+    mut markers: Query<(&AoeMarker, &mut Transform, &mut Visibility, &MeshMaterial3d<Ps1Material>)>,
+    mut mats: ResMut<Assets<Ps1Material>>,
+) {
+    let tele = bosses.iter().find_map(|(b, a)| aoe_telegraph(b, a, &tuning));
+    for (m, mut tf, mut vis, mat) in &mut markers {
+        let want = if tele.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        let Some((pos, r, k)) = tele else { continue };
+        tf.translation.x = pos.x;
+        tf.translation.z = pos.z;
+        let s = if m.fill { r * k } else { r };
+        tf.scale = Vec3::new(s, s, 1.0);
+        if let Some(mut mat) = mats.get_mut(&mat.0) {
+            let blink = if k > 0.7 { 0.5 + 0.5 * (time.elapsed_secs() * 18.0).sin() } else { 1.0 };
+            mat.params.base_color.w = if m.fill { 0.2 + 0.25 * k } else { 0.5 + 0.45 * blink };
+        }
+    }
+}
+
+fn update_shocks(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Shock, &mut Transform)>) {
+    for (e, mut s, mut t) in &mut q {
+        s.life -= time.delta_secs();
+        if s.life <= 0.0 {
+            commands.entity(e).despawn();
+            continue;
+        }
+        let k = 1.0 - s.life / SHOCK_LIFE;
+        let r = s.radius * (0.3 + 0.75 * k.sqrt());
+        t.scale = Vec3::new(r, r, 1.0);
     }
 }
 

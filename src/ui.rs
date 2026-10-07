@@ -17,7 +17,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::text::{FontSmoothing, LineHeight};
 use bevy::window::PrimaryWindow;
 
-pub const FONT: &str = "fonts/souls-ps1.ttf";
+pub const FONT: &str = "fonts/giants-flame.ttf";
 /// Cadratin de la police, en points (voir `tools/pixel_font.py`).
 const FONT_EM: f32 = 12.0;
 /// Nombre de lignes de points visé sur la hauteur de l'écran.

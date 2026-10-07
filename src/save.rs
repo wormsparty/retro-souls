@@ -156,7 +156,7 @@ mod tests {
     fn save_roundtrip() {
         let t = Tuning::builtin();
         let mut progress = Progress::new_game(&t);
-        progress.souls = 1000;
+        progress.embers = 1000;
         progress.pos = Some([0.5, -20.0, 3.0]);
         let data = SaveData { version: VERSION, play_time: 75.0, progress };
         let txt = ron::ser::to_string_pretty(&data, ron::ser::PrettyConfig::default()).unwrap();

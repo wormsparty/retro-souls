@@ -4,7 +4,7 @@
 //! `cargo run --bin export_timings > tools/blender/timings.json`
 
 use serde_json::{Map, Value, json};
-use souls::sim::data::{MoveDef, Tuning};
+use giants_flame::sim::data::{MoveDef, Tuning};
 
 fn mv(d: &MoveDef) -> Value {
     json!({

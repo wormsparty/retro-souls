@@ -299,7 +299,7 @@ fn opt_label(o: Opt) -> &'static str {
 
 fn page_title(p: Page, device: Device) -> &'static str {
     match p {
-        Page::Title => "SOULS PS1",
+        Page::Title => "GIANT'S FLAME",
         Page::ConfirmNew => tr("NEW GAME", "NOUVELLE PARTIE"),
         Page::Pause => "PAUSE",
         Page::Checkpoint => "CHECKPOINT",

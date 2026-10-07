@@ -1,14 +1,14 @@
 //! Tests d'intégration de la simulation (sans rendu).
 
 use bevy::prelude::*;
-use souls::sim::boss::Boss;
-use souls::sim::data::{BossMove, MoveRef, PlayerMove, Tuning};
-use souls::sim::encounter::{Encounter, SimCommand, SimCommands, checkpoint_pos};
-use souls::sim::items::Item;
-use souls::sim::fighter::{Action, Body, Health};
-use souls::sim::input::{PlayerInput, PlayerInputs, btn};
-use souls::sim::player::{PState, Player};
-use souls::sim::{SimDebug, SimEvent, SimEvents, SimPlugin, SimSchedule, math, state_hash};
+use giants_flame::sim::boss::Boss;
+use giants_flame::sim::data::{BossMove, MoveRef, PlayerMove, Tuning};
+use giants_flame::sim::encounter::{Encounter, SimCommand, SimCommands, checkpoint_pos};
+use giants_flame::sim::items::Item;
+use giants_flame::sim::fighter::{Action, Body, Health};
+use giants_flame::sim::input::{PlayerInput, PlayerInputs, btn};
+use giants_flame::sim::player::{PState, Player};
+use giants_flame::sim::{SimDebug, SimEvent, SimEvents, SimPlugin, SimSchedule, math, state_hash};
 
 /// Combat en cours : le joueur est placé dans l'arène, face au boss (qui se réveille).
 fn new_app() -> App {
@@ -327,8 +327,8 @@ fn stamina_goes_negative_and_blocks_actions() {
 
 #[test]
 fn stamina_cost_is_proportional_to_damage_for_all_weapons() {
-    use souls::sim::data::WeaponMove;
-    use souls::sim::player::stamina_cost;
+    use giants_flame::sim::data::WeaponMove;
+    use giants_flame::sim::player::stamina_cost;
     let t = Tuning::builtin();
     for (w, wd) in t.weapons.iter().enumerate() {
         for (i, l) in wd.light.iter().enumerate() {
@@ -372,7 +372,7 @@ fn heal_restores_health_and_is_lost_if_interrupted() {
 
 #[test]
 fn charged_heavy_releases_automatically_at_full_charge() {
-    use souls::sim::data::WeaponMove;
+    use giants_flame::sim::data::WeaponMove;
     let t = Tuning::builtin();
     for w in 0..t.weapons.len() as u8 {
         let mut app = new_app();
@@ -426,7 +426,7 @@ fn boss_sleeps_until_player_enters_and_fog_closes_corridor() {
 }
 
 #[test]
-fn defeating_boss_gives_souls_and_persists_until_revived() {
+fn defeating_boss_gives_embers_and_persists_until_revived() {
     let mut app = new_app();
     let t = tuning(&app);
     let (p, b) = (player(&mut app), boss(&mut app));
@@ -439,15 +439,15 @@ fn defeating_boss_gives_souls_and_persists_until_revived() {
     steps(&mut app, 40, IDLE);
     let enc = *app.world().resource::<Encounter>();
     assert!(enc.boss_defeated && !enc.active);
-    assert_eq!(app.world().get::<Player>(p).unwrap().souls, t.boss.souls);
+    assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.boss.embers);
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossDefeated { .. })));
 
-    // Recréer les combattants (rechargement) : pas de boss, les âmes sont gardées.
-    app.world_mut().resource_mut::<souls::sim::ResetFight>().requested = true;
+    // Recréer les combattants (rechargement) : pas de boss, les braises sont gardées.
+    app.world_mut().resource_mut::<giants_flame::sim::ResetFight>().requested = true;
     step(&mut app, IDLE);
     assert_eq!(app.world_mut().query::<&Boss>().iter(app.world()).count(), 0);
     let p = player(&mut app);
-    assert_eq!(app.world().get::<Player>(p).unwrap().souls, t.boss.souls);
+    assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.boss.embers);
 
     // Ranimer le boss depuis le checkpoint.
     app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::ReviveBoss);
@@ -464,18 +464,18 @@ fn death_respawns_at_checkpoint_with_items_refilled() {
     let p = player(&mut app);
     {
         let mut pl = app.world_mut().get_mut::<Player>(p).unwrap();
-        pl.souls = 300;
+        pl.embers = 300;
         pl.inventory.consume(Item::HealFlask);
     }
     let b = boss(&mut app);
     app.world_mut().get_mut::<Health>(b).unwrap().cur = 500.0;
     app.world_mut().get_mut::<Health>(p).unwrap().cur = 10.0;
     let hit_start = boss_attack(&mut app, "ecrasement", 2.6);
-    steps(&mut app, hit_start + 30 + t.player.death.total + souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    steps(&mut app, hit_start + 30 + t.player.death.total + giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     let pl = app.world().get::<Player>(p).unwrap().clone();
     assert_eq!(pl.state, PState::Free);
-    assert_eq!(pl.souls, 300);
+    assert_eq!(pl.embers, 300);
     assert_eq!(pl.inventory.count(Item::HealFlask), t.player.heal_charges);
     assert_eq!(hp(&mut app, p), t.player.max_hp);
     assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t.arena)) < 2.5);
@@ -534,4 +534,74 @@ fn l3_click_starts_sprint_until_stick_released() {
     steps(&mut app, 2, PlayerInput::default());
     steps(&mut app, 5, fwd);
     assert!(!app.world().get::<Player>(p).unwrap().sprinting);
+}
+
+#[test]
+fn special_hits_do_not_refill_special_gauge() {
+    let mut app = new_app();
+    let t = tuning(&app);
+    let (p, b) = (player(&mut app), boss(&mut app));
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, 4.0);
+    app.world_mut().get_mut::<Body>(p).unwrap().yaw = 0.0;
+    app.world_mut().get_mut::<Body>(b).unwrap().pos = Vec3::new(0.0, 0.0, 6.0);
+    app.world_mut().get_mut::<Player>(p).unwrap().special = t.player.special_per_segment;
+    let before = hp(&mut app, b);
+    step(&mut app, PlayerInput { buttons: btn::SPECIAL, ..IDLE });
+    steps(&mut app, 80, IDLE);
+    let dealt = before - hp(&mut app, b);
+    assert!(dealt >= 200.0, "la spéciale doit faire mal : {dealt}");
+    assert_eq!(app.world().get::<Player>(p).unwrap().special, 0.0);
+}
+
+#[test]
+fn dodge_roll_covers_ground() {
+    let mut app = new_app();
+    let p = player(&mut app);
+    let start = body(&mut app, p).pos;
+    let fwd = PlayerInput { move_y: 127, ..IDLE };
+    step(&mut app, PlayerInput { buttons: btn::DODGE, ..fwd });
+    steps(&mut app, 29, IDLE);
+    let d = math::flat_len(body(&mut app, p).pos - start);
+    assert!(d >= 3.2, "roulade trop courte : {d}");
+}
+
+#[test]
+fn shockwave_ignores_guard_but_can_be_outrun() {
+    let t = Tuning::builtin();
+    let dmg = t.boss.attacks.iter().find(|a| a.name == "onde_de_choc").unwrap().mv.hits[0].damage;
+
+    // Garde tenue (même parfaite) : dégâts complets.
+    let mut app = new_app();
+    let hit_start = boss_attack(&mut app, "onde_de_choc", 2.5);
+    let p = player(&mut app);
+    steps(&mut app, hit_start - 3, IDLE);
+    steps(&mut app, 20, GUARD);
+    assert_eq!(hp(&mut app, p), t.player.max_hp - dmg);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Shockwave { .. })));
+
+    // Fuite hors du cercle pendant l'anticipation : aucun dégât.
+    let mut app = new_app();
+    let hit_start = boss_attack(&mut app, "onde_de_choc", 2.5);
+    let p = player(&mut app);
+    steps(&mut app, hit_start + 30, PlayerInput { move_y: 127, ..IDLE });
+    assert_eq!(hp(&mut app, p), t.player.max_hp);
+}
+
+#[test]
+fn leap_slam_lands_on_the_marked_spot() {
+    use giants_flame::sim::boss::aoe_telegraph;
+    let mut app = new_app();
+    let t = tuning(&app);
+    let hit_start = boss_attack(&mut app, "saut_ecrasant", 8.0);
+    let (p, b) = (player(&mut app), boss(&mut app));
+    steps(&mut app, 10, IDLE);
+    let (center, r, _) = {
+        let w = app.world();
+        aoe_telegraph(w.get::<Body>(b).unwrap(), w.get::<Action>(b).unwrap(), &t).expect("alerte au sol")
+    };
+    assert!(math::flat_len(center - body(&mut app, p).pos) < 0.5, "centre {center}");
+    // Rester dans le cercle : touché.
+    steps(&mut app, hit_start + 4 - 10, IDLE);
+    assert!(hp(&mut app, p) < t.player.max_hp);
+    assert!(r > 2.0);
 }

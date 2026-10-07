@@ -1,8 +1,8 @@
 [package]
-name = "souls"
+name = "giants-flame"
 version = "0.1.0"
 edition = "2024"
-default-run = "souls"
+default-run = "giants-flame"
 
 [dependencies]
 bevy = { version = "0.19.1", default-features = false, features = [

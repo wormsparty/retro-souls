@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Souls PS1</title>
+    <title>Giant's Flame</title>
     <style>
         html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
         canvas { width: 100%; height: 100%; display: block; outline: none; }
@@ -15,7 +15,7 @@
     <div id="hint">Chargement…</div>
     <canvas id="bevy" tabindex="0"></canvas>
     <script type="module">
-        import init from "./souls.js";
+        import init from "./giants-flame.js";
         const hint = document.getElementById("hint");
         // Bevy fixe la taille du canvas au démarrage : on retire alors le message.
         new MutationObserver((_, obs) => { hint.remove(); obs.disconnect(); })
