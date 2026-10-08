@@ -5,7 +5,7 @@
     mesh_functions,
     forward_io::Vertex,
     view_transformations::position_world_to_clip,
-    mesh_view_bindings::view,
+    mesh_view_bindings::{view, globals},
 }
 #ifdef SKINNED
 #import bevy_pbr::skinning
@@ -27,13 +27,19 @@ struct Ps1Params {
     fog: vec4<f32>,
     // x = texture présente, y = non éclairé.
     misc: vec4<f32>,
-    // Paires (position xyz + rayon, couleur rgb + intensité).
-    lights: array<vec4<f32>, 8>,
+    // Triplets (position xyz + rayon, couleur rgb + intensité, vacillement a1 f1 a2 f2).
+    lights: array<vec4<f32>, 12>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> m: Ps1Params;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var color_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var color_sampler: sampler;
+
+/// Hauteur sous laquelle le décor commence à se fondre dans le noir, et sur quelle épaisseur.
+const ABYSS_TOP: f32 = -6.5;
+const ABYSS_DEPTH: f32 = 14.0;
+/// Couleur du fond (couleur d'effacement de la caméra, en linéaire) : l'abîme s'y fond exactement.
+const ABYSS_COLOR: vec3<f32> = vec3<f32>(0.0039, 0.0035, 0.0061);
 
 struct Ps1Out {
     @builtin(position) position: vec4<f32>,
@@ -42,6 +48,7 @@ struct Ps1Out {
     @location(1) light: vec3<f32>,
     @location(2) fog: f32,
     @location(3) color: vec4<f32>,
+    @location(4) abyss: f32,
 };
 
 @vertex
@@ -76,15 +83,18 @@ fn vertex(v: Vertex) -> Ps1Out {
 
     var light = m.ambient.rgb + m.sun_color.rgb * max(dot(n, m.sun_dir.xyz), 0.0) * m.sun_dir.w;
     for (var i = 0u; i < MAX_LIGHTS; i++) {
-        let lp = m.lights[i * 2u];
-        let lc = m.lights[i * 2u + 1u];
+        let lp = m.lights[i * 3u];
+        let lc = m.lights[i * 3u + 1u];
+        let fl = m.lights[i * 3u + 2u];
         if lc.w <= 0.0 {
             continue;
         }
+        let phase = lp.x * 1.3 + lp.z * 0.7;
+        let intensity = lc.w + fl.x * sin(globals.time * fl.y + phase) + fl.z * sin(globals.time * fl.w + phase * 2.0);
         let d = lp.xyz - wp;
         let dist = max(length(d), 0.001);
         let att = clamp(1.0 - dist / lp.w, 0.0, 1.0);
-        light += lc.rgb * lc.w * att * att * (0.35 + 0.65 * max(dot(n, d / dist), 0.0));
+        light += lc.rgb * intensity * att * att * (0.35 + 0.65 * max(dot(n, d / dist), 0.0));
     }
     if m.misc.y > 0.5 {
         light = vec3<f32>(1.0);
@@ -93,6 +103,8 @@ fn vertex(v: Vertex) -> Ps1Out {
 
     let dist = length(wp - view.world_position);
     out.fog = clamp((dist - m.fog.x) / max(m.fog.y - m.fog.x, 0.001), 0.0, 1.0);
+    // L'abîme : sous les ruines, tout se fond dans le noir (seules les lueurs restent).
+    out.abyss = clamp((ABYSS_TOP - wp.y) / ABYSS_DEPTH, 0.0, 1.0);
 
 #ifdef VERTEX_UVS_A
     out.uvw = vec3<f32>(v.uv * clip.w, clip.w);
@@ -134,6 +146,10 @@ fn fragment(in: Ps1Out) -> @location(0) vec4<f32> {
     var rgb = c.rgb * in.light + m.emissive.rgb;
     rgb = mix(rgb, m.tint.rgb, m.tint.a);
     rgb = mix(rgb, m.fog_color.rgb, in.fog);
+    rgb = mix(rgb, ABYSS_COLOR, in.abyss);
+    // Les lueurs (feux, lanternes, réverbères) percent le brouillard et l'abîme : au loin dans
+    // le noir, il ne reste qu'elles.
+    rgb += m.emissive.rgb * max(in.fog, in.abyss) * 0.7;
 
     // Quantification 5 bits par canal (comme la PS1) en espace sRGB, avec dithering.
     let d = (bayer4(vec2<u32>(in.position.xy)) - 0.5) * m.fog.w;

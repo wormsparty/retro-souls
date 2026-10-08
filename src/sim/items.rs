@@ -1,5 +1,11 @@
 //! Objets, inventaire et emplacements rapides (façon Lies of P) : les objets équipés dans les
 //! emplacements se choisissent en jeu (croix bas / C) et s'utilisent avec un seul bouton.
+//!
+//! Trois familles, comme dans les souls-like :
+//! - consommables (emplacements rapides) : fiole de soin (rechargée au repos), braises à
+//!   écraser, mousse, résine ;
+//! - talismans (un emplacement dédié) : bonus permanents tant qu'ils sont portés ;
+//! - objets clés, appliqués dès qu'on les ramasse (éclat de fiole : une charge de plus).
 
 use serde::{Deserialize, Serialize};
 
@@ -8,21 +14,89 @@ use super::data::Tuning;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Item {
     HealFlask,
+    /// Braise ternie : à écraser pour gagner des braises.
+    FadedEmber,
+    /// Braise vive : comme la braise ternie, en mieux.
+    LivelyEmber,
+    /// Mousse dorée : régénère des PV pendant quelques secondes.
+    GoldenMoss,
+    /// Résine ardente : l'arme fait plus de dégâts pendant une minute.
+    EmberResin,
+    /// Éclat de fiole : une charge de soin de plus, dès qu'on le ramasse.
+    FlaskShard,
+    /// Talisman : dégâts subis réduits.
+    IronBrooch,
+    /// Talisman : esquives moins coûteuses en endurance.
+    CarouselFeather,
 }
 
-impl Item {
-    pub const ALL: [Item; 1] = [Item::HealFlask];
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Consumable,
+    Talisman,
+    Key,
+}
 
-    pub fn name(self) -> &'static str {
+/// Braises gagnées en écrasant une braise ternie / vive.
+pub const FADED_EMBERS: u32 = 200;
+pub const LIVELY_EMBERS: u32 = 600;
+/// Mousse dorée : PV rendus par seconde, et durée (ticks).
+pub const MOSS_HP_PER_SEC: f32 = 6.0;
+pub const MOSS_TICKS: u32 = 25 * 60;
+/// Résine ardente : bonus de dégâts et durée (ticks).
+pub const RESIN_DAMAGE: f32 = 1.2;
+pub const RESIN_TICKS: u32 = 60 * 60;
+/// Broche de fer : part des dégâts subis.
+pub const BROOCH_DAMAGE: f32 = 0.85;
+/// Plume de manège : part du coût d'endurance des esquives.
+pub const FEATHER_DODGE: f32 = 0.7;
+
+impl Item {
+    pub const ALL: [Item; 8] = [
+        Item::HealFlask,
+        Item::FadedEmber,
+        Item::LivelyEmber,
+        Item::GoldenMoss,
+        Item::EmberResin,
+        Item::FlaskShard,
+        Item::IronBrooch,
+        Item::CarouselFeather,
+    ];
+
+    pub fn kind(self) -> Kind {
         match self {
-            Item::HealFlask => crate::lang::tr("Healing Flask", "Fiole de soin"),
+            Item::IronBrooch | Item::CarouselFeather => Kind::Talisman,
+            Item::FlaskShard => Kind::Key,
+            _ => Kind::Consumable,
         }
     }
 
-    /// Quantité rendue au repos et à la mort (`None` : l'objet ne se recharge pas).
-    pub fn refill(self, t: &Tuning) -> Option<u8> {
+    pub fn name(self) -> &'static str {
+        use crate::lang::tr;
         match self {
-            Item::HealFlask => Some(t.player.heal_charges),
+            Item::HealFlask => tr("Healing Flask", "Fiole de soin"),
+            Item::FadedEmber => tr("Faded Ember", "Braise ternie"),
+            Item::LivelyEmber => tr("Lively Ember", "Braise vive"),
+            Item::GoldenMoss => tr("Golden Moss", "Mousse dorée"),
+            Item::EmberResin => tr("Ember Resin", "Résine ardente"),
+            Item::FlaskShard => tr("Flask Shard", "Éclat de fiole"),
+            Item::IronBrooch => tr("Iron Brooch", "Broche de fer"),
+            Item::CarouselFeather => tr("Carousel Feather", "Plume de manège"),
+        }
+    }
+
+    /// Description courte (fenêtre d'objet ramassé, menu d'équipement).
+    pub fn description(self) -> &'static str {
+        use crate::lang::tr;
+        match self {
+            Item::HealFlask => tr("Restores HP. Refilled when resting.", "Rend des PV. Remplie au repos."),
+            Item::FadedEmber => tr("Crush it to gain embers.", "À écraser pour gagner des braises."),
+            Item::LivelyEmber => tr("Crush it to gain many embers.", "À écraser pour gagner beaucoup de braises."),
+            Item::GoldenMoss => tr("Slowly restores HP for a while.", "Rend lentement des PV pendant un moment."),
+            Item::EmberResin => tr("Weapon deals more damage for a minute.", "L'arme frappe plus fort pendant une minute."),
+            Item::FlaskShard => tr("Healing Flask: one more charge.", "Fiole de soin : une charge de plus."),
+            Item::IronBrooch => tr("Talisman. Damage taken reduced by 15%.", "Talisman. Dégâts subis réduits de 15 %."),
+            Item::CarouselFeather => tr("Talisman. Dodging costs 30% less stamina.", "Talisman. Esquiver coûte 30 % d'endurance en moins."),
         }
     }
 }
@@ -37,11 +111,15 @@ pub struct Inventory {
     pub slots: [Option<Item>; QUICK_SLOTS],
     /// Emplacement rapide sélectionné.
     pub active: u8,
+    /// Talisman porté.
+    pub talisman: Option<Item>,
+    /// Charges de soin gagnées avec les éclats de fiole.
+    pub flask_bonus: u8,
 }
 
 impl Default for Inventory {
     fn default() -> Self {
-        Self { items: Vec::new(), slots: [None; QUICK_SLOTS], active: 0 }
+        Self { items: Vec::new(), slots: [None; QUICK_SLOTS], active: 0, talisman: None, flask_bonus: 0 }
     }
 }
 
@@ -63,6 +141,49 @@ impl Inventory {
 
     pub fn active_item(&self) -> Option<Item> {
         self.slots.get(self.active as usize).copied().flatten()
+    }
+
+    /// Quantité rendue au repos et à la mort (`None` : l'objet ne se recharge pas).
+    pub fn refill_amount(&self, item: Item, t: &Tuning) -> Option<u8> {
+        match item {
+            Item::HealFlask => Some(t.player.heal_charges + self.flask_bonus),
+            _ => None,
+        }
+    }
+
+    /// Ajoute des objets ramassés. Les objets clés s'appliquent tout de suite ; un nouveau
+    /// consommable va dans le premier emplacement rapide libre, un talisman est porté si on
+    /// n'en portait pas.
+    pub fn add(&mut self, item: Item, n: u8) {
+        match item.kind() {
+            Kind::Key => {
+                if item == Item::FlaskShard {
+                    self.flask_bonus = self.flask_bonus.saturating_add(n);
+                    // La charge gagnée est utilisable tout de suite.
+                    if let Some((_, c)) = self.items.iter_mut().find(|(i, _)| *i == Item::HealFlask) {
+                        *c = c.saturating_add(n);
+                    }
+                }
+                return;
+            }
+            Kind::Talisman | Kind::Consumable => {}
+        }
+        let new = !self.owns(item);
+        match self.items.iter_mut().find(|(i, _)| *i == item) {
+            Some((_, c)) => *c = c.saturating_add(n).min(99),
+            None => self.items.push((item, n.min(99))),
+        }
+        if item.kind() == Kind::Talisman && self.talisman.is_none() {
+            self.talisman = Some(item);
+        }
+        if new && item.kind() == Kind::Consumable && !self.slots.contains(&Some(item)) {
+            if let Some(s) = self.slots.iter_mut().find(|s| s.is_none()) {
+                *s = Some(item);
+            }
+            if self.active_item().is_none() {
+                self.cycle();
+            }
+        }
     }
 
     /// Retire un exemplaire ; faux s'il n'y en a plus.
@@ -87,9 +208,9 @@ impl Inventory {
         }
     }
 
-    /// Équipe un objet dans un emplacement (il quitte son ancien emplacement s'il en avait un).
+    /// Équipe un consommable dans un emplacement (il quitte son ancien emplacement s'il en avait un).
     pub fn equip(&mut self, slot: usize, item: Option<Item>) {
-        if slot >= QUICK_SLOTS || item.is_some_and(|i| !self.owns(i)) {
+        if slot >= QUICK_SLOTS || item.is_some_and(|i| !self.owns(i) || i.kind() != Kind::Consumable) {
             return;
         }
         if let Some(it) = item {
@@ -105,10 +226,21 @@ impl Inventory {
         }
     }
 
+    pub fn equip_talisman(&mut self, item: Option<Item>) {
+        if item.is_none_or(|i| self.owns(i) && i.kind() == Kind::Talisman) {
+            self.talisman = item;
+        }
+    }
+
+    pub fn wears(&self, item: Item) -> bool {
+        self.talisman == Some(item)
+    }
+
     /// Recharge les objets rechargeables (repos au checkpoint, mort).
     pub fn refill(&mut self, t: &Tuning) {
-        for (i, n) in &mut self.items {
-            if let Some(max) = i.refill(t) {
+        let amounts: Vec<Option<u8>> = self.items.iter().map(|(i, _)| self.refill_amount(*i, t)).collect();
+        for ((_, n), max) in self.items.iter_mut().zip(amounts) {
+            if let Some(max) = max {
                 *n = max;
             }
         }
@@ -135,5 +267,34 @@ mod tests {
         assert_eq!(inv.count(Item::HealFlask), 0);
         inv.refill(&t);
         assert_eq!(inv.count(Item::HealFlask), t.player.heal_charges);
+    }
+
+    #[test]
+    fn pickups_fill_slots_and_shards_add_charges() {
+        let t = Tuning::builtin();
+        let mut inv = Inventory::new_game(&t);
+        inv.add(Item::GoldenMoss, 2);
+        assert_eq!(inv.slots[1], Some(Item::GoldenMoss));
+        inv.add(Item::GoldenMoss, 1);
+        assert_eq!(inv.count(Item::GoldenMoss), 3);
+        // Un talisman ne va pas dans les emplacements rapides ; le premier est porté d'office.
+        inv.add(Item::IronBrooch, 1);
+        assert!(!inv.slots.contains(&Some(Item::IronBrooch)));
+        assert!(inv.wears(Item::IronBrooch));
+        inv.equip(2, Some(Item::IronBrooch));
+        assert_eq!(inv.slots[2], None);
+        inv.add(Item::CarouselFeather, 1);
+        assert!(inv.wears(Item::IronBrooch));
+        inv.equip_talisman(Some(Item::CarouselFeather));
+        assert!(inv.wears(Item::CarouselFeather));
+        // Éclat de fiole : une charge de plus, gardée au repos ; les consommables ne se rechargent pas.
+        inv.add(Item::FlaskShard, 1);
+        assert!(!inv.owns(Item::FlaskShard));
+        assert_eq!(inv.count(Item::HealFlask), t.player.heal_charges + 1);
+        while inv.consume(Item::HealFlask) {}
+        inv.consume(Item::GoldenMoss);
+        inv.refill(&t);
+        assert_eq!(inv.count(Item::HealFlask), t.player.heal_charges + 1);
+        assert_eq!(inv.count(Item::GoldenMoss), 2);
     }
 }

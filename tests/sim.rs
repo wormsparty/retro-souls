@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use giants_flame::sim::boss::Boss;
 use giants_flame::sim::data::{BossMove, MoveRef, PlayerMove, Tuning};
-use giants_flame::sim::encounter::{Encounter, SimCommand, SimCommands, checkpoint_pos};
+use giants_flame::sim::encounter::{Encounter, SimCommand, SimCommands, checkpoint_pos, checkpoint_spawn};
 use giants_flame::sim::items::Item;
 use giants_flame::sim::fighter::{Action, Body, Health};
 use giants_flame::sim::input::{PlayerInput, PlayerInputs, btn};
@@ -402,14 +402,16 @@ fn boss_sleeps_until_player_enters_and_fog_closes_corridor() {
     let mut app = fresh_app();
     let t = tuning(&app);
     let (p, b) = (player(&mut app), boss(&mut app));
-    // Départ devant le checkpoint, dans le couloir.
+    // Départ devant le premier checkpoint, sur la place en contrebas de l'arène.
     let start = body(&mut app, p).pos;
-    assert!(start.distance(checkpoint_pos(&t.arena)) < 2.5);
+    assert!(start.distance(checkpoint_pos(&t, 0)) < 2.5);
+    assert!(start.y < -1.0);
     assert!(!app.world().resource::<Encounter>().active);
     let boss_start = body(&mut app, b).pos;
     steps(&mut app, 120, IDLE);
     assert_eq!(body(&mut app, b).pos, boss_start, "le boss dort");
-    // Marcher vers l'arène (la caméra regarde vers +z).
+    // Monter l'escalier vers l'arène (la caméra regarde vers +z) depuis le bas des marches.
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, -2.4, -25.0);
     let fwd = PlayerInput { move_y: 127, ..IDLE };
     let mut n = 0;
     while !app.world().resource::<Encounter>().active {
@@ -419,7 +421,8 @@ fn boss_sleeps_until_player_enters_and_fog_closes_corridor() {
     }
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossAwake)));
     assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(BossMove::Roar)));
-    // Impossible de ressortir : la brume bloque le couloir.
+    assert!(body(&mut app, p).pos.y.abs() < 1e-3, "en haut de l'escalier");
+    // Impossible de ressortir : la brume bloque l'escalier.
     steps(&mut app, 240, PlayerInput { move_y: -127, ..IDLE });
     let pos = body(&mut app, p).pos;
     assert!(math::flat_len(pos) <= t.arena.radius, "{pos:?}");
@@ -458,7 +461,7 @@ fn defeating_boss_gives_embers_and_persists_until_revived() {
 }
 
 #[test]
-fn death_respawns_at_checkpoint_with_items_refilled() {
+fn death_respawns_at_checkpoint_with_items_refilled_and_embers_left_behind() {
     let mut app = new_app();
     let t = tuning(&app);
     let p = player(&mut app);
@@ -471,14 +474,19 @@ fn death_respawns_at_checkpoint_with_items_refilled() {
     app.world_mut().get_mut::<Health>(b).unwrap().cur = 500.0;
     app.world_mut().get_mut::<Health>(p).unwrap().cur = 10.0;
     let hit_start = boss_attack(&mut app, "ecrasement", 2.6);
+    let died_at = body(&mut app, p).pos;
     steps(&mut app, hit_start + 30 + t.player.death.total + giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     let pl = app.world().get::<Player>(p).unwrap().clone();
     assert_eq!(pl.state, PState::Free);
-    assert_eq!(pl.embers, 300);
+    // Les braises sont restées là où l'on est mort.
+    assert_eq!(pl.embers, 0);
+    let d = pl.dropped.expect("braises laissées");
+    assert_eq!(d.embers, 300);
+    assert!(math::flat_len(d.pos() - died_at) < 2.0, "{:?} / {died_at:?}", d.pos());
     assert_eq!(pl.inventory.count(Item::HealFlask), t.player.heal_charges);
     assert_eq!(hp(&mut app, p), t.player.max_hp);
-    assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t.arena)) < 2.5);
+    assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t, 0)) < 2.5);
     // Le boss repart de zéro et se rendort.
     let b = boss(&mut app);
     assert_eq!(hp(&mut app, b), t.boss.max_hp);
@@ -497,7 +505,7 @@ fn resting_at_checkpoint_restores_everything() {
     assert_eq!(hp(&mut app, p), t.player.max_hp);
     assert_eq!(app.world().get::<Player>(p).unwrap().inventory.count(Item::HealFlask), t.player.heal_charges);
     // Loin du checkpoint : rien.
-    app.world_mut().get_mut::<Body>(p).unwrap().pos.z += 6.0;
+    app.world_mut().get_mut::<Body>(p).unwrap().pos.x += 5.0;
     steps(&mut app, 10, IDLE);
     step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
     assert!(!events(&mut app).iter().any(|e| matches!(e, SimEvent::Rested { .. })));
@@ -604,4 +612,422 @@ fn leap_slam_lands_on_the_marked_spot() {
     steps(&mut app, hit_start + 4 - 10, IDLE);
     assert!(hp(&mut app, p) < t.player.max_hp);
     assert!(r > 2.0);
+}
+
+// ----------------------------------------------------------------------------- niveau
+
+use giants_flame::sim::enemy::{EState, Enemy};
+use giants_flame::sim::world;
+
+/// Place le joueur au sol en (x, z), tourné vers `yaw`.
+fn put_player(app: &mut App, x: f32, z: f32, yaw: f32) {
+    let t = tuning(app);
+    let y = world::floor_at(&t, x, z, 0.0).expect("sol");
+    let p = player(app);
+    let mut b = app.world_mut().get_mut::<Body>(p).unwrap();
+    b.pos = Vec3::new(x, y, z);
+    b.yaw = yaw;
+}
+
+fn enemies(app: &mut App) -> Vec<(Entity, Enemy, f32)> {
+    let mut q = app.world_mut().query::<(Entity, &Enemy, &Health)>();
+    q.iter(app.world()).map(|(e, en, h)| (e, en.clone(), h.cur)).collect()
+}
+
+/// Avance de `n` ticks dans la direction monde `dir` (caméra tournée vers elle).
+fn walk(app: &mut App, n: u32, dir: Vec3) {
+    let cam_yaw = PlayerInput::quantize_yaw(math::yaw_of(dir));
+    steps(app, n, PlayerInput { move_y: 127, cam_yaw, ..IDLE });
+}
+
+#[test]
+fn walking_off_the_edge_is_a_fall_to_death_then_back_to_the_lantern() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    // La place est une ellipse au-dessus du vide : marcher droit vers l'est.
+    put_player(&mut app, 6.0, -31.5, 0.0);
+    walk(&mut app, 120, Vec3::X);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Fell { .. })));
+    assert_eq!(app.world().get::<Player>(p).unwrap().state, PState::Dead);
+    assert!(body(&mut app, p).pos.y < -6.0, "le corps tombe");
+    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    let p = player(&mut app);
+    assert_eq!(app.world().get::<Player>(p).unwrap().state, PState::Free);
+    assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t, 0)) < 2.5);
+}
+
+#[test]
+fn dropped_embers_are_recovered_or_lost_on_a_second_death() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    app.world_mut().get_mut::<Player>(p).unwrap().embers = 250;
+    // Chute depuis le bord est de la place : les braises restent au bord, sur le sol.
+    put_player(&mut app, 6.0, -31.5, 0.0);
+    walk(&mut app, 120, Vec3::X);
+    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    let p = player(&mut app);
+    let d = app.world().get::<Player>(p).unwrap().dropped.expect("braises laissées");
+    assert_eq!(d.embers, 250);
+    let at = d.pos();
+    assert!(world::floor_at(&t, at.x, at.z, at.y).is_some(), "sur le sol : {at:?}");
+    assert!(at.x > 7.0, "au bord d'où l'on est tombé : {at:?}");
+    // Les récupérer.
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = at + Vec3::new(-0.8, 0.0, 0.0);
+    steps(&mut app, 2, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::EmbersRecovered { embers: 250, .. })));
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert_eq!((pl.embers, pl.dropped), (250, None));
+
+    // Mourir deux fois de suite : les premières braises sont perdues.
+    put_player(&mut app, 6.0, -31.5, 0.0);
+    walk(&mut app, 120, Vec3::X);
+    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    let p = player(&mut app);
+    app.world_mut().get_mut::<Player>(p).unwrap().embers = 40;
+    put_player(&mut app, -6.0, -31.5, 0.0);
+    walk(&mut app, 120, -Vec3::X);
+    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    let p = player(&mut app);
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert_eq!(pl.embers, 0);
+    assert_eq!(pl.dropped.map(|d| d.embers), Some(40));
+    assert!(pl.dropped.unwrap().pos().x < -7.0);
+}
+
+#[test]
+fn walls_hold_on_the_stairs() {
+    let mut app = fresh_app();
+    let p = player(&mut app);
+    // Au milieu de l'escalier, pousser contre la balustrade : on bute, on ne tombe pas.
+    put_player(&mut app, 0.0, -21.0, 0.0);
+    walk(&mut app, 90, Vec3::X);
+    assert!(!events(&mut app).iter().any(|e| matches!(e, SimEvent::Fell { .. })));
+    let b = body(&mut app, p);
+    assert!(b.pos.x < 1.6 && b.pos.y < -0.5, "{:?}", b.pos);
+}
+
+#[test]
+fn hounds_wake_together_bite_and_drop_embers() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    let kennel: Vec<Entity> = enemies(&mut app).iter().filter(|(_, e, _)| e.group == 1).map(|(e, ..)| *e).collect();
+    assert_eq!(kennel.len(), 2);
+    // Ils dorment : on peut s'approcher un peu.
+    put_player(&mut app, -7.4, -46.0, std::f32::consts::PI);
+    steps(&mut app, 30, IDLE);
+    assert!(enemies(&mut app).iter().filter(|(_, e, _)| e.group == 1).all(|(_, e, _)| e.state == EState::Asleep));
+    // Trop près : l'un se réveille et réveille l'autre.
+    put_player(&mut app, -9.8, -51.0, std::f32::consts::PI);
+    step(&mut app, IDLE);
+    assert!(enemies(&mut app).iter().filter(|(_, e, _)| e.group == 1).all(|(_, e, _)| e.state == EState::Chase));
+    assert!(app.world().resource::<Encounter>().hunted);
+    // Ils mordent.
+    let before = hp(&mut app, p);
+    steps(&mut app, 240, IDLE);
+    assert!(hp(&mut app, p) < before, "les chiens attaquent");
+
+    // Achever un chien (seul, l'autre est écarté) : braises, puis il disparaît.
+    app.world_mut().despawn(kennel[1]);
+    {
+        let mut pl = app.world_mut().get_mut::<Player>(p).unwrap();
+        pl.state = PState::Free;
+        pl.stamina = t.player.max_stamina;
+    }
+    app.world_mut().get_mut::<Action>(p).unwrap().stop();
+    let dog = kennel[0];
+    app.world_mut().get_mut::<Health>(dog).unwrap().cur = 1.0;
+    let dpos = body(&mut app, dog).pos;
+    let pos = body(&mut app, p).pos;
+    app.world_mut().get_mut::<Body>(p).unwrap().yaw = math::yaw_of(dpos - pos);
+    app.world_mut().get_mut::<Health>(p).unwrap().cur = t.player.max_hp;
+    let embers = app.world().get::<Player>(p).unwrap().embers;
+    // Coup au contact (on rapproche le chien).
+    app.world_mut().get_mut::<Body>(dog).unwrap().pos = pos + math::forward(math::yaw_of(dpos - pos)) * 1.2;
+    app.world_mut().get_mut::<Action>(dog).unwrap().stop();
+    app.world_mut().get_mut::<giants_flame::sim::fighter::Hitstop>(dog).unwrap().0 = 30;
+    step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
+    steps(&mut app, 20, IDLE);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::EnemyDied { .. })));
+    let hound = t.enemy_kind("hound").unwrap() as usize;
+    assert_eq!(app.world().get::<Player>(p).unwrap().embers, embers + t.enemies[hound].embers);
+    steps(&mut app, t.enemies[hound].death.total + giants_flame::sim::enemy::VANISH_TICKS + 40, IDLE);
+    assert!(app.world().get_entity(dog).is_err(), "le corps a disparu");
+}
+
+#[test]
+fn enemies_give_up_far_from_home_and_heal() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let (e, en, _) = enemies(&mut app).into_iter().find(|(_, e, _)| e.group == 1).unwrap();
+    // Réveillé et blessé, puis le joueur s'enfuit loin (retour sur la place).
+    put_player(&mut app, -9.8, -51.0, std::f32::consts::PI);
+    step(&mut app, IDLE);
+    app.world_mut().get_mut::<Health>(e).unwrap().cur = 10.0;
+    put_player(&mut app, 0.0, -30.0, 0.0);
+    app.world_mut().get_mut::<Body>(e).unwrap().pos = Vec3::new(-4.0, -2.4, -37.0);
+    let hound = t.enemy_kind("hound").unwrap() as usize;
+    let mut back = false;
+    for _ in 0..1200 {
+        step(&mut app, IDLE);
+        let cur = enemies(&mut app).into_iter().find(|(x, ..)| *x == e).unwrap();
+        if cur.1.state != EState::Chase && cur.2 >= t.enemies[hound].max_hp {
+            back = true;
+            break;
+        }
+    }
+    assert!(back, "il retourne à son poste et se soigne");
+    assert!(body(&mut app, e).pos.distance(en.home) < 0.5);
+}
+
+#[test]
+fn pickups_are_taken_once_and_kept_after_death() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    let [x, z] = t.level.pickups[0].pos;
+    put_player(&mut app, x - 0.6, z, 0.0);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::PickedUp { pickup: 0, .. })));
+    let (item, n) = t.level.pickups[0].items[0];
+    assert_eq!(app.world().get::<Player>(p).unwrap().inventory.count(item), n);
+    // Une seconde fois : rien.
+    steps(&mut app, 15, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(!events(&mut app).iter().any(|e| matches!(e, SimEvent::PickedUp { .. })));
+    // Mourir ne le fait pas revenir.
+    app.world_mut().get_mut::<Health>(p).unwrap().cur = 0.0;
+    app.world_mut().get_mut::<Player>(p).unwrap().state = PState::Dead;
+    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    let p = player(&mut app);
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert_eq!(pl.picked & 1, 1);
+    assert_eq!(pl.inventory.count(item), n);
+}
+
+#[test]
+fn faded_ember_is_crushed_for_embers() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    {
+        let mut pl = app.world_mut().get_mut::<Player>(p).unwrap();
+        pl.inventory.add(Item::FadedEmber, 1);
+        pl.inventory.active = 1;
+    }
+    step(&mut app, PlayerInput { buttons: btn::ITEM, ..IDLE });
+    steps(&mut app, t.player.heal.total + 2, IDLE);
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert_eq!(pl.embers, giants_flame::sim::items::FADED_EMBERS);
+    assert_eq!(pl.inventory.count(Item::FadedEmber), 0);
+}
+
+#[test]
+fn cannot_rest_while_hunted_and_resting_brings_enemies_back() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let n = enemies(&mut app).len();
+    // Un chien tué, un autre aux trousses : pas de repos.
+    let (dog, ..) = enemies(&mut app).into_iter().find(|(_, e, _)| e.group == 1).unwrap();
+    app.world_mut().despawn(dog);
+    let (e, ..) = enemies(&mut app).into_iter().find(|(_, e, _)| e.group == 1).unwrap();
+    {
+        let mut en = app.world_mut().get_mut::<Enemy>(e).unwrap();
+        en.state = EState::Chase;
+    }
+    app.world_mut().get_mut::<Body>(e).unwrap().pos = Vec3::new(-6.0, -2.4, -36.0);
+    let (spawn, yaw) = checkpoint_spawn(&t, 0);
+    put_player(&mut app, spawn.x, spawn.z, yaw);
+    step(&mut app, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(!events(&mut app).iter().any(|e| matches!(e, SimEvent::Rested { .. })));
+    // (Le bouton, sans rien d'autre à faire, l'a fait sauter : on attend qu'il retombe.)
+    // Une fois débarrassé de lui : repos, et tout le monde revient à son poste.
+    app.world_mut().despawn(e);
+    steps(&mut app, 60, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    steps(&mut app, 2, IDLE);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Rested { .. })));
+    let now = enemies(&mut app);
+    assert_eq!(now.len(), n);
+    assert!(now.iter().all(|(_, e, _)| e.state != EState::Chase));
+}
+
+#[test]
+fn kindling_a_lantern_sets_respawn_and_allows_travel() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    // Le colosse, unique, est déjà vaincu (sinon il garde la piste juste avant).
+    let (spawn, yaw) = checkpoint_spawn(&t, 1);
+    put_player(&mut app, spawn.x, spawn.z, yaw);
+    steps(&mut app, 2, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    let ev = events(&mut app);
+    assert!(ev.iter().any(|e| matches!(e, SimEvent::Kindled { checkpoint: 1 })));
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert_eq!((pl.checkpoint, pl.found), (1, 0b11));
+    // Voyage vers la première lanterne.
+    app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::Travel { player: 0, checkpoint: 0 });
+    steps(&mut app, 2, IDLE);
+    let p = player(&mut app);
+    assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t, 0)) < 2.5);
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert_eq!((pl.checkpoint, pl.found), (0, 0b11));
+}
+
+#[test]
+fn unique_enemy_stays_dead() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    let (boss_e, ..) = enemies(&mut app).into_iter().find(|(_, e, _)| e.unique).unwrap();
+    let bpos = body(&mut app, boss_e).pos;
+    // Au contact, face à lui, un PV restant.
+    put_player(&mut app, bpos.x, bpos.z - 1.3, 0.0);
+    app.world_mut().get_mut::<Health>(boss_e).unwrap().cur = 1.0;
+    app.world_mut().get_mut::<giants_flame::sim::fighter::Hitstop>(boss_e).unwrap().0 = 30;
+    step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
+    steps(&mut app, 20, IDLE);
+    assert!(app.world().get::<Player>(p).unwrap().slain != 0);
+    // Repos : les autres reviennent, pas lui.
+    app.world_mut().resource_mut::<Encounter>().respawn_enemies = true;
+    steps(&mut app, 2, IDLE);
+    assert!(!enemies(&mut app).iter().any(|(_, e, _)| e.unique));
+    assert_eq!(enemies(&mut app).len(), t.level.enemies.len() - 1);
+}
+
+#[test]
+fn fights_with_enemies_are_deterministic() {
+    let run = || {
+        let mut app = fresh_app();
+        put_player(&mut app, -3.7, -64.0, std::f32::consts::PI);
+        for i in 0..900u32 {
+            let mut inp = scripted_input(i);
+            inp.cam_yaw = PlayerInput::quantize_yaw(std::f32::consts::PI);
+            step(&mut app, inp);
+        }
+        state_hash(app.world_mut())
+    };
+    assert_eq!(run(), run());
+}
+
+/// Ajoute au niveau une plate-forme à l'ouest de la place, séparée d'elle par 2,5 m de vide.
+fn add_islet(app: &mut App) {
+    use giants_flame::sim::data::{FloorDef, FloorStyle, Shape};
+    let mut t = app.world_mut().resource_mut::<Tuning>();
+    t.level.floors.push(FloorDef {
+        shape: Shape::Ellipse { center: [-15.0, -31.5], radii: [2.5, 2.5], y: -2.4 },
+        walled: false,
+        arena: false,
+        steps: 0,
+        style: FloorStyle::default(),
+    });
+}
+
+#[test]
+fn jumping_in_place_lands_back_and_costs_stamina() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    put_player(&mut app, 0.0, -31.5, 0.0);
+    steps(&mut app, 2, IDLE);
+    events(&mut app);
+    let y = body(&mut app, p).pos.y;
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    steps(&mut app, 15, IDLE);
+    assert!(body(&mut app, p).pos.y > y + 0.5, "en l'air");
+    assert!(app.world().get::<Player>(p).unwrap().stamina < t.player.max_stamina);
+    steps(&mut app, 30, IDLE);
+    let ev = events(&mut app);
+    assert!(ev.iter().any(|e| matches!(e, SimEvent::Jumped { .. })));
+    assert!(ev.iter().any(|e| matches!(e, SimEvent::Landed { .. })));
+    assert!(!app.world().get::<Player>(p).unwrap().airborne);
+    assert!((body(&mut app, p).pos.y - y).abs() < 1e-4);
+}
+
+#[test]
+fn a_running_jump_clears_a_gap_that_walking_falls_into() {
+    let west = Vec3::NEG_X;
+    let cam_yaw = PlayerInput::quantize_yaw(math::yaw_of(west));
+    let run = PlayerInput { move_y: 127, cam_yaw, ..IDLE };
+    // Sans sauter : la chute.
+    let mut app = fresh_app();
+    add_islet(&mut app);
+    put_player(&mut app, -6.0, -31.5, 0.0);
+    walk(&mut app, 90, west);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Fell { .. })));
+    // En courant, saut au bord : on se retrouve sur l'îlot.
+    let mut app = fresh_app();
+    add_islet(&mut app);
+    let p = player(&mut app);
+    put_player(&mut app, -4.0, -31.5, 0.0);
+    step(&mut app, PlayerInput { buttons: btn::SPRINT, ..run });
+    for _ in 0..120 {
+        if body(&mut app, p).pos.x < -9.4 {
+            break;
+        }
+        step(&mut app, run);
+    }
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..run });
+    steps(&mut app, 45, IDLE);
+    let ev = events(&mut app);
+    assert!(!ev.iter().any(|e| matches!(e, SimEvent::Fell { .. })), "pas de chute");
+    assert!(ev.iter().any(|e| matches!(e, SimEvent::Landed { .. })));
+    assert!(body(&mut app, p).pos.x < -12.5, "sur l'îlot ({:?})", body(&mut app, p).pos);
+    // Un saut au-dessus du vide, trop court : la chute.
+    put_player(&mut app, -13.0, -31.5, 0.0);
+    steps(&mut app, 2, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    walk(&mut app, 80, Vec3::X);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Fell { .. })));
+}
+
+#[test]
+fn interact_picks_up_instead_of_jumping() {
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    let at = t.level.pickups[0].pos;
+    put_player(&mut app, at[0] + 0.5, at[1], 0.0);
+    steps(&mut app, 2, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    steps(&mut app, 2, IDLE);
+    let ev = events(&mut app);
+    assert!(ev.iter().any(|e| matches!(e, SimEvent::PickedUp { pickup: 0, .. })));
+    assert!(!ev.iter().any(|e| matches!(e, SimEvent::Jumped { .. })));
+    assert!(!app.world().get::<Player>(p).unwrap().airborne);
+}
+
+#[test]
+fn reloading_at_a_brazier_faces_the_way_on() {
+    use giants_flame::sim::encounter::Progress;
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    for cp in 0..t.level.checkpoints.len() {
+        // Sauvegarde faite tout contre le brasier, face au feu.
+        let fire = checkpoint_pos(&t, cp);
+        let at = fire + Vec3::new(0.0, 0.0, -1.2);
+        let mut progress = Progress::new_game(&t);
+        progress.pos = Some([at.x, at.z, 0.0]);
+        let mut reset = app.world_mut().resource_mut::<giants_flame::sim::ResetFight>();
+        reset.requested = true;
+        reset.progress = Some(progress);
+        steps(&mut app, 2, IDLE);
+        let p = player(&mut app);
+        let b = body(&mut app, p);
+        let (spawn, yaw) = checkpoint_spawn(&t, cp);
+        assert!(b.pos.distance(spawn) < 0.05, "à la place habituelle");
+        assert!(math::wrap(b.yaw - yaw).abs() < 1e-3);
+        // Tourné vers `look`, et le feu n'est pas dans le dos (la caméra ne le traverse pas).
+        let c = &t.level.checkpoints[cp];
+        let to_look = Vec3::new(c.look[0], 0.0, c.look[1]) - fire;
+        assert!(math::wrap(yaw - math::yaw_of(to_look)).abs() < 1e-3);
+        let behind = -math::forward(yaw);
+        let to_fire = (fire - b.pos).normalize();
+        assert!(Vec3::new(to_fire.x, 0.0, to_fire.z).normalize().dot(behind) < 0.5);
+    }
 }

@@ -1,0 +1,405 @@
+//! Ennemis du chemin (chiens, pantins…) : une IA simple et lisible.
+//!
+//! - à leur poste, ils dorment (on peut les approcher de près, mais ils sentent tout autour
+//!   d'eux) ou guettent (ils voient loin, mais seulement devant eux) ;
+//! - repérer le joueur ou être frappé déclenche un cri d'alerte, qui réveille tout le groupe ;
+//! - ils poursuivent et attaquent comme le boss (choix pondéré, temps de recharge, pauses
+//!   où l'on peut punir) ;
+//! - trop loin de leur poste, ils abandonnent, y retournent et se soignent ;
+//! - vaincus, ils lâchent leurs braises et disparaissent. Ils reviennent tous quand on se
+//!   repose ou qu'on meurt, sauf les uniques.
+
+use bevy::prelude::*;
+
+use super::boss::Boss;
+use super::data::{EnemyMove, MoveRef, Tuning};
+use super::encounter::Encounter;
+use super::fighter::{Action, Body, Foe, Health, Hitstop, PrevBody, Team};
+use super::player::{PState, Player, run_frame};
+use super::rng::SimRng;
+use super::{DT, SimDebug, SimEntity, SimEvent, SimEvents, SimTick, math, world};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EState {
+    /// Endormi à son poste.
+    Asleep,
+    /// Debout à son poste, il guette devant lui.
+    Watch,
+    Chase,
+    /// Retour au poste (il ignore le joueur tant qu'on ne le frappe pas).
+    Return,
+}
+
+#[derive(Component, Clone, Debug)]
+pub struct Enemy {
+    /// Type (index dans `Tuning::enemies`).
+    pub kind: u8,
+    /// Index dans `level.enemies`.
+    pub spawn: u16,
+    pub home: Vec3,
+    pub home_yaw: f32,
+    /// État au poste : `Asleep` ou `Watch`.
+    pub rest_state: EState,
+    pub state: EState,
+    pub target: Option<Entity>,
+    /// Tick à partir duquel chaque attaque redevient disponible.
+    pub cooldowns: Vec<u32>,
+    /// Ticks avant de pouvoir attaquer.
+    pub idle: u32,
+    pub strafe: f32,
+    pub strafe_timer: u32,
+    /// Dégâts encaissés récemment (interruption au-delà de `poise`).
+    pub poise: f32,
+    pub poise_timer: u32,
+    /// A donné l'alerte ce tick : le groupe se réveille.
+    pub alerted: bool,
+    pub group: u8,
+    pub unique: bool,
+    /// Ticks écoulés depuis la fin de l'animation de mort.
+    pub dead_ticks: u32,
+}
+
+/// Délai entre la fin de l'animation de mort et la disparition.
+pub const VANISH_TICKS: u32 = 30;
+/// Écart de hauteur au-delà duquel un ennemi ne repère pas le joueur.
+const SIGHT_DY: f32 = 3.0;
+/// Demi-angle du champ de vision d'un ennemi qui guette (degrés).
+const SIGHT_ANGLE: f32 = 70.0;
+/// En deçà, un ennemi qui guette entend le joueur même dans son dos.
+const HEAR_RANGE: f32 = 3.0;
+
+impl Enemy {
+    /// Encaisse un coup : poursuite de l'attaquant, alerte du groupe, et interruption si la
+    /// réserve d'équilibre est dépassée (hors hyperarmure). Vrai si interrompu.
+    pub fn take_hit(&mut self, attacker: Entity, amount: f32, action: &mut Action, t: &Tuning) -> bool {
+        if self.state != EState::Chase {
+            self.alerted = true;
+        }
+        self.state = EState::Chase;
+        self.target = Some(attacker);
+        self.poise += amount;
+        self.poise_timer = 60;
+        let def = &t.enemies[self.kind as usize];
+        if self.poise >= def.poise && !action.hyperarmor(t) {
+            self.poise = 0.0;
+            action.start(MoveRef::Enemy(self.kind, EnemyMove::Hit), 0.0);
+            action.executed = false;
+            return true;
+        }
+        false
+    }
+}
+
+/// Crée tous les ennemis du niveau (sauf les uniques déjà vaincus : bits de `slain`), dans
+/// l'ordre du fichier (déterminisme).
+pub fn spawn_all(commands: &mut Commands, t: &Tuning, slain: u64) {
+    for (i, s) in t.level.enemies.iter().enumerate() {
+        if s.unique && slain & (1u64 << i) != 0 {
+            continue;
+        }
+        let Some(kind) = t.enemy_kind(&s.kind) else { continue };
+        let d = &t.enemies[kind as usize];
+        let y = world::floor_at(t, s.pos[0], s.pos[1], 0.0).unwrap_or(0.0);
+        let pos = Vec3::new(s.pos[0], y, s.pos[1]);
+        let yaw = s.yaw.to_radians();
+        let rest = if s.asleep { EState::Asleep } else { EState::Watch };
+        commands.spawn((
+            SimEntity,
+            Team::Enemies,
+            Foe,
+            Body { pos, yaw, radius: d.radius, height: d.height, mass: d.mass },
+            PrevBody { pos, yaw },
+            Health::new(d.max_hp),
+            Hitstop::default(),
+            Action::default(),
+            Enemy {
+                kind,
+                spawn: i as u16,
+                home: pos,
+                home_yaw: yaw,
+                rest_state: rest,
+                state: rest,
+                target: None,
+                cooldowns: vec![0; d.attacks.len()],
+                idle: 0,
+                strafe: 1.0,
+                strafe_timer: 0,
+                poise: 0.0,
+                poise_timer: 0,
+                alerted: false,
+                group: s.group,
+                unique: s.unique,
+                dead_ticks: 0,
+            },
+        ));
+    }
+}
+
+type PlayerView<'a> = (Entity, &'a Body, &'a Health, &'a Player);
+
+fn hunts(p: &PlayerView) -> bool {
+    !p.2.dead() && !matches!(p.3.state, PState::Dead | PState::Falling)
+}
+
+/// Le joueur le plus proche que cet ennemi repère depuis son poste.
+fn spot<'a>(e: &Enemy, body: &Body, sight: f32, players: impl Iterator<Item = PlayerView<'a>>) -> Option<Entity> {
+    players
+        .filter(hunts)
+        .filter(|(_, pb, ..)| {
+            let to = pb.pos - body.pos;
+            let d = math::flat_len(to);
+            if (pb.pos.y - body.pos.y).abs() > SIGHT_DY {
+                return false;
+            }
+            match e.state {
+                EState::Asleep => d <= sight * 0.5,
+                _ => {
+                    let ang = math::wrap(math::yaw_of(to) - body.yaw).abs().to_degrees();
+                    d <= HEAR_RANGE || (d <= sight && ang <= SIGHT_ANGLE)
+                }
+            }
+        })
+        .min_by(|a, b| a.1.pos.distance(body.pos).total_cmp(&b.1.pos.distance(body.pos)))
+        .map(|(e, ..)| e)
+}
+
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+pub fn enemy_act(
+    mut commands: Commands,
+    tuning: Res<Tuning>,
+    tick: Res<SimTick>,
+    debug: Res<SimDebug>,
+    mut enc: ResMut<Encounter>,
+    mut rng: ResMut<SimRng>,
+    mut events: ResMut<SimEvents>,
+    mut enemies: Query<
+        (Entity, &mut Enemy, &mut Body, &mut Action, &mut Hitstop, &mut Health),
+        (Without<Player>, Without<Boss>),
+    >,
+    players: Query<PlayerView, Without<Enemy>>,
+) {
+    let t = &*tuning;
+    let now = tick.0;
+    let mut groups: Vec<u8> = Vec::new();
+
+    for (entity, mut e, mut body, mut action, mut hitstop, mut health) in &mut enemies {
+        e.alerted = false;
+        if hitstop.0 > 0 {
+            hitstop.0 -= 1;
+            continue;
+        }
+        action.executed = true;
+        let d = &t.enemies[e.kind as usize];
+        if e.poise_timer > 0 {
+            e.poise_timer -= 1;
+        } else {
+            e.poise = 0.0;
+        }
+
+        // Mort : fin de l'animation, puis disparition.
+        if health.dead() {
+            let death = MoveRef::Enemy(e.kind, EnemyMove::Death);
+            if !action.is(death) {
+                action.start(death, 0.0);
+            }
+            if action.tick + 1 >= d.death.total {
+                action.tick = d.death.total - 1;
+                action.executed = false;
+                e.dead_ticks += 1;
+                if e.dead_ticks >= VANISH_TICKS {
+                    commands.entity(entity).despawn();
+                    events.push(SimEvent::EnemyVanished { pos: body.pos });
+                }
+            }
+            continue;
+        }
+
+        let target_pos = e.target.and_then(|p| players.get(p).ok()).filter(hunts).map(|(_, b, ..)| b.pos);
+
+        // Action en cours.
+        if let Some(mv) = action.mv {
+            let def = t.get(mv);
+            if action.tick < def.total {
+                if let Some(tp) = target_pos
+                    && def.motion.iter().any(|m| m.to_target && m.retarget && action.tick <= m.start)
+                {
+                    action.target_dist = math::flat_len(tp - body.pos);
+                }
+                // Le cri d'alerte : il se tourne vers sa cible.
+                if matches!(mv, MoveRef::Enemy(_, EnemyMove::Alert))
+                    && let Some(tp) = target_pos
+                {
+                    body.yaw = math::turn_towards(body.yaw, math::yaw_of(tp - body.pos), d.turn_rate.to_radians() * DT);
+                }
+                run_frame(&mut body, &action, def, target_pos, None);
+                continue;
+            }
+            action.stop();
+            match mv {
+                MoveRef::Enemy(_, EnemyMove::Attack(i)) => {
+                    let chained = d.attacks[i as usize].next.as_ref().and_then(|(name, chance)| {
+                        (rng.next_f32() < *chance).then(|| d.attacks.iter().position(|a| &a.name == name)).flatten()
+                    });
+                    if let (Some(j), Some(tp)) = (chained, target_pos) {
+                        start_attack(&mut e, &mut body, &mut action, j, tp, t, now);
+                        continue;
+                    }
+                    e.idle = rng.range(d.idle_ticks[0], d.idle_ticks[1]);
+                }
+                MoveRef::Enemy(_, EnemyMove::Hit) => e.idle = d.idle_ticks[0] / 2,
+                _ => e.idle = 10,
+            }
+        }
+
+        match e.state {
+            EState::Asleep | EState::Watch => {
+                if let Some(p) = spot(&e, &body, d.sight, players.iter()) {
+                    wake(&mut e, &mut action, p, &mut events, entity);
+                    groups.push(e.group);
+                } else {
+                    body.yaw = math::turn_towards(body.yaw, e.home_yaw, d.turn_rate.to_radians() * 0.3 * DT);
+                }
+            }
+            EState::Return => {
+                let to = e.home - body.pos;
+                let dist = math::flat_len(to);
+                if dist < 0.3 {
+                    e.state = e.rest_state;
+                    e.target = None;
+                    health.cur = health.max;
+                    continue;
+                }
+                body.yaw = math::turn_towards(body.yaw, math::yaw_of(to), d.turn_rate.to_radians() * DT);
+                let step = math::forward(body.yaw) * d.walk_speed.max(d.run_speed * 0.5).min(dist / DT) * DT;
+                body.pos += step;
+            }
+            EState::Chase => {
+                // Cible : celle d'avant si elle est toujours là, sinon le joueur le plus proche.
+                let tp = target_pos.or_else(|| {
+                    let p = players
+                        .iter()
+                        .filter(hunts)
+                        .min_by(|a, b| a.1.pos.distance(body.pos).total_cmp(&b.1.pos.distance(body.pos)))?;
+                    e.target = Some(p.0);
+                    Some(p.1.pos)
+                });
+                let too_far = math::flat_len(body.pos - e.home) > d.leash;
+                let Some(tp) = tp.filter(|_| !too_far) else {
+                    e.state = EState::Return;
+                    e.target = None;
+                    continue;
+                };
+                let to = tp - body.pos;
+                let dist = math::flat_len(to);
+                let want = math::yaw_of(to);
+                body.yaw = math::turn_towards(body.yaw, want, d.turn_rate.to_radians() * DT);
+                if dist > d.preferred_range + 0.6 {
+                    // Au trot de loin, au pas pour la dernière approche.
+                    let speed = if dist > d.preferred_range + 2.5 { d.run_speed } else { d.walk_speed * 1.4 };
+                    let step = math::forward(body.yaw) * speed * DT;
+                    body.pos += step;
+                } else {
+                    if e.strafe_timer == 0 {
+                        e.strafe = if rng.next_f32() < 0.5 { -1.0 } else { 1.0 };
+                        e.strafe_timer = rng.range(60, 150);
+                    }
+                    e.strafe_timer -= 1;
+                    let step = math::right(body.yaw) * e.strafe * d.walk_speed * 0.6 * DT;
+                    body.pos += step;
+                }
+                if e.idle > 0 {
+                    e.idle -= 1;
+                    continue;
+                }
+                if debug.boss_passive {
+                    continue;
+                }
+                let angle = math::wrap(want - body.yaw).abs().to_degrees();
+                let candidates: Vec<(usize, f32)> = d
+                    .attacks
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, a)| {
+                        e.cooldowns[*i] <= now && dist >= a.min_range && dist <= a.max_range && angle <= a.max_angle
+                    })
+                    .map(|(i, a)| (i, a.weight))
+                    .collect();
+                let total: f32 = candidates.iter().map(|c| c.1).sum();
+                if total <= 0.0 {
+                    continue;
+                }
+                let mut roll = rng.next_f32() * total;
+                let mut chosen = candidates[candidates.len() - 1].0;
+                for (i, w) in &candidates {
+                    if roll < *w {
+                        chosen = *i;
+                        break;
+                    }
+                    roll -= w;
+                }
+                start_attack(&mut e, &mut body, &mut action, chosen, tp, t, now);
+            }
+        }
+    }
+
+    // Alerte : le reste du groupe se réveille (ceux frappés ce tick aussi donnent l'alerte).
+    for (_, e, ..) in &enemies {
+        if e.alerted && e.group > 0 && !groups.contains(&e.group) {
+            groups.push(e.group);
+        }
+    }
+    let mut hunted = false;
+    for (entity, mut e, body, mut action, _, health) in &mut enemies {
+        if health.dead() {
+            continue;
+        }
+        if e.group > 0 && groups.contains(&e.group) && matches!(e.state, EState::Asleep | EState::Watch) {
+            let target = players
+                .iter()
+                .filter(hunts)
+                .min_by(|a, b| a.1.pos.distance(body.pos).total_cmp(&b.1.pos.distance(body.pos)))
+                .map(|p| p.0);
+            if let Some(p) = target {
+                wake(&mut e, &mut action, p, &mut events, entity);
+            }
+        }
+        hunted |= e.state == EState::Chase;
+    }
+    enc.hunted = hunted;
+}
+
+fn wake(e: &mut Enemy, action: &mut Action, target: Entity, events: &mut SimEvents, entity: Entity) {
+    e.state = EState::Chase;
+    e.target = Some(target);
+    e.alerted = true;
+    if action.mv.is_none() {
+        action.start(MoveRef::Enemy(e.kind, EnemyMove::Alert), 0.0);
+        events.push(SimEvent::EnemyAlert { entity });
+    }
+}
+
+fn start_attack(e: &mut Enemy, body: &mut Body, action: &mut Action, idx: usize, target_pos: Vec3, t: &Tuning, now: u32) {
+    let a = &t.enemies[e.kind as usize].attacks[idx];
+    e.cooldowns[idx] = now + a.cooldown;
+    action.start(MoveRef::Enemy(e.kind, EnemyMove::Attack(idx as u8)), math::flat_len(target_pos - body.pos));
+    run_frame(body, action, &a.mv, Some(target_pos), None);
+}
+
+/// Repos, voyage : tous les ennemis reviennent à leur poste (sauf les uniques vaincus).
+pub fn respawn_on_request(
+    mut commands: Commands,
+    tuning: Res<Tuning>,
+    mut enc: ResMut<Encounter>,
+    enemies: Query<Entity, With<Enemy>>,
+    players: Query<&Player>,
+) {
+    if !enc.respawn_enemies {
+        return;
+    }
+    enc.respawn_enemies = false;
+    for e in &enemies {
+        commands.entity(e).despawn();
+    }
+    let slain = players.iter().min_by_key(|p| p.id).map_or(0, |p| p.slain);
+    spawn_all(&mut commands, &tuning, slain);
+}

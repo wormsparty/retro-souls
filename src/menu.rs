@@ -20,11 +20,13 @@ use crate::render::camera::CameraRig;
 use crate::render::{AppState, LocalPlayer};
 use crate::save::{SaveData, SaveSlot};
 use crate::settings::{
-    DisplayMode, INTERNAL_HEIGHTS, Settings, exclusive_sizes, refresh_rates, windowed_sizes,
+    DisplayMode, INTERNAL_HEIGHTS, MODERN_HEIGHT, PS1_HEIGHT, Settings, exclusive_sizes, refresh_rates,
+    windowed_sizes,
 };
 use crate::sim::data::Tuning;
-use crate::sim::encounter::{Encounter, Progress, SimCommand, SimCommands, apply_commands};
-use crate::sim::items::{Item, QUICK_SLOTS};
+use crate::sim::encounter::{Encounter, Progress, SimCommand, SimCommands, apply_commands, near_checkpoint};
+use crate::sim::fighter::Body;
+use crate::sim::items::{Item, Kind, QUICK_SLOTS};
 use crate::sim::player::Player;
 use crate::sim::{ResetFight, SimEntity, SimEvent, SimEvents};
 use crate::render::preview::{CheckpointPreview, PREVIEW_SIZE};
@@ -43,6 +45,8 @@ pub enum Page {
     Help,
     /// Choix de la langue au premier lancement.
     Language,
+    /// Choix du style graphique (PS1 ou moderne) au premier lancement.
+    Style,
 }
 
 #[derive(Resource)]
@@ -72,7 +76,7 @@ impl Default for MenuState {
 
 impl MenuState {
     pub fn on_title(&self) -> bool {
-        self.open && matches!(self.page, Page::Title | Page::Language)
+        self.open && matches!(self.page, Page::Title | Page::Language | Page::Style)
     }
 
     /// Ouvre le menu sur une page (sans toucher au curseur).
@@ -137,6 +141,7 @@ enum Opt {
     Sensitivity,
     InvertY,
     Shake,
+    ShowFps,
     Language,
 }
 
@@ -146,12 +151,16 @@ enum Entry {
     Opt(Opt),
     /// Emplacement rapide d'objet.
     Slot(u8),
-    /// Destination de voyage (index du checkpoint ; il n'y en a qu'un pour l'instant).
+    /// Talisman porté.
+    Talisman,
+    /// Destination de voyage (index du checkpoint).
     Place(u8),
     /// Ligne d'aide (index dans `help_lines`), non sélectionnable.
     Line(u8),
     /// Langue proposée (page de choix de la langue).
     Lang(Lang),
+    /// Style graphique proposé : sa résolution interne.
+    Style(u32),
 }
 
 /// Ce dont dépend le contenu des pages.
@@ -160,6 +169,9 @@ struct PageCtx {
     has_save: bool,
     boss_defeated: bool,
     device: Device,
+    /// Checkpoints découverts par le joueur local (bits), et celui où il se trouve.
+    found: u32,
+    here: Option<u8>,
 }
 
 const NATIVE: bool = !cfg!(target_arch = "wasm32");
@@ -178,7 +190,7 @@ fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
             (tr("Sprint", "Course"), vec![t(tr("hold", "maintenir")), i(Glyph::PadB), or(), i(Glyph::StickL3)]),
             (tr("Use item", "Utiliser l'objet"), vec![i(Glyph::PadX)]),
             (tr("Next item", "Objet suivant"), vec![i(Glyph::DpadDown)]),
-            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::PadY)]),
+            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::DpadRight)]),
             (tr("Lock on", "Verrouillage"), vec![i(Glyph::StickR3)]),
             (tr("Rest (checkpoint)", "Se reposer (checkpoint)"), vec![i(Glyph::PadA)]),
             (tr("Menu", "Menu"), vec![i(Glyph::PadMenu)]),
@@ -232,20 +244,23 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
             }
             v
         }
-        Page::Travel => vec![Entry::Place(0), Entry::Act(Back)],
-        Page::Equipment => (0..QUICK_SLOTS as u8).map(Entry::Slot).chain([Entry::Act(Back)]).collect(),
+        Page::Travel => (0..32u8).filter(|i| c.found & (1 << i) != 0).map(Entry::Place).chain([Entry::Act(Back)]).collect(),
+        Page::Equipment => {
+            (0..QUICK_SLOTS as u8).map(Entry::Slot).chain([Entry::Talisman, Entry::Act(Back)]).collect()
+        }
         Page::Options => {
             use Opt::*;
             let opts: &[Opt] = if NATIVE {
-                &[Language, Display, Resolution, Refresh, VSync, Internal, Master, Effects, Sensitivity, InvertY, Shake]
+                &[Language, Display, Resolution, Refresh, VSync, Internal, Master, Effects, Sensitivity, InvertY, Shake, ShowFps]
             } else {
                 // Dans le navigateur, résolution, fréquence et VSync sont gérées par le navigateur.
-                &[Language, Display, Internal, Master, Effects, Sensitivity, InvertY, Shake]
+                &[Language, Display, Internal, Master, Effects, Sensitivity, InvertY, Shake, ShowFps]
             };
             opts.iter().map(|o| Entry::Opt(*o)).chain([Entry::Act(Back)]).collect()
         }
         Page::Help => (0..help_lines(c.device).len() as u8).map(Entry::Line).chain([Entry::Act(Back)]).collect(),
         Page::Language => Lang::ALL.into_iter().map(Entry::Lang).collect(),
+        Page::Style => vec![Entry::Style(PS1_HEIGHT), Entry::Style(MODERN_HEIGHT)],
     };
     if NATIVE && matches!(page, Page::Title | Page::Pause) {
         v.push(Entry::Act(Quit));
@@ -256,6 +271,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
 fn selectable(e: Entry, c: &PageCtx) -> bool {
     match e {
         Entry::Line(..) | Entry::Act(Act::LevelUp) => false,
+        Entry::Place(i) => c.here != Some(i),
         Entry::Act(Act::Load) => c.has_save,
         _ => true,
     }
@@ -293,6 +309,7 @@ fn opt_label(o: Opt) -> &'static str {
         Opt::Sensitivity => tr("Camera sensitivity", "Sensibilité de la caméra"),
         Opt::InvertY => tr("Invert vertical axis", "Inverser l'axe vertical"),
         Opt::Shake => tr("Camera shake", "Tremblements de caméra"),
+        Opt::ShowFps => tr("Show FPS", "Afficher les FPS"),
         Opt::Language => "Language / Langue",
     }
 }
@@ -309,6 +326,7 @@ fn page_title(p: Page, device: Device) -> &'static str {
         Page::Help if device == Device::Gamepad => tr("HELP — GAMEPAD", "AIDE — MANETTE"),
         Page::Help => tr("HELP — KEYBOARD AND MOUSE", "AIDE — CLAVIER ET SOURIS"),
         Page::Language => "LANGUAGE / LANGUE",
+        Page::Style => tr("GRAPHICS STYLE", "STYLE GRAPHIQUE"),
     }
 }
 
@@ -317,8 +335,12 @@ fn page_info(p: Page) -> &'static str {
         Page::Title => tr("The Carousel Automaton", "L'Automate du Carrousel"),
         Page::ConfirmNew => tr("The current save will be overwritten.", "La sauvegarde actuelle sera remplacée."),
         Page::Checkpoint => tr("You rest. HP, stamina and items restored.", "Vous vous reposez. PV, endurance et objets restaurés."),
-        Page::Travel => tr("Travel to a checkpoint you have already found.", "Rejoindre un checkpoint déjà découvert."),
-        Page::Equipment => tr("Quick slot items. In game, “Next item” cycles through them.", "Objets des emplacements rapides. En jeu, « Objet suivant » passe de l'un à l'autre."),
+        Page::Travel => tr("Travel to a brazier you have already kindled.", "Rejoindre un brasier déjà ranimé."),
+        Page::Style => tr(
+            "Can be changed at any time in Options (Internal resolution).",
+            "Modifiable à tout moment dans les Options (Résolution interne).",
+        ),
+        Page::Equipment => tr("Quick slot items (“Next item” cycles through them in game), and your talisman.", "Objets des emplacements rapides (« Objet suivant » passe de l'un à l'autre en jeu), et talisman."),
         _ => "",
     }
 }
@@ -427,7 +449,10 @@ fn choices(item: Opt, s: &Settings, m: Option<&Monitor>) -> Option<Choices> {
         }
         Opt::VSync => yes_no(s.vsync, tr("On", "Activée"), tr("Off", "Désactivée")),
         Opt::Internal => Choices {
-            labels: INTERNAL_HEIGHTS.iter().map(|h| if *h == 240 { "240p (PS1)".into() } else { format!("{h}p") }).collect(),
+            labels: INTERNAL_HEIGHTS
+                .iter()
+                .map(|h| if *h == PS1_HEIGHT { format!("{h}p (PS1)") } else { format!("{h}p ({})", tr("Modern", "Moderne")) })
+                .collect(),
             current: INTERNAL_HEIGHTS.iter().position(|h| *h == s.internal_height).unwrap_or(0),
             enabled: true,
         },
@@ -440,6 +465,7 @@ fn choices(item: Opt, s: &Settings, m: Option<&Monitor>) -> Option<Choices> {
         },
         Opt::InvertY => yes_no(s.invert_y, tr("Yes", "Oui"), tr("No", "Non")),
         Opt::Shake => yes_no(s.camera_shake, tr("Yes", "Oui"), tr("No", "Non")),
+        Opt::ShowFps => yes_no(s.show_fps, tr("Yes", "Oui"), tr("No", "Non")),
         Opt::Language => Choices {
             labels: Lang::ALL.iter().map(|l| l.native_name().into()).collect(),
             current: Lang::ALL.iter().position(|l| *l == s.language.unwrap_or_default()).unwrap_or(0),
@@ -481,6 +507,7 @@ fn change(item: Opt, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
         Opt::Sensitivity => s.sensitivity = SENSITIVITIES[i],
         Opt::InvertY => s.invert_y = i == 1,
         Opt::Shake => s.camera_shake = i == 1,
+        Opt::ShowFps => s.show_fps = i == 1,
         Opt::Language => s.language = Some(Lang::ALL[i]),
     }
 }
@@ -499,6 +526,9 @@ struct MenuList;
 struct MenuPreview;
 #[derive(Component)]
 struct MenuPreviewCaption;
+/// Description de l'objet sélectionné (page d'équipement).
+#[derive(Component)]
+struct MenuDetail;
 #[derive(Component)]
 struct MenuFooter;
 #[derive(Component)]
@@ -509,6 +539,16 @@ struct RowLabel(usize);
 struct RowValue(usize);
 #[derive(Component)]
 struct Arrow(usize, i32);
+
+/// Illustrations des deux styles graphiques (captures du jeu en 240p et en 480p).
+#[derive(Resource)]
+struct StyleImages {
+    ps1: Handle<Image>,
+    modern: Handle<Image>,
+}
+
+/// Taille des illustrations, en points.
+const STYLE_IMAGE_SIZE: UVec2 = UVec2::new(192, 108);
 
 pub struct MenuPlugin;
 
@@ -527,7 +567,8 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<CheckpointPreview>) {
+fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<CheckpointPreview>, assets: Res<AssetServer>) {
+    commands.insert_resource(StyleImages { ps1: assets.load("ui/style_ps1.png"), modern: assets.load("ui/style_modern.png") });
     let text = Color::srgba(0.85, 0.82, 0.75, 0.75);
     commands
         .spawn((
@@ -571,6 +612,11 @@ fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<Checkpo
                                 c.spawn((ui_font.text("", 1, Color::srgb(0.9, 0.82, 0.62)), MenuPreviewCaption));
                             });
                         });
+                    c.spawn((
+                        ui_font.text("", 1, Color::srgb(0.9, 0.82, 0.62)),
+                        Node { display: Display::None, margin: UiRect::top(px(10)), ..default() },
+                        MenuDetail,
+                    ));
                     c.spawn((Hint::new(1, text), Node { margin: UiRect::top(px(10)), ..hint_node() }, MenuFooter));
                 });
         });
@@ -609,10 +655,20 @@ pub fn enter_title(mut commands: Commands) {
         w.resource_mut::<SimEvents>().0.clear();
         w.resource_mut::<SimCommands>().0.clear();
         w.resource_mut::<CameraRig>().initialized = false;
-        // Premier lancement : on demande d'abord la langue.
-        let page = if w.resource::<Settings>().language.is_none() { Page::Language } else { Page::Title };
+        let page = first_launch_page(w.resource::<Settings>());
         open_page(w, page);
     });
+}
+
+/// Premier lancement : on demande d'abord la langue, puis le style graphique.
+fn first_launch_page(s: &Settings) -> Page {
+    if s.language.is_none() {
+        Page::Language
+    } else if !s.style_chosen {
+        Page::Style
+    } else {
+        Page::Title
+    }
 }
 
 pub enum Launch {
@@ -781,12 +837,22 @@ fn menu_input(
     }
 }
 
-fn page_ctx(w: &World) -> PageCtx {
+fn page_ctx(w: &mut World) -> PageCtx {
+    let (found, here) = local_place(w);
     PageCtx {
         has_save: w.resource::<SaveSlot>().data.is_some(),
         boss_defeated: w.resource::<Encounter>().boss_defeated,
         device: *w.resource::<Device>(),
+        found,
+        here,
     }
+}
+
+/// Checkpoints découverts par le joueur local, et celui près duquel il se trouve.
+fn local_place(w: &mut World) -> (u32, Option<u8>) {
+    let t = w.resource::<Tuning>().clone();
+    let mut q = w.query::<(&Player, &Body)>();
+    q.iter(w).min_by_key(|(p, _)| p.id).map_or((0, None), |(p, b)| (p.found, near_checkpoint(&t, b.pos)))
 }
 
 fn local_player(w: &mut World) -> Option<Player> {
@@ -810,12 +876,12 @@ fn handle(w: &mut World, intent: Intent) {
     match intent {
         Intent::Pause => {}
         Intent::Back => {
-            if !w.resource_mut::<MenuState>().back() && !matches!(page, Page::Title | Page::Language) {
+            if !w.resource_mut::<MenuState>().back() && !w.resource::<MenuState>().on_title() {
                 close(w);
             }
         }
         Intent::Close => {
-            if !matches!(page, Page::Title | Page::Language) {
+            if !w.resource::<MenuState>().on_title() {
                 close(w);
             }
         }
@@ -829,6 +895,10 @@ fn handle(w: &mut World, intent: Intent) {
                 }
             }
             w.resource_mut::<MenuState>().selected = i as usize;
+        }
+        // Styles côte à côte : gauche/droite passe de l'un à l'autre.
+        Intent::Change(d) if page == Page::Style => {
+            w.resource_mut::<MenuState>().selected = (selected as i32 + d).clamp(0, list.len() as i32 - 1) as usize;
         }
         Intent::Change(d) => {
             if let Some(e) = list.get(selected) {
@@ -874,12 +944,22 @@ fn change_entry(w: &mut World, e: Entry, d: i32) {
         }
         Entry::Slot(slot) => {
             let Some(p) = local_player(w) else { return };
-            let choices = slot_choices(&p);
+            let choices = slot_choices(&p, Kind::Consumable);
             let cur = choices.iter().position(|c| *c == p.inventory.slots[slot as usize]).unwrap_or(0);
             let i = (cur as i32 + d).rem_euclid(choices.len() as i32) as usize;
             if i != cur {
                 w.resource_mut::<SimCommands>().0.push(SimCommand::Equip { player: p.id, slot, item: choices[i] });
                 // La sim est en pause pendant le menu : la commande est appliquée tout de suite.
+                let _ = w.run_system_cached(apply_commands);
+            }
+        }
+        Entry::Talisman => {
+            let Some(p) = local_player(w) else { return };
+            let choices = slot_choices(&p, Kind::Talisman);
+            let cur = choices.iter().position(|c| *c == p.inventory.talisman).unwrap_or(0);
+            let i = (cur as i32 + d).rem_euclid(choices.len() as i32) as usize;
+            if i != cur {
+                w.resource_mut::<SimCommands>().0.push(SimCommand::EquipTalisman { player: p.id, item: choices[i] });
                 let _ = w.run_system_cached(apply_commands);
             }
         }
@@ -905,15 +985,26 @@ fn confirm(w: &mut World, e: Entry) {
                 *w.resource_mut::<Settings>() = s;
             }
         }
-        Entry::Slot(_) => change_entry(w, e, 1),
-        // Un seul checkpoint pour l'instant, celui où l'on se trouve : rien à faire.
-        Entry::Place(_) => {
-            w.resource_mut::<MenuState>().back();
+        Entry::Slot(_) | Entry::Talisman => change_entry(w, e, 1),
+        // Voyage : on réapparaît reposé devant l'autre brasier (ennemis revenus à leur poste).
+        Entry::Place(i) => {
+            let Some(p) = local_player(w) else { return };
+            w.resource_mut::<SimCommands>().0.push(SimCommand::Travel { player: p.id, checkpoint: i });
+            let _ = w.run_system_cached(apply_commands);
+            crate::save::save_now(w);
+            close(w);
         }
         Entry::Line(..) => {}
         Entry::Lang(l) => {
             w.resource_mut::<Settings>().language = Some(l);
             crate::lang::set(l);
+            let page = first_launch_page(w.resource::<Settings>());
+            w.resource_mut::<MenuState>().open(page);
+        }
+        Entry::Style(h) => {
+            let mut s = w.resource_mut::<Settings>();
+            s.internal_height = h;
+            s.style_chosen = true;
             w.resource_mut::<MenuState>().open(Page::Title);
         }
     }
@@ -958,36 +1049,43 @@ fn monitor(w: &mut World) -> Option<Monitor> {
     crate::settings::pick_monitor(q.iter(w)).cloned()
 }
 
-/// Choix possibles pour un emplacement rapide : vide, ou un des objets possédés.
-fn slot_choices(p: &Player) -> Vec<Option<Item>> {
-    std::iter::once(None).chain(Item::ALL.into_iter().filter(|i| p.inventory.owns(*i)).map(Some)).collect()
+/// Choix possibles pour un emplacement (rapide ou talisman) : vide, ou un des objets possédés.
+fn slot_choices(p: &Player, kind: Kind) -> Vec<Option<Item>> {
+    std::iter::once(None)
+        .chain(Item::ALL.into_iter().filter(|i| i.kind() == kind && p.inventory.owns(*i)).map(Some))
+        .collect()
 }
 
-fn entry_value(e: Entry, s: &Settings, m: Option<&Monitor>, player: Option<&Player>, save: Option<&SaveData>) -> (String, bool) {
+fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player: Option<&Player>, save: Option<&SaveData>) -> (String, bool) {
     match e {
         Entry::Opt(o) => choices(o, s, m).map(|c| (c.labels[c.current].clone(), c.enabled)).unwrap_or_default(),
         Entry::Slot(i) => {
             let item = player.and_then(|p| p.inventory.slots[i as usize].map(|it| (it, p.inventory.count(it))));
             (item.map_or("—".into(), |(it, n)| format!("{} ×{n}", it.name())), true)
         }
+        Entry::Talisman => (player.and_then(|p| p.inventory.talisman).map_or("—", Item::name).into(), true),
         Entry::Act(Act::Load) => match save {
             Some(_) => (String::new(), true),
             None => (tr("No save", "Aucune sauvegarde").into(), false),
         },
-        Entry::Place(_) => (tr("You are here", "Vous êtes ici").into(), false),
+        Entry::Place(i) if c.here == Some(i) => (tr("You are here", "Vous êtes ici").into(), false),
+        Entry::Place(_) => (String::new(), true),
         Entry::Act(Act::LevelUp) => (tr("Coming soon", "Bientôt").into(), false),
-        Entry::Line(..) | Entry::Lang(_) | Entry::Act(_) => (String::new(), true),
+        Entry::Line(..) | Entry::Lang(_) | Entry::Style(_) | Entry::Act(_) => (String::new(), true),
     }
 }
 
 fn entry_label(e: Entry, t: &Tuning, device: Device) -> String {
     match e {
-        Entry::Place(_) => t.arena.checkpoint_name.get().into(),
+        Entry::Place(i) => t.level.checkpoints.get(i as usize).map_or("", |c| c.name.get()).into(),
+        Entry::Talisman => tr("Talisman", "Talisman").into(),
         Entry::Act(a) => act_label(a).into(),
         Entry::Opt(o) => opt_label(o).into(),
         Entry::Slot(i) => format!("{} {}", tr("Slot", "Emplacement"), i + 1),
         Entry::Line(l) => help_lines(device).get(l as usize).map_or("", |h| h.0).into(),
         Entry::Lang(l) => l.native_name().into(),
+        Entry::Style(h) if h == PS1_HEIGHT => "PS1".into(),
+        Entry::Style(_) => tr("Modern", "Moderne").into(),
     }
 }
 
@@ -999,9 +1097,42 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry]) {
         let mut images = w.resource_mut::<Assets<Image>>();
         (icon_bundle(&mut icons, &mut images, Glyph::ValueLeft, 1), icon_bundle(&mut icons, &mut images, Glyph::ValueRight, 1))
     });
+    let style = (w.resource::<StyleImages>().ps1.clone(), w.resource::<StyleImages>().modern.clone());
+    let side_by_side = entries.iter().any(|e| matches!(e, Entry::Style(_)));
     let mut commands = w.commands();
+    commands.entity(list).entry::<Node>().and_modify(move |mut n| {
+        n.flex_direction = if side_by_side { FlexDirection::Row } else { FlexDirection::Column };
+        n.justify_content = if side_by_side { JustifyContent::SpaceEvenly } else { JustifyContent::Default };
+    });
     commands.entity(list).despawn_children().with_children(|c| {
         for (i, e) in entries.iter().enumerate() {
+            if let Entry::Style(h) = *e {
+                // Carte : illustration, nom du style, description.
+                let (image, desc) = if h == PS1_HEIGHT {
+                    (style.0.clone(), tr("240p: big pixels, the 1997 look", "240p : gros pixels, l'image de 1997"))
+                } else {
+                    (style.1.clone(), tr("480p: a sharper image", "480p : une image plus nette"))
+                };
+                c.spawn((
+                    Row(i),
+                    Button,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(8),
+                        padding: UiRect::all(px(10)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::NONE),
+                ))
+                .with_children(|c| {
+                    c.spawn((Node { border: UiRect::all(px(2)), ..default() }, BorderColor::all(Color::srgb(0.62, 0.55, 0.42))))
+                        .with_child(image_bundle(image, STYLE_IMAGE_SIZE));
+                    c.spawn((ui_font.text("", 2, Color::srgb(0.85, 0.82, 0.75)), RowLabel(i)));
+                    c.spawn(ui_font.text(desc, 1, Color::srgb(0.78, 0.75, 0.68)));
+                });
+                continue;
+            }
             let line = matches!(e, Entry::Line(..));
             c.spawn((
                 Row(i),
@@ -1057,7 +1188,7 @@ fn refresh_menu(
     mut preview: ResMut<CheckpointPreview>,
     mut preview_node: Query<&mut Node, With<MenuPreview>>,
     monitors: Query<(&Monitor, Has<PrimaryMonitor>)>,
-    players: Query<&Player, With<LocalPlayer>>,
+    players: Query<(&Player, &Body), With<LocalPlayer>>,
     mut root: Single<(&mut Visibility, &mut BackgroundColor), With<MenuRoot>>,
     list: Single<Entity, With<MenuList>>,
     mut texts: ParamSet<(
@@ -1067,6 +1198,7 @@ fn refresh_menu(
         Query<(&RowLabel, &mut Text, &mut TextColor)>,
         Query<(&RowValue, &mut Text, &mut TextColor)>,
         Query<&mut Text, With<MenuPreviewCaption>>,
+        Query<(&mut Text, &mut Node), (With<MenuDetail>, Without<MenuPreview>)>,
     )>,
     mut rows: Query<(&Row, &mut BackgroundColor), Without<MenuRoot>>,
     mut arrows: Query<(&Arrow, &mut Visibility), Without<MenuRoot>>,
@@ -1092,7 +1224,11 @@ fn refresh_menu(
     }
     // L'écran titre masque complètement le monde.
     root.1.0 = if menu.on_title() { Color::srgb(0.03, 0.025, 0.035) } else { Color::srgba(0.0, 0.0, 0.0, 0.72) };
-    let ctx = PageCtx { has_save: save.data.is_some(), boss_defeated: enc.boss_defeated, device: *device };
+    let (found, here) = players
+        .iter()
+        .next()
+        .map_or((0, None), |(p, b)| (p.found, near_checkpoint(&tuning, b.pos)));
+    let ctx = PageCtx { has_save: save.data.is_some(), boss_defeated: enc.boss_defeated, device: *device, found, here };
     let list_entries = entries(menu.page, &ctx);
     // Les lignes d'aide (icônes) dépendent aussi de la langue.
     let key = (list_entries.clone(), Some(crate::lang::current()));
@@ -1122,10 +1258,13 @@ fn refresh_menu(
             n.display = want;
         }
     }
-    let mut footer = if menu.page == Page::Language {
-        // Rien à modifier sur cette page : choisir et valider.
-        let (nav, ok) = if *device == Device::Gamepad { (vec![i(Glyph::Dpad)], Glyph::PadA) } else { (vec![i(Glyph::Key("↑")), i(Glyph::Key("↓"))], Glyph::Key("↵")) };
-        nav.into_iter().chain([t("select / choisir"), i(ok), t("OK")]).collect()
+    let mut footer = if matches!(menu.page, Page::Language | Page::Style) {
+        // Rien à modifier sur ces pages : choisir et valider. La langue n'est pas encore choisie
+        // sur la première.
+        let keys = if menu.page == Page::Style { ["←", "→"] } else { ["↑", "↓"] };
+        let (nav, ok) = if *device == Device::Gamepad { (vec![i(Glyph::Dpad)], Glyph::PadA) } else { (keys.map(|k| i(Glyph::Key(k))).to_vec(), Glyph::Key("↵")) };
+        let select = if menu.page == Page::Style { tr("select", "choisir") } else { "select / choisir" };
+        nav.into_iter().chain([t(select), i(ok), t("OK")]).collect()
     } else if *device == Device::Gamepad {
         vec![i(Glyph::Dpad), t(tr("select / change", "choisir / modifier")), i(Glyph::PadA), t(tr("confirm", "valider"))]
     } else {
@@ -1147,7 +1286,7 @@ fn refresh_menu(
         set_hint(&mut h, footer.clone());
     }
     let m = crate::settings::pick_monitor(monitors.iter());
-    let player = players.iter().next();
+    let player = players.iter().next().map(|(p, _)| p);
     for (r, mut bg) in &mut rows {
         bg.0 = if r.0 == menu.selected { Color::srgba(0.9, 0.82, 0.62, 0.16) } else { Color::NONE };
     }
@@ -1166,17 +1305,40 @@ fn refresh_menu(
     }
     for (v, mut t, mut c) in &mut texts.p4() {
         let Some(e) = list_entries.get(v.0) else { continue };
-        let (s, enabled) = entry_value(*e, &settings, m, player, save.data.as_ref());
+        let (s, enabled) = entry_value(*e, &ctx, &settings, m, player, save.data.as_ref());
         set(&mut t, &s);
         c.0 = if enabled { Color::srgb(0.95, 0.92, 0.85) } else { Color::srgba(0.6, 0.58, 0.55, 0.6) };
     }
+    // Aperçu : le lieu de la ligne sélectionnée (ou celui où l'on se trouve).
+    let shown = match list_entries.get(menu.selected) {
+        Some(Entry::Place(i)) => *i as usize,
+        _ => here.unwrap_or(0) as usize,
+    };
+    if preview.index != shown {
+        preview.index = shown;
+    }
     for mut t in &mut texts.p5() {
-        set(&mut t, tuning.arena.checkpoint_name.get());
+        set(&mut t, tuning.level.checkpoints.get(shown).map_or("", |c| c.name.get()));
+    }
+    // Équipement : ce que fait l'objet de la ligne sélectionnée.
+    let item = match list_entries.get(menu.selected) {
+        Some(Entry::Slot(i)) => player.and_then(|p| p.inventory.slots[*i as usize]),
+        Some(Entry::Talisman) => player.and_then(|p| p.inventory.talisman),
+        _ => None,
+    };
+    let detail = item.map_or(String::new(), |it| format!("{} — {}", it.name(), it.description()));
+    for (mut t, mut n) in &mut texts.p6() {
+        set(&mut t, &detail);
+        let want = if detail.is_empty() { Display::None } else { Display::Flex };
+        if n.display != want {
+            n.display = want;
+        }
     }
     for (a, mut vis) in &mut arrows {
         let show = match list_entries.get(a.0) {
             Some(Entry::Opt(o)) => choices(*o, &settings, m).is_some_and(|c| c.enabled && c.labels.len() > 1),
-            Some(Entry::Slot(_)) => player.is_some_and(|p| slot_choices(p).len() > 1),
+            Some(Entry::Slot(_)) => player.is_some_and(|p| slot_choices(p, Kind::Consumable).len() > 1),
+            Some(Entry::Talisman) => player.is_some_and(|p| slot_choices(p, Kind::Talisman).len() > 1),
             _ => false,
         };
         let w = if show { Visibility::Inherited } else { Visibility::Hidden };

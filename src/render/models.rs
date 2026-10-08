@@ -10,16 +10,23 @@ use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
 use serde::Deserialize;
 
-use super::ps1::{Ps1Lighting, Ps1Material, PointLightPs1};
+use super::ps1::{Ps1Lighting, Ps1Material, PointLightPs1, TintMeshes, set_tint};
 use super::{AppState, Interp, LocalPlayer};
 use crate::sim::boss::{Boss, fury_pending};
 use crate::sim::data::{BossMove, MoveDef, MoveRef, Tuning};
+use crate::sim::enemy::{EState, Enemy};
 use crate::sim::fighter::{Action, Body, Health, Hitstop, PrevBody};
 use crate::sim::player::{PState, Player};
-use crate::sim::{SimEntity, math};
+use crate::sim::{SimEntity, math, world};
 
 /// Noms des armes, dans l'ordre de `weapons.ron` (suffixe des clips et nom des modèles).
 pub const WEAPON_MODELS: [&str; 2] = ["rapier", "greatsword"];
+
+/// Modèles des ennemis (`EnemyDef::model`) et leurs marqueurs d'animation.
+pub const ENEMY_MODELS: [(&str, &str); 2] = [
+    ("hound", include_str!("../../assets/models/hound.anim.json")),
+    ("puppet", include_str!("../../assets/models/puppet.anim.json")),
+];
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Marker {
@@ -35,6 +42,7 @@ pub struct GameAssets {
     pub boss: Handle<Gltf>,
     pub arena: Handle<Gltf>,
     pub weapons: Vec<Handle<Gltf>>,
+    pub enemies: HashMap<String, Handle<Gltf>>,
 }
 
 /// Graphe d'animation d'un modèle + correspondance nom de clip → nœud.
@@ -48,14 +56,18 @@ pub struct ModelAnims {
 pub struct Models {
     pub player: ModelAnims,
     pub boss: ModelAnims,
+    pub enemies: HashMap<String, ModelAnims>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VisualKind {
     Player,
     Boss,
+    Enemy,
     Weapon,
     Arena,
+    /// Cadavre du joueur, là où il a laissé ses braises.
+    Corpse,
 }
 
 /// Racine d'une scène glTF instanciée, et l'entité de simulation qu'elle représente.
@@ -79,15 +91,36 @@ pub struct WeaponVisual {
     pub index: u8,
 }
 
-/// Flash de teinte (impact) sur le boss.
+/// Flash de teinte (impact) sur le boss et les ennemis.
 #[derive(Component, Default)]
 pub struct TintFlash {
     pub white: f32,
 }
 
-/// Lumières de la scène : braseros, et la lanterne du checkpoint (`true`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LightKind {
+    Brazier,
+    /// Brasier du checkpoint (index) : une braise rougeoyante tant qu'il n'est pas ranimé.
+    Checkpoint(u8),
+    /// Réverbère.
+    Lamp,
+}
+
+/// Lumières de la scène (repérées par les empties `light_*` du décor).
 #[derive(Resource, Default)]
-pub struct BrazierLights(pub Vec<(Vec3, bool)>);
+pub struct SceneLights(pub Vec<(Vec3, LightKind)>);
+
+/// Lueur d'un objet à ramasser (`level.pickups[i]`).
+#[derive(Component)]
+struct PickupGlow(usize);
+
+/// Braises d'un brasier de checkpoint (index) : éteintes tant qu'il n'est pas ranimé.
+#[derive(Component)]
+struct CheckpointCoals(u8);
+
+/// Cadavre du joueur local, posé sur ses braises perdues (position et orientation).
+#[derive(Component)]
+struct Corpse(Vec3);
 
 /// Brume qui ferme l'arène pendant le combat.
 #[derive(Component)]
@@ -97,13 +130,25 @@ pub struct ModelsPlugin;
 
 impl Plugin for ModelsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BrazierLights>()
+        app.init_resource::<SceneLights>()
             .add_systems(Startup, load_assets)
             .add_systems(Update, wait_for_assets.run_if(in_state(AppState::Loading)))
-            .add_systems(OnExit(AppState::Loading), (spawn_arena, spawn_fog_gate))
+            .add_systems(OnExit(AppState::Loading), (spawn_arena, spawn_fog_gate, spawn_pickups))
             .add_systems(
                 Update,
-                (attach_visuals, drive_player_anims, drive_boss_anims, weapon_visibility, boss_tint, fog_gate)
+                (
+                    attach_visuals,
+                    drive_player_anims,
+                    drive_boss_anims,
+                    drive_enemy_anims,
+                    weapon_visibility,
+                    foe_tint,
+                    weapon_glow,
+                    fog_gate,
+                    pickup_glows,
+                    checkpoint_coals,
+                    corpse,
+                )
                     .run_if(in_state(AppState::Playing))
                     .after(super::interpolate),
             )
@@ -118,6 +163,7 @@ fn load_assets(mut commands: Commands, server: Res<AssetServer>) {
         boss: server.load("models/boss.glb"),
         arena: server.load("models/arena.glb"),
         weapons: WEAPON_MODELS.iter().map(|w| server.load(format!("models/{w}.glb"))).collect(),
+        enemies: ENEMY_MODELS.iter().map(|(m, _)| (m.to_string(), server.load(format!("models/{m}.glb")))).collect(),
     });
 }
 
@@ -138,16 +184,25 @@ fn wait_for_assets(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    let all = [&assets.player, &assets.boss, &assets.arena].into_iter().chain(assets.weapons.iter());
+    let all = [&assets.player, &assets.boss, &assets.arena]
+        .into_iter()
+        .chain(assets.weapons.iter())
+        .chain(assets.enemies.values());
     for h in all {
         if !server.is_loaded_with_dependencies(h) {
             return;
         }
     }
     let (Some(p), Some(b)) = (gltfs.get(&assets.player), gltfs.get(&assets.boss)) else { return };
+    let mut enemies = HashMap::new();
+    for (m, markers) in ENEMY_MODELS {
+        let Some(g) = gltfs.get(&assets.enemies[m]) else { return };
+        enemies.insert(m.to_string(), build_anims(g, markers, &mut graphs));
+    }
     commands.insert_resource(Models {
         player: build_anims(p, include_str!("../../assets/models/player.anim.json"), &mut graphs),
         boss: build_anims(b, include_str!("../../assets/models/boss.anim.json"), &mut graphs),
+        enemies,
     });
     next.set(AppState::Title);
 }
@@ -166,15 +221,24 @@ fn spawn_arena(mut commands: Commands, assets: Res<GameAssets>, gltfs: Res<Asset
 }
 
 /// Ajoute les visuels aux entités de simulation nouvellement créées.
+#[allow(clippy::type_complexity)]
 fn attach_visuals(
     mut commands: Commands,
     assets: Res<GameAssets>,
+    tuning: Res<Tuning>,
     gltfs: Res<Assets<Gltf>>,
-    new: Query<(Entity, &Body, Option<&Player>, Has<Boss>), (With<SimEntity>, Without<Interp>)>,
+    new: Query<(Entity, &Body, Option<&Player>, Has<Boss>, Option<&Enemy>), (With<SimEntity>, Without<Interp>)>,
 ) {
-    for (e, body, player, is_boss) in &new {
-        let kind = if is_boss { VisualKind::Boss } else { VisualKind::Player };
-        let handle = if is_boss { &assets.boss } else { &assets.player };
+    for (e, body, player, is_boss, enemy) in &new {
+        let (kind, handle, scale) = if is_boss {
+            (VisualKind::Boss, &assets.boss, 1.0)
+        } else if let Some(en) = enemy {
+            let def = &tuning.enemies[en.kind as usize];
+            let Some(h) = assets.enemies.get(&def.model) else { continue };
+            (VisualKind::Enemy, h, def.scale)
+        } else {
+            (VisualKind::Player, &assets.player, 1.0)
+        };
         let mut ec = commands.entity(e);
         ec.insert((
             Interp { pos: body.pos, yaw: body.yaw },
@@ -182,16 +246,21 @@ fn attach_visuals(
             Visibility::default(),
             AnimDriver::default(),
         ));
-        if is_boss {
+        if is_boss || enemy.is_some() {
             ec.insert(TintFlash::default());
         }
         if player.is_some_and(|p| p.id == 0) {
             ec.insert(LocalPlayer);
         }
-        ec.with_child((WorldAssetRoot(scene_of(&gltfs, handle)), VisualScene { owner: e, kind }));
+        ec.with_child((
+            WorldAssetRoot(scene_of(&gltfs, handle)),
+            VisualScene { owner: e, kind },
+            Transform::from_scale(Vec3::splat(scale)),
+        ));
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn on_scene_ready(
     ready: On<WorldInstanceReady>,
     mut commands: Commands,
@@ -205,7 +274,9 @@ fn on_scene_ready(
     models: Option<Res<Models>>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
-    mut braziers: ResMut<BrazierLights>,
+    tuning: Res<Tuning>,
+    enemies: Query<&Enemy>,
+    mut lights: ResMut<SceneLights>,
 ) {
     let root = ready.entity;
     let Ok(vs) = scenes.get(root) else { return };
@@ -217,8 +288,13 @@ fn on_scene_ready(
         }
         if anim_players.contains(d) {
             let graph = match vs.kind {
-                VisualKind::Player => models.player.graph.clone(),
+                VisualKind::Player | VisualKind::Corpse => models.player.graph.clone(),
                 VisualKind::Boss => models.boss.graph.clone(),
+                VisualKind::Enemy => {
+                    let Ok(en) = enemies.get(vs.owner) else { continue };
+                    let Some(m) = models.enemies.get(&tuning.enemies[en.kind as usize].model) else { continue };
+                    m.graph.clone()
+                }
                 _ => continue,
             };
             commands.entity(d).insert(AnimationGraphHandle(graph));
@@ -228,6 +304,11 @@ fn on_scene_ready(
             }
         }
         let Ok(name) = names.get(d) else { continue };
+        if vs.kind == VisualKind::Arena
+            && let Some(i) = name.as_str().strip_prefix("checkpoint_").and_then(|r| r.strip_suffix("_coals"))
+        {
+            commands.entity(d).insert(CheckpointCoals(i.parse().unwrap_or(0)));
+        }
         if vs.kind == VisualKind::Player && name.as_str() == "grip_R" {
             for (i, w) in assets.weapons.iter().enumerate() {
                 commands.entity(d).with_child((
@@ -238,10 +319,18 @@ fn on_scene_ready(
                 ));
             }
         }
-        if vs.kind == VisualKind::Arena && name.as_str().starts_with("light_") {
-            if let Ok(t) = transforms.get(d) {
-                braziers.0.push((t.translation, name.as_str() == "light_checkpoint"));
-            }
+        if vs.kind == VisualKind::Arena
+            && let Some(rest) = name.as_str().strip_prefix("light_")
+            && let Ok(t) = transforms.get(d)
+        {
+            let kind = if let Some(i) = rest.strip_prefix("checkpoint_") {
+                LightKind::Checkpoint(i.parse().unwrap_or(0))
+            } else if rest.starts_with("lamp") {
+                LightKind::Lamp
+            } else {
+                LightKind::Brazier
+            };
+            lights.0.push((t.translation, kind));
         }
     }
 }
@@ -322,6 +411,8 @@ fn drive_player_anims(
         let over = if hitstop.0 > 0 { 0.0 } else { fixed.overstep_fraction() };
         let speed = math::flat_len(body.pos - prev.pos) * 60.0;
         let (name, tm): (String, f32) = match p.state {
+            // Chute : bras écartés, figé au début de la réaction aux gros coups.
+            PState::Falling => ("hit_heavy".into(), 0.12),
             PState::Acting | PState::Dead => {
                 let Some(def) = action.def(t) else {
                     // Mort : rester sur la dernière frame.
@@ -346,6 +437,10 @@ fn drive_player_anims(
                 } else {
                     (("guard").into(), loop_time(&mut drv, anims, "guard", dt, 1.0))
                 }
+            }
+            PState::Free if p.airborne => {
+                let frames = anims.markers.get("jump").map_or(1.0, |m| m.frames);
+                ("jump".into(), ((p.air_ticks as f32 + over) / 60.0).min(frames / 60.0))
             }
             PState::Free => {
                 let (n, rate) = if speed < 0.25 {
@@ -394,6 +489,42 @@ fn drive_boss_anims(
     }
 }
 
+#[allow(clippy::type_complexity)]
+fn drive_enemy_anims(
+    time: Res<Time>,
+    fixed: Res<Time<Fixed>>,
+    tuning: Res<Tuning>,
+    models: Res<Models>,
+    mut q: Query<(&Enemy, &Action, &Body, &PrevBody, &Hitstop, &mut AnimDriver)>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    let t = &*tuning;
+    let dt = time.delta_secs();
+    for (e, action, body, prev, hitstop, mut drv) in &mut q {
+        let def = &t.enemies[e.kind as usize];
+        let Some(anims) = models.enemies.get(&def.model) else { continue };
+        let over = if hitstop.0 > 0 { 0.0 } else { fixed.overstep_fraction() };
+        let (name, tm) = if let Some(mv) = action.def(t) {
+            let tick = (action.tick as f32 + over - 1.0).max(0.0);
+            let m = anims.markers.get(&mv.anim);
+            (mv.anim.clone(), m.map(|m| action_time(mv, tick, m)).unwrap_or(tick / 60.0))
+        } else {
+            let speed = math::flat_len(body.pos - prev.pos) * 60.0;
+            let (n, rate) = if speed > def.walk_speed * 1.6 && anims.nodes.contains_key("run") {
+                ("run", speed / def.run_speed)
+            } else if speed > 0.2 {
+                ("walk", speed / def.walk_speed)
+            } else if e.state == EState::Asleep && anims.nodes.contains_key("sleep") {
+                ("sleep", 1.0)
+            } else {
+                ("idle", 1.0)
+            };
+            (n.to_string(), loop_time(&mut drv, anims, n, dt, rate))
+        };
+        set_clip(&mut drv, anims, &mut players, &name, tm);
+    }
+}
+
 fn weapon_visibility(owners: Query<&Player>, mut q: Query<(&WeaponVisual, &mut Visibility)>) {
     for (w, mut v) in &mut q {
         let show = owners.get(w.owner).is_ok_and(|p| p.weapon == w.index);
@@ -404,19 +535,22 @@ fn weapon_visibility(owners: Query<&Player>, mut q: Query<(&WeaponVisual, &mut V
     }
 }
 
-/// Teinte du boss : lueur rouge pendant l'anticipation d'une attaque furie, flash blanc à l'impact.
-fn boss_tint(
+/// Teinte des adversaires : lueur rouge du boss pendant l'anticipation d'une attaque furie,
+/// teinte propre à certains ennemis, flash blanc à l'impact.
+#[allow(clippy::type_complexity)]
+fn foe_tint(
+    mut commands: Commands,
     time: Res<Time>,
     tuning: Res<Tuning>,
-    mut bosses: Query<(Entity, &Action, &Health, &mut TintFlash), With<Boss>>,
+    mut foes: Query<(Entity, &Action, &Health, &mut TintFlash, Option<&Enemy>)>,
     children: Query<&Children>,
-    mats: Query<&MeshMaterial3d<Ps1Material>>,
+    mut meshes: TintMeshes,
     mut materials: ResMut<Assets<Ps1Material>>,
 ) {
     let t = time.elapsed_secs();
-    for (e, action, health, mut flash) in &mut bosses {
+    for (e, action, health, mut flash, enemy) in &mut foes {
         flash.white = (flash.white - time.delta_secs() * 6.0).max(0.0);
-        let mut tint = Vec4::ZERO;
+        let mut tint = enemy.and_then(|en| tuning.enemies[en.kind as usize].tint).map_or(Vec4::ZERO, Vec4::from);
         if fury_pending(action, &tuning) {
             let k = 0.35 + 0.25 * (t * 18.0).sin();
             tint = Vec4::new(1.0, 0.05, 0.02, k);
@@ -430,51 +564,69 @@ fn boss_tint(
         if flash.white > 0.0 {
             tint = Vec4::new(1.0, 1.0, 1.0, flash.white * 0.6);
         }
-        for d in children.iter_descendants(e) {
-            if let Ok(h) = mats.get(d) {
-                if let Some(mut m) = materials.get_mut(&h.0) {
-                    m.params.tint = tint;
-                }
-            }
-        }
+        set_tint(&mut commands, e, tint, &children, &mut meshes, &mut materials);
+    }
+}
+
+/// Résine ardente : la lame rougeoie tant que l'effet dure.
+fn weapon_glow(
+    mut commands: Commands,
+    time: Res<Time>,
+    owners: Query<&Player>,
+    weapons: Query<(Entity, &WeaponVisual)>,
+    children: Query<&Children>,
+    mut meshes: TintMeshes,
+    mut materials: ResMut<Assets<Ps1Material>>,
+) {
+    let t = time.elapsed_secs();
+    for (e, w) in &weapons {
+        let resin = owners.get(w.owner).map_or(0, |p| p.resin_ticks);
+        let tint = if resin > 0 {
+            // Les dernières secondes, la lueur vacille.
+            let fading = resin < 300 && (t * 8.0).sin() < 0.0;
+            Vec4::new(1.0, 0.45, 0.1, if fading { 0.15 } else { 0.4 + 0.1 * (t * 11.0).sin() })
+        } else {
+            Vec4::ZERO
+        };
+        set_tint(&mut commands, e, tint, &children, &mut meshes, &mut materials);
     }
 }
 
 /// Lumières ponctuelles : le shader n'en gère que 4, on garde les plus proches de la caméra.
+/// Le vacillement est calculé par le shader : la liste ne change que si les lumières retenues
+/// changent (et seulement alors, tous les matériaux sont mis à jour).
 fn flicker(
-    time: Res<Time>,
-    braziers: Res<BrazierLights>,
+    scene: Res<SceneLights>,
     rig: Res<super::camera::CameraRig>,
+    players: Query<&Player, With<LocalPlayer>>,
     mut lighting: ResMut<Ps1Lighting>,
 ) {
-    let t = time.elapsed_secs();
-    let mut lights: Vec<PointLightPs1> = braziers
+    let found = players.single().map_or(u32::MAX, |p| p.found);
+    let mut lights: Vec<PointLightPs1> = scene
         .0
         .iter()
-        .enumerate()
-        .map(|(i, (p, checkpoint))| {
-            let f = i as f32 * 1.7;
-            if *checkpoint {
-                // Lanterne du checkpoint : lumière dorée, qui « respire » lentement.
-                PointLightPs1 {
-                    pos: *p,
-                    radius: 8.0,
-                    color: Vec3::new(1.0, 0.82, 0.45),
-                    intensity: 1.2 + 0.15 * (t * 1.6).sin(),
+        .map(|(p, kind)| {
+            let (radius, color, intensity, flicker) = match kind {
+                // Brasier ranimé : lumière dorée qui « respire » lentement. Sinon, une
+                // braise rouge à peine visible.
+                LightKind::Checkpoint(c) if found & (1 << c) != 0 => {
+                    (8.0, Vec3::new(1.0, 0.82, 0.45), 1.2, Vec4::new(0.15, 1.6, 0.0, 0.0))
                 }
-            } else {
-                PointLightPs1 {
-                    pos: *p,
-                    radius: 9.0,
-                    color: Vec3::new(1.0, 0.55, 0.22),
-                    intensity: 1.1 + 0.15 * (t * 9.0 + f).sin() + 0.1 * (t * 23.0 + f * 2.0).sin(),
-                }
-            }
+                LightKind::Checkpoint(_) => (3.0, Vec3::new(1.0, 0.3, 0.1), 0.5, Vec4::new(0.2, 0.9, 0.0, 0.0)),
+                // Réverbère : lumière de gaz pâle, presque fixe.
+                LightKind::Lamp => (7.5, Vec3::new(0.95, 0.88, 0.62), 0.95, Vec4::new(0.04, 3.0, 0.0, 0.0)),
+                LightKind::Brazier => (9.0, Vec3::new(1.0, 0.55, 0.22), 1.1, Vec4::new(0.15, 9.0, 0.1, 23.0)),
+            };
+            PointLightPs1 { pos: *p, radius, color, intensity, flicker }
         })
         .collect();
     lights.sort_by(|a, b| a.pos.distance_squared(rig.focus).total_cmp(&b.pos.distance_squared(rig.focus)));
     lights.truncate(4);
-    lighting.lights = lights;
+    // Ordre stable : la liste ne change que si les lumières retenues changent.
+    lights.sort_by(|a, b| (a.pos.x, a.pos.z).partial_cmp(&(b.pos.x, b.pos.z)).unwrap_or(std::cmp::Ordering::Equal));
+    if lighting.lights != lights {
+        lighting.lights = lights;
+    }
 }
 
 fn spawn_fog_gate(
@@ -487,8 +639,8 @@ fn spawn_fog_gate(
     let mut m = Ps1Material::unlit(Color::srgba(0.55, 0.58, 0.68, 0.3));
     m.alpha_mode = AlphaMode::Blend;
     // Deux voiles légèrement décalés, pour un peu d'épaisseur.
-    let mesh = meshes.add(Rectangle::new(a.corridor_half_width * 2.0 + 0.6, 4.2));
-    let center = crate::sim::encounter::fog_gate(a) + Vec3::Y * 2.1;
+    let mesh = meshes.add(Rectangle::new(a.gate_half_width * 2.0 + 0.6, 4.2));
+    let center = world::fog_gate(a) + Vec3::Y * 2.1;
     for (dz, flip) in [(0.0, false), (-0.25, true)] {
         let rot = if flip { Quat::from_rotation_y(std::f32::consts::PI) } else { Quat::IDENTITY };
         commands.spawn((
@@ -519,5 +671,121 @@ fn fog_gate(
                 m.params.base_color.w = 0.26 + 0.08 * (t * 1.3 + i as f32 * 2.0).sin();
             }
         }
+    }
+}
+
+/// Objets à ramasser : une lueur blanche qui palpite au ras du sol, comme dans les souls-like
+/// (on ne sait pas ce que c'est avant de l'avoir ramassé) : un cœur brillant dans un halo, et
+/// des étincelles qui tournoient en montant (`fx`). Tout brille à travers le brouillard : on
+/// les repère de loin.
+fn spawn_pickups(
+    mut commands: Commands,
+    tuning: Res<Tuning>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<Ps1Material>>,
+) {
+    let core = meshes.add(Cuboid::new(0.11, 0.11, 0.11));
+    let halo = meshes.add(Cuboid::new(0.28, 0.28, 0.28));
+    let mut c = Ps1Material::unlit(Color::srgb(1.0, 0.97, 0.85));
+    c.params.emissive = Vec4::new(0.8, 0.75, 0.6, 0.0);
+    let core_mat = mats.add(c);
+    let mut h = Ps1Material::unlit(Color::srgba(0.95, 0.85, 0.55, 0.3));
+    h.alpha_mode = AlphaMode::Add;
+    let halo_mat = mats.add(h);
+    for i in 0..tuning.level.pickups.len() {
+        let pos = crate::sim::encounter::pickup_pos(&tuning, i) + Vec3::Y * 0.3;
+        commands
+            .spawn((PickupGlow(i), Transform::from_translation(pos), Visibility::Hidden))
+            .with_children(|c| {
+                c.spawn((Mesh3d(core.clone()), MeshMaterial3d(core_mat.clone()), Transform::default()));
+                c.spawn((Mesh3d(halo.clone()), MeshMaterial3d(halo_mat.clone()), Transform::default()));
+            });
+    }
+}
+
+fn pickup_glows(
+    time: Res<Time>,
+    players: Query<&Player, With<LocalPlayer>>,
+    mut q: Query<(&PickupGlow, &mut Visibility, &mut Transform, &Children)>,
+    mut parts: Query<&mut Transform, Without<PickupGlow>>,
+) {
+    let picked = players.single().map_or(u64::MAX, |p| p.picked);
+    let t = time.elapsed_secs();
+    for (g, mut vis, mut tf, children) in &mut q {
+        let want = if picked & (1u64 << g.0) == 0 { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        let ph = t * 2.2 + g.0 as f32 * 1.3;
+        tf.rotation = Quat::from_rotation_y(t * 1.5) * Quat::from_rotation_x(0.6);
+        for (k, c) in children.iter().enumerate() {
+            if let Ok(mut ct) = parts.get_mut(c) {
+                let s = if k == 0 { 0.9 + 0.2 * ph.sin() } else { 0.7 + 0.5 * (0.5 + 0.5 * (ph * 0.7).sin()) };
+                ct.scale = Vec3::splat(s);
+                ct.translation.y = 0.05 * (ph * 0.5).sin();
+            }
+        }
+    }
+}
+
+/// Les braises d'un brasier pas encore ranimé ne sont qu'un tas de charbon à peine rougeoyant.
+fn checkpoint_coals(
+    mut commands: Commands,
+    players: Query<&Player, With<LocalPlayer>>,
+    coals: Query<(Entity, &CheckpointCoals)>,
+    children: Query<&Children>,
+    mut meshes: TintMeshes,
+    mut materials: ResMut<Assets<Ps1Material>>,
+) {
+    let found = players.single().map_or(u32::MAX, |p| p.found);
+    for (e, c) in &coals {
+        let tint = if found & (1 << c.0) != 0 { Vec4::ZERO } else { Vec4::new(0.12, 0.03, 0.02, 0.8) };
+        set_tint(&mut commands, e, tint, &children, &mut meshes, &mut materials);
+    }
+}
+
+/// Le cadavre du joueur : son modèle figé à la fin de l'animation de mort, nimbé de vert, là où il a
+/// laissé ses braises (les braises qui en montent sont dans `fx`). Il disparaît quand on les
+/// récupère, ou quand on meurt avant (elles sont alors perdues).
+#[allow(clippy::too_many_arguments)]
+fn corpse(
+    mut commands: Commands,
+    time: Res<Time>,
+    assets: Res<GameAssets>,
+    gltfs: Res<Assets<Gltf>>,
+    models: Res<Models>,
+    players: Query<&Player, With<LocalPlayer>>,
+    mut corpses: Query<(Entity, &Corpse, &mut AnimDriver)>,
+    mut anim_players: Query<&mut AnimationPlayer>,
+    children: Query<&Children>,
+    mut meshes: TintMeshes,
+    mut materials: ResMut<Assets<Ps1Material>>,
+) {
+    let want = players.single().ok().and_then(|p| p.dropped).map(|d| d.pos());
+    let mut have = false;
+    for (e, c, mut drv) in &mut corpses {
+        if want != Some(c.0) {
+            commands.entity(e).despawn();
+            continue;
+        }
+        have = true;
+        let anims = &models.player;
+        if let Some(m) = anims.markers.get("death") {
+            set_clip(&mut drv, anims, &mut anim_players, "death", m.frames / 60.0);
+        }
+        // Une lueur verte qui palpite, comme les taches de sang des souls-like : on le repère
+        // de loin (les lueurs qui en montent sont dans `fx`).
+        let glow = 0.5 + 0.5 * (time.elapsed_secs() * 2.2).sin();
+        let tint = Vec4::new(0.1, 0.55, 0.18, 0.7).lerp(Vec4::new(0.4, 1.0, 0.45, 0.8), glow);
+        set_tint(&mut commands, e, tint, &children, &mut meshes, &mut materials);
+    }
+    if let (Some(pos), false) = (want, have) {
+        // Orientation pseudo-aléatoire mais stable (dépend de l'endroit).
+        let yaw = (pos.x * 12.9898 + pos.z * 78.233).sin() * std::f32::consts::PI;
+        let e = commands.spawn_empty().id();
+        commands
+            .entity(e)
+            .insert((Corpse(pos), AnimDriver::default(), Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw)), Visibility::default()))
+            .with_child((WorldAssetRoot(scene_of(&gltfs, &assets.player)), VisualScene { owner: e, kind: VisualKind::Corpse }, Transform::default()));
     }
 }

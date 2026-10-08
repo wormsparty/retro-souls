@@ -1,0 +1,82 @@
+{
+ "combo": {
+  "frames": 96.0,
+  "loop": false,
+  "marks": [
+   0,
+   26,
+   32,
+   52,
+   58,
+   96
+  ]
+ },
+ "death": {
+  "frames": 80.0,
+  "loop": false,
+  "marks": [
+   0,
+   80
+  ]
+ },
+ "hit": {
+  "frames": 26.0,
+  "loop": false,
+  "marks": [
+   0,
+   26
+  ]
+ },
+ "idle": {
+  "frames": 100.0,
+  "loop": true,
+  "marks": [
+   0,
+   100.0
+  ]
+ },
+ "sleep": {
+  "frames": 180.0,
+  "loop": true,
+  "marks": [
+   0,
+   180.0
+  ]
+ },
+ "swing": {
+  "frames": 84.0,
+  "loop": false,
+  "marks": [
+   0,
+   40,
+   46,
+   84
+  ]
+ },
+ "thrust": {
+  "frames": 80.0,
+  "loop": false,
+  "marks": [
+   0,
+   34,
+   41,
+   80
+  ]
+ },
+ "wake": {
+  "frames": 40.0,
+  "loop": false,
+  "marks": [
+   0,
+   40
+  ]
+ },
+ "walk": {
+  "frames": 80.0,
+  "loop": true,
+  "marks": [
+   0,
+   80.0
+  ]
+ }
+}

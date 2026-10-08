@@ -21,6 +21,8 @@ pub struct CheckpointPreview {
     pub image: Handle<Image>,
     /// Aperçu affiché : la caméra ne rend que dans ce cas.
     pub shown: bool,
+    /// Checkpoint montré.
+    pub index: usize,
 }
 
 #[derive(Component)]
@@ -34,7 +36,7 @@ impl Plugin for PreviewPlugin {
         image.sampler = ImageSampler::nearest();
         image.asset_usage = RenderAssetUsages::default();
         let image = app.world_mut().resource_mut::<Assets<Image>>().add(image);
-        app.insert_resource(CheckpointPreview { image, shown: false })
+        app.insert_resource(CheckpointPreview { image, shown: false, index: 0 })
             .add_systems(Startup, spawn_camera)
             .add_systems(PostUpdate, update_camera);
     }
@@ -68,7 +70,8 @@ fn update_camera(
         cam.0.is_active = preview.shown;
     }
     if preview.shown {
-        let [eye, target] = tuning.arena.checkpoint_view;
+        let cps = &tuning.level.checkpoints;
+        let [eye, target] = cps[preview.index.min(cps.len() - 1)].view;
         *cam.1 = Transform::from_translation(Vec3::from(eye)).looking_at(Vec3::from(target), Vec3::Y);
     }
 }

@@ -5,11 +5,10 @@ use bevy::prelude::*;
 use super::ps1::WorldCamera;
 use super::{Interp, LocalPlayer};
 use crate::input::LookInput;
-use crate::sim::boss::Boss;
 use crate::sim::data::Tuning;
-use crate::sim::fighter::Body;
-use crate::sim::math;
+use crate::sim::fighter::{Body, Foe};
 use crate::sim::player::Player;
+use crate::sim::{math, world};
 
 #[derive(Resource, Clone, Debug)]
 pub struct CameraRig {
@@ -19,12 +18,15 @@ pub struct CameraRig {
     pub distance: f32,
     pub shake: f32,
     pub focus: Vec3,
+    /// Part de la distance laissée par les murs (la caméra se rapproche d'un coup quand un mur
+    /// s'interpose, et ne recule que progressivement).
+    pub reach: f32,
     pub initialized: bool,
 }
 
 impl Default for CameraRig {
     fn default() -> Self {
-        Self { yaw: 0.0, pitch: 0.3, distance: 5.8, shake: 0.0, focus: Vec3::ZERO, initialized: false }
+        Self { yaw: 0.0, pitch: 0.3, distance: 5.8, shake: 0.0, focus: Vec3::ZERO, reach: 1.0, initialized: false }
     }
 }
 
@@ -37,21 +39,23 @@ impl Plugin for CameraPlugin {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_camera(
     time: Res<Time>,
     tuning: Res<Tuning>,
     look: Res<LookInput>,
     mut rig: ResMut<CameraRig>,
     players: Query<(&Player, &Interp), With<LocalPlayer>>,
-    bosses: Query<(&Interp, &Body), With<Boss>>,
+    foes: Query<(&Interp, &Body), With<Foe>>,
     mut cam: Single<&mut Transform, With<WorldCamera>>,
     settings: Res<crate::settings::Settings>,
 ) {
     let dt = time.delta_secs();
     let Ok((player, pi)) = players.single() else { return };
-    let lock = player.lock.and_then(|e| bosses.get(e).ok());
+    let lock = player.lock.and_then(|e| foes.get(e).ok());
 
-    if !rig.initialized {
+    let fresh = !rig.initialized;
+    if fresh {
         rig.yaw = pi.yaw;
         rig.focus = pi.pos;
         rig.initialized = true;
@@ -71,16 +75,41 @@ fn update_camera(
         rig.pitch = (rig.pitch + look.delta.y).clamp(-0.35, 1.1);
     }
 
-    let target = pi.pos + Vec3::Y * 1.7;
+    let mut target = pi.pos + Vec3::Y * 1.7;
+    // Chute : la caméra reste au bord et regarde le corps disparaître dans le noir.
+    if player.falling {
+        target.y = target.y.max(player.fall_from + 0.4);
+    }
+    // Saut : la caméra ne suit qu'une partie de la hauteur (moins de secousses).
+    if player.airborne {
+        target.y = player.air_from + 1.7 + (pi.pos.y - player.air_from) * 0.4;
+    }
     rig.focus = rig.focus.lerp(target, 1.0 - (-14.0 * dt).exp());
     let back = -math::forward(rig.yaw);
     let horiz = rig.pitch.cos() * rig.distance;
     let mut pos = rig.focus + back * horiz + Vec3::Y * (rig.pitch.sin() * rig.distance + 0.25);
-    pos.y = pos.y.max(0.4);
-    // Rester dans l'arène ou le couloir (un mur cacherait tout).
-    let y = pos.y;
-    pos = crate::sim::encounter::clamp_walkable(&tuning.arena, pos, 0.25, true);
-    pos.y = y;
+    let ground = if player.falling {
+        player.fall_from
+    } else if player.airborne {
+        player.air_from.min(pi.pos.y)
+    } else {
+        pi.pos.y
+    };
+    pos.y = pos.y.max(ground + 0.4);
+    // Un mur (arène, escalier) entre le joueur et la caméra la cacherait : elle passe devant.
+    // Ailleurs, rien ne l'arrête : autour, c'est le vide.
+    let offset = pos - rig.focus;
+    let len = math::flat_len(offset).max(0.01);
+    let allowed = if player.falling {
+        1.0
+    } else {
+        world::wall_hit(&tuning, rig.focus, pos).map_or(1.0, |s| (s - 0.3 / len).max(0.08))
+    };
+    rig.reach = if allowed < rig.reach { allowed } else { rig.reach + (allowed - rig.reach) * (1.0 - (-5.0 * dt).exp()) };
+    if fresh {
+        rig.reach = allowed;
+    }
+    pos = rig.focus + Vec3::new(offset.x * rig.reach, offset.y, offset.z * rig.reach);
     let mut look_at = rig.focus;
     if let Some((bi, bbody)) = lock {
         let boss_point = bi.pos + Vec3::Y * (bbody.height * 0.55);

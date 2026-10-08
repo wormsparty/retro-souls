@@ -16,6 +16,9 @@
     sprint_hold: 14,
     accel: 30,
     turn_rate: 720,
+    // Saut (A / G quand il n'y a rien à ramasser ni de brasier à portée) : ~0,8 m de haut,
+    // ~0,55 s en l'air, soit ~3,5 m franchis en courant (~2,3 m au trot).
+    jump: (speed: 6.0, stamina: 12, air_control: 6),
     radius: 0.4,
     height: 1.8,
     lock_range: 25,

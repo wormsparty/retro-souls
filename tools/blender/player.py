@@ -204,6 +204,16 @@ anim("dodge", [
                arm("R", (-40, 15, 0), (-40, 0, 0), (60, 0, 0)))),
     ("T", merge(STANCE_R, {"hips": {"r": (360, 0, 22), "t": (0, 0, -0.05)}})),
 ])
+# Saut : impulsion, jambes repliées au sommet, puis tendues vers le sol (le jeu tient la
+# dernière pose jusqu'à l'atterrissage ; ~0,55 s en l'air).
+AIR_ARMS = merge(arm("R", (-50, 25, 0), (-40, 0, 0), (60, 0, 0)), arm("L", (-40, -35, 0), (-30, 0, 0)))
+anim("jump", [
+    (0, merge(STANCE_R, legs(-40, 60, -30, 55, -0.18), {"chest": (18, 0, 6)})),
+    (5, merge(legs(-25, 10, 15, 5, 0.02), {"chest": (4, 0, 4), "head": (-6, 0, 0)}, AIR_ARMS)),
+    (14, merge(legs(-70, 95, -45, 85, 0.0), {"chest": (10, 0, 4), "head": (0, 0, 0)}, AIR_ARMS)),
+    (26, merge(legs(-30, 35, -10, 25, 0.0), {"chest": (6, 0, 4)}, AIR_ARMS)),
+    (34, merge(legs(-20, 20, 0, 15, 0.0), {"chest": (4, 0, 4)}, AIR_ARMS)),
+])
 anim("backstep", [
     (0, STANCE_R),
     (3, merge(STANCE_R, legs(-20, 50, 10, 50, -0.15, twist=10), {"chest": (15, 0, 0)})),

@@ -1,0 +1,148 @@
+// Ennemis du chemin. Durées en ticks (60/s), distances en mètres, comme boss.ron.
+// Les attaques ont le même format que celles du boss (`phases` en moins).
+//
+// - sight : distance de détection (devant lui s'il guette ; moitié moins, mais tout autour,
+//   s'il dort). leash : il abandonne s'il s'éloigne trop de son poste, y retourne et se soigne.
+// - poise : dégâts encaissés en ~1 s avant d'être interrompu (0 = chaque coup l'interrompt).
+// - scale / tint : un type peut réutiliser le modèle d'un autre, agrandi et teinté ; ses
+//   capsules de coups sont alors à donner à cette échelle. Les animations se recalent sur
+//   les fenêtres de frappe tant que le nombre de coups de chaque attaque ne change pas.
+(
+    kinds: [
+        (
+            key: "hound", model: "hound",
+            name: (en: "Stray Hound", fr: "Chien errant"),
+            max_hp: 120, radius: 0.42, height: 0.9, mass: 0.8,
+            walk_speed: 1.8, run_speed: 6.0, turn_rate: 480,
+            sight: 11, leash: 24, preferred_range: 2.0, idle_ticks: (14, 46),
+            poise: 0, embers: 40,
+            alert: (anim: "howl", total: 48),
+            hit: (anim: "hit", total: 22, motion: [(start: 0, end: 8, speed: -2.5)]),
+            death: (anim: "death", total: 70),
+            attacks: [
+                (
+                    name: "morsure", min_range: 0, max_range: 1.9, max_angle: 40, weight: 3, cooldown: 30,
+                    mv: (
+                        anim: "bite", total: 44, track_until: 12, track_rate: 420,
+                        motion: [(start: 10, end: 18, speed: 3.0)],
+                        hits: [(start: 15, end: 20, damage: 45, hitstop: 3,
+                                capsule: (a: (0.0, 0.45, 0.3), b: (0.0, 0.45, 1.05), r: 0.35))],
+                    ),
+                ),
+                (
+                    name: "claquements", min_range: 0, max_range: 1.9, max_angle: 40, weight: 2, cooldown: 90,
+                    mv: (
+                        anim: "snap", total: 60, track_until: 26, track_rate: 360,
+                        motion: [(start: 10, end: 16, speed: 2.5), (start: 26, end: 32, speed: 2.5)],
+                        hits: [
+                            (start: 14, end: 18, damage: 30, hitstop: 2,
+                             capsule: (a: (0.0, 0.45, 0.3), b: (0.0, 0.45, 1.0), r: 0.35)),
+                            (start: 30, end: 34, damage: 30, hitstop: 2,
+                             capsule: (a: (0.0, 0.45, 0.3), b: (0.0, 0.45, 1.0), r: 0.35)),
+                        ],
+                    ),
+                ),
+                (
+                    name: "bond", min_range: 2.6, max_range: 7.0, max_angle: 25, weight: 2, cooldown: 150,
+                    mv: (
+                        anim: "lunge", total: 72, track_until: 18, track_rate: 300,
+                        motion: [(start: 20, end: 32, speed: 10.0, to_target: true, stop_dist: 0.6),
+                                 (start: 32, end: 40, speed: 2.0)],
+                        hits: [(start: 24, end: 33, damage: 70, hitstop: 4, reaction: Heavy,
+                                capsule: (a: (0.0, 0.5, 0.2), b: (0.0, 0.5, 1.0), r: 0.4))],
+                    ),
+                ),
+            ],
+        ),
+        (
+            key: "puppet", model: "puppet",
+            name: (en: "Fairground Puppet", fr: "Pantin de foire"),
+            max_hp: 260, radius: 0.42, height: 1.9, mass: 1.4,
+            walk_speed: 1.5, run_speed: 3.4, turn_rate: 240,
+            sight: 9, leash: 18, preferred_range: 2.0, idle_ticks: (40, 90),
+            poise: 60, embers: 90,
+            alert: (anim: "wake", total: 40),
+            hit: (anim: "hit", total: 26, motion: [(start: 0, end: 8, speed: -1.8)]),
+            death: (anim: "death", total: 80),
+            attacks: [
+                (
+                    name: "massue", min_range: 0, max_range: 2.4, max_angle: 45, weight: 3, cooldown: 70,
+                    mv: (
+                        anim: "swing", total: 84, track_until: 30, track_rate: 200, hyperarmor: (18, 46),
+                        motion: [(start: 34, end: 42, speed: 2.2)],
+                        hits: [(start: 40, end: 46, damage: 110, hitstop: 5, reaction: Heavy,
+                                capsule: (a: (0.0, 1.2, 0.4), b: (0.0, 0.4, 1.9), r: 0.3))],
+                    ),
+                ),
+                (
+                    name: "revers", min_range: 0, max_range: 2.4, max_angle: 60, weight: 2, cooldown: 120,
+                    mv: (
+                        anim: "combo", total: 96, track_until: 22, track_rate: 220,
+                        motion: [(start: 20, end: 28, speed: 1.8), (start: 46, end: 54, speed: 1.8)],
+                        hits: [
+                            (start: 26, end: 32, damage: 60, hitstop: 4, arc: (-80, 70),
+                             capsule: (a: (0.0, 1.1, 0.4), b: (0.0, 1.0, 1.9), r: 0.25)),
+                            (start: 52, end: 58, damage: 60, hitstop: 4, arc: (70, -80),
+                             capsule: (a: (0.0, 1.0, 0.4), b: (0.0, 0.9, 1.9), r: 0.25)),
+                        ],
+                    ),
+                ),
+                (
+                    name: "estoc", min_range: 2.4, max_range: 6.0, max_angle: 30, weight: 1.5, cooldown: 160,
+                    mv: (
+                        anim: "thrust", total: 80, track_until: 28, track_rate: 160,
+                        motion: [(start: 28, end: 40, speed: 6.5, to_target: true, stop_dist: 1.1)],
+                        hits: [(start: 34, end: 41, damage: 75, hitstop: 4,
+                                capsule: (a: (0.0, 1.1, 0.3), b: (0.0, 1.1, 1.8), r: 0.25))],
+                    ),
+                ),
+            ],
+        ),
+        (
+            // Le gardien de la piste : un pantin géant. Ne bronche presque jamais.
+            key: "colossus", model: "puppet", scale: 1.45, tint: (0.55, 0.12, 0.05, 0.3),
+            name: (en: "Ringmaster Colossus", fr: "Colosse de la piste"),
+            max_hp: 1100, radius: 0.65, height: 2.75, mass: 4.0,
+            walk_speed: 1.3, run_speed: 2.6, turn_rate: 150,
+            sight: 12, leash: 14, preferred_range: 2.8, idle_ticks: (50, 100),
+            poise: 220, embers: 900,
+            alert: (anim: "wake", total: 56),
+            hit: (anim: "hit", total: 34, motion: [(start: 0, end: 8, speed: -1.2)]),
+            death: (anim: "death", total: 110),
+            attacks: [
+                (
+                    name: "massue", min_range: 0, max_range: 3.4, max_angle: 45, weight: 3, cooldown: 80,
+                    mv: (
+                        anim: "swing", total: 104, track_until: 40, track_rate: 140, hyperarmor: (0, 60),
+                        motion: [(start: 44, end: 54, speed: 2.5)],
+                        hits: [(start: 52, end: 58, damage: 170, hitstop: 7, reaction: Heavy,
+                                capsule: (a: (0.0, 1.7, 0.6), b: (0.0, 0.5, 2.8), r: 0.4))],
+                    ),
+                    next: ("estoc", 0.25),
+                ),
+                (
+                    name: "revers", min_range: 0, max_range: 3.4, max_angle: 60, weight: 2, cooldown: 130,
+                    mv: (
+                        anim: "combo", total: 118, track_until: 30, track_rate: 160, hyperarmor: (0, 76),
+                        motion: [(start: 28, end: 38, speed: 2.0), (start: 60, end: 70, speed: 2.0)],
+                        hits: [
+                            (start: 34, end: 40, damage: 95, hitstop: 5, arc: (-80, 70),
+                             capsule: (a: (0.0, 1.6, 0.6), b: (0.0, 1.4, 2.8), r: 0.35)),
+                            (start: 66, end: 72, damage: 95, hitstop: 5, arc: (70, -80),
+                             capsule: (a: (0.0, 1.5, 0.6), b: (0.0, 1.3, 2.8), r: 0.35)),
+                        ],
+                    ),
+                ),
+                (
+                    name: "estoc", min_range: 3.0, max_range: 7.0, max_angle: 30, weight: 1.5, cooldown: 180,
+                    mv: (
+                        anim: "thrust", total: 96, track_until: 34, track_rate: 120, hyperarmor: (0, 50),
+                        motion: [(start: 36, end: 50, speed: 7.0, to_target: true, stop_dist: 1.5)],
+                        hits: [(start: 42, end: 50, damage: 120, hitstop: 6, reaction: Heavy,
+                                capsule: (a: (0.0, 1.6, 0.4), b: (0.0, 1.6, 2.7), r: 0.35))],
+                    ),
+                ),
+            ],
+        ),
+    ],
+)

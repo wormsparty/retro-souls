@@ -4,7 +4,9 @@ Prototype de combat inspiré de *Lies of P* / *Dark Souls*, rendu façon PlaySta
 Rust + [Bevy 0.19](https://bevy.org) (natif et navigateur via WASM).
 
 Un joueur, deux armes (rapière et greatsword), un boss lent et télégraphié — l'Automate du
-Carrousel — dans une arène circulaire, précédée d'un couloir avec un checkpoint.
+Carrousel — dans une arène circulaire. En sortant de l'arène, un escalier descend vers la place
+des Allumeurs (premier checkpoint), suspendue au-dessus du vide ; de là, un long chemin de ponts
+et de plates-formes, gardé par des chiens et des pantins, mène au second checkpoint.
 
 ## Lancer
 
@@ -36,10 +38,10 @@ Blender 5.x et Python 3 ne servent qu'à régénérer les assets.
 | Esquive (maintenir = sprint) | B / ○ | Espace |
 | Sprint (un clic, tant que le stick est poussé) | L3 | — |
 | Verrouillage | R3 | Tab ou clic molette |
-| Changer d'arme | Y / △ | R |
+| Changer d'arme | croix → | R |
 | Utiliser l'objet sélectionné | X / □ | F |
 | Objet suivant (emplacements rapides) | croix ↓ | C |
-| Se reposer au checkpoint | A / ✕ | G |
+| Interagir (ramasser, se reposer) ; sinon sauter | A / ✕ | G |
 | Déplacement / caméra | sticks | WASD / souris |
 | Menu | Start | Échap |
 
@@ -54,11 +56,12 @@ pause rappelle les contrôles du dernier périphérique utilisé (manette, ou cl
 - **Écran titre** : Nouvelle partie (demande confirmation si une sauvegarde existe), Charger,
   Options, Quitter.
 - **Pause** (Échap / Start) : Reprendre, Équipement, Options, Aide, Retour à l'écran titre, Quitter.
-- **Checkpoint** (en s'y reposant) : Partir (sélectionné par défaut), Voyager (liste des
-  checkpoints avec une vue du lieu ; un seul pour l'instant), Monter de niveau (grisé, à venir),
-  Équipement, Ranimer l'Automate (s'il a été vaincu).
-- **Équipement** : 4 emplacements rapides où équiper les objets de l'inventaire (pour l'instant :
-  la fiole de soin) ; en jeu, croix ↓ / C passe à l'emplacement équipé suivant.
+- **Checkpoint** (en s'y reposant) : Partir (sélectionné par défaut), Voyager (vers une autre
+  brasier déjà ranimé, avec une vue du lieu), Monter de niveau (grisé, à venir), Équipement,
+  Ranimer l'Automate (s'il a été vaincu).
+- **Équipement** : 4 emplacements rapides où équiper les consommables (en jeu, croix ↓ / C passe
+  à l'emplacement équipé suivant), et un emplacement de talisman (le premier talisman ramassé
+  est porté d'office ; on en change ici, depuis le menu pause ou un brasier).
 
 Échap / (B) revient à la page précédente. Le jeu démarre en plein écran.
 
@@ -68,7 +71,7 @@ pause rappelle les contrôles du dernier périphérique utilisé (manette, ou cl
 | Résolution | taille de la fenêtre, ou mode vidéo en exclusif (natif uniquement) |
 | Fréquence | fréquences proposées par l'écran, en exclusif (natif uniquement) |
 | Synchronisation verticale | activée / désactivée (natif uniquement) |
-| Résolution interne | 240p (PS1), 360p, 480p |
+| Résolution interne | 240p (PS1), 480p (moderne) |
 | Volume général, volume des effets | 0 à 100 % |
 | Sensibilité caméra, axe vertical inversé, tremblements de caméra | |
 
@@ -79,6 +82,10 @@ de mode).
 
 Langue : anglais ou français, demandée au premier lancement (anglais par défaut) et modifiable
 dans les options.
+
+Style graphique : PS1 (résolution interne 240p) ou moderne (480p), demandé au premier lancement
+juste après la langue, avec une capture de chaque (`assets/ui/style_*.png`). Modifiable dans les
+options (« Résolution interne »).
 
 Les options sont enregistrées dès qu'on les change et reprises au lancement suivant :
 `~/.config/giants-flame/settings.ron` (Linux), `%APPDATA%\giants-flame\settings.ron` (Windows),
@@ -120,26 +127,85 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
 - **Fiole de soin** (objet de l'inventaire) : 3 charges, rechargées au checkpoint et à la mort,
   +40 % des PV ; on peut marcher lentement pendant. Touché avant que le soin s'applique : la
   charge est perdue.
-- **Jauge spéciale** (3 segments sous l'endurance) : se remplit en frappant et en garde parfaite ;
-  chaque attaque spéciale consomme un segment. Les coups de la spéciale ne rechargent pas la jauge,
+- **Jauge spéciale** (barre dorée sous l'endurance) : se remplit en frappant et en garde
+  parfaite ; chaque attaque spéciale en consomme un tiers. Les coups de la spéciale ne rechargent pas la jauge,
   et son coût d'endurance est fixe (pas proportionnel à ses gros dégâts).
+- **HUD** : en bas à gauche, l'arme équipée (icône ; croix → / R pour changer) au-dessus de
+  l'objet rapide sélectionné.
 - **Boss** : 9 attaques en phase 1 (dont une furie et deux attaques de zone), 2 de plus en
   phase 2 (sous 50 % de PV).
 
+## Le chemin
+
+```
+              arène (boss)
+                   │ escalier
+        place des Allumeurs ◆ checkpoint ── pont ── jardin de la fontaine
+                   │ pont
+          kiosque à musique : 2 chiens endormis
+                   │ rampe
+   guichets : 2 pantins, 1 chien ── passerelle étroite ── corniche : chien, éclat de fiole
+                   │ long pont : un pantin en travers
+   piste du colosse (unique) ── planche ── corniche : talisman
+                   │ escalier
+        belvédère brisé ◆ checkpoint ── pont effondré…
+```
+
+- **Saut** (A / G quand il n'y a rien à ramasser ni de brasier à portée) : ~0,8 m de haut,
+  ~3,5 m franchis en courant (`jump` dans `player.ron`), 12 d'endurance. Retomber au-dessus
+  du vide, c'est la chute.
+- **Réapparition au brasier** : à côté du feu, tourné vers la suite du chemin (`look` dans
+  `level.ron`) ; une partie quittée au pied d'un brasier reprend de la même façon.
+- **Le vide** : hors de l'arène et de l'escalier, aucun garde-fou. Marcher, rouler ou être
+  repoussé au-delà d'un bord, c'est la chute, et la mort. En contrebas, il n'y a que le noir et,
+  au loin, quelques réverbères perdus sur des rochers flottants.
+- **Checkpoints** (brasiers) : une vasque de fer sur un socle, une vieille épée plantée dans
+  les braises. Éteint, il ne laisse échapper qu'un filet d'escarbilles ; s'y reposer le ranime
+  (« BRASIER RANIMÉ ») : une colonne de braises et de cendres monte alors au-dessus, visible de
+  loin. Il devient le point de réapparition et une destination de voyage. Se reposer rend PV,
+  endurance et fioles, mais **fait revenir tous les ennemis** ; impossible tant qu'un ennemi
+  est à vos trousses.
+- **Mort** : on réapparaît au dernier brasier **sans ses braises** : elles restent sur place,
+  avec votre cadavre nimbé de vert d'où montent des lueurs vertes, visibles de loin (au bord d'où l'on est tombé, après
+  une chute). Interagir près du cadavre les récupère ; mourir avant de l'avoir atteint les fait
+  perdre pour de bon.
+- **Ennemis** : endormis (on peut les approcher, mais ils sentent tout autour d'eux) ou aux
+  aguets (ils voient loin, devant eux). Un cri d'alerte réveille tout leur groupe. Trop loin
+  de leur poste, ils abandonnent, y retournent et se soignent. Vaincus, ils donnent des
+  braises ; ils reviennent au repos et à la mort, sauf le colosse.
+  - *Chien errant* : rapide, morsures et bond ; interrompu par chaque coup.
+  - *Pantin de foire* : maillet de « tête de Turc » (coup vertical en hyperarmure, revers,
+    estoc en avançant) ; il faut deux coups de rapière pour l'interrompre.
+  - *Colosse de la piste* : un pantin géant, unique, qui ne bronche presque jamais.
+  Les coups du joueur s'abaissent jusqu'aux adversaires plus petits qu'eux (un estoc porté à
+  hauteur de poitrine touche un chien).
+- **Objets au sol** : des lueurs blanches entourées d'étincelles qui tournoient en montant
+  (visibles à travers le brouillard) ; on ne sait ce que c'est qu'en les ramassant
+  (« Ramasser », fenêtre de l'objet obtenu). Chacun ne se ramasse qu'une fois.
+  - consommables (emplacements rapides, ne se rechargent pas) : *braise ternie* / *braise vive*
+    (à écraser pour gagner des braises), *mousse dorée* (régénère des PV), *résine ardente*
+    (+20 % de dégâts pendant une minute, la lame rougeoie) ;
+  - talismans : *broche de fer* (dégâts subis −15 %), *plume de manège* (esquives −30 %
+    d'endurance) ;
+  - *éclat de fiole* : une charge de soin de plus, définitivement.
+
 ## Progression et sauvegarde
 
-- On commence au **checkpoint** (lanterne au bout du couloir). S'y reposer rend PV, endurance et
-  objets.
-- Entrer dans l'arène réveille le boss et une **brume** ferme le couloir jusqu'à la fin du combat.
+- On commence au **checkpoint** de la place, au pied de l'escalier de l'arène. S'y reposer
+  rend PV, endurance et objets.
+- Entrer dans l'arène réveille le boss et une **brume** ferme l'escalier jusqu'à la fin du combat.
 - Victoire : **+1000 braises** (`embers` dans `boss.ron`, icône de flamme), affichées en bas à droite au-dessus du
   compteur, qui les absorbe avec un petit son ; le boss reste mort, on peut le ranimer depuis
   le checkpoint.
 - Mort : « VOUS ÊTES MORT » (~4 s, l'écran s'assombrit puis passe au noir), puis retour au
-  checkpoint (braises conservées), objets rechargés, boss réinitialisé.
+  dernier checkpoint où l'on s'est reposé (braises conservées), objets rechargés, boss et
+  ennemis réinitialisés.
 - **Sauvegarde automatique** façon Dark Souls (un seul emplacement) : à chaque événement important
-  (repos, entrée dans l'arène, victoire, mort, objet utilisé, menu ouvert/fermé), toutes les
-  5 secondes et en quittant ; le fichier n'est réécrit que s'il a changé. On reprend à l'endroit
-  où on a quitté, sauf en plein combat : on revient devant la brume et le boss repart de zéro.
+  (repos, entrée dans l'arène, victoire, ennemi vaincu, objet ramassé ou utilisé, chute, mort,
+  menu ouvert/fermé), toutes les 5 secondes et en quittant ; le fichier n'est réécrit que s'il a
+  changé. On reprend à l'endroit où on a quitté, sauf en plein combat de boss (on revient devant
+  la brume, le boss repart de zéro) ou en pleine chute (au dernier checkpoint). Les objets
+  ramassés, brasiers ranimés, ennemis uniques vaincus et braises laissées à la mort sont sauvegardés.
   Fichier `save.ron` à côté de `settings.ron` (`localStorage` dans le navigateur).
 
 ## Régler le feel
@@ -149,11 +215,15 @@ Toutes les valeurs de gameplay sont dans `assets/config/` et exprimées en **tic
 - `player.ron` : PV, endurance, vitesses, esquive (i-frames), garde parfaite, regain…
 - `weapons.ron` : chaque attaque (startup/actif/récupération, hitbox, dégâts, stagger, root motion)
 - `boss.ron` : PV, phases, stagger, pauses entre les attaques, chaque attaque et ses portées
-- `arena.ron` : taille de l'arène, piliers, couloir, checkpoint (nom, vue du menu de voyage),
-  points d'apparition
+- `arena.ron` : taille de l'arène, piliers, ouverture, apparition du boss
+- `level.ron` : le reste du niveau — sols (place, ponts, rampes, escaliers ; bords murés ou
+  ouverts sur le vide), checkpoints (nom, vue du menu de voyage), décor, ennemis, objets
+- `enemies.ron` : types d'ennemis (vision, poursuite, équilibre, braises, attaques)
 
 Avec `cargo run --features dev`, sauvegarder un fichier relance le combat avec les nouvelles
-valeurs. Les animations se recalent automatiquement si on modifie les fenêtres de frappe.
+valeurs. Les animations se recalent automatiquement si on modifie les fenêtres de frappe. Le
+décor est généré à partir de `arena.ron` et `level.ron` : après une modification de la
+géométrie, relancer `tools/build_assets.sh` pour que l'image corresponde aux collisions.
 
 ## Architecture
 
@@ -163,9 +233,11 @@ src/sim/      simulation déterministe à 60 Hz (aucune dépendance au rendu)
   input.rs      PlayerInput : 7 octets par joueur et par tick (ce qui transitera sur le réseau)
   player.rs     machine à états du joueur (combos, charge, garde, esquive, sprint…)
   boss.rs       IA du boss (aggro multi-joueurs, choix pondéré, cooldowns, phases)
+  enemy.rs      IA des ennemis du chemin (poste, alerte de groupe, poursuite, abandon)
+  world.rs      sols praticables et hauteurs, bords murés ou ouverts (chute), obstacles
   combat.rs     collisions, hitbox (capsules, balayages en arc), garde / parfaite / regain
-  encounter.rs  checkpoint, brume, victoire, mort/réapparition, progression, commandes des menus
-  items.rs      objets, inventaire, emplacements rapides
+  encounter.rs  checkpoints, voyage, brume, victoire, mort/réapparition, progression, menus
+  items.rs      objets (consommables, talismans, objets clés), inventaire, emplacements rapides
 src/input.rs  clavier/souris/manette → PlayerInput (appuis verrouillés entre deux ticks)
 src/render/   rendu PS1, caméra, modèles et pilotage des animations par l'état de la sim,
               aperçu des checkpoints (menu de voyage)
@@ -189,7 +261,7 @@ cible entre plusieurs joueurs.
 ## Régénérer les assets
 
 ```sh
-tools/build_assets.sh   # timings → Blender (joueur, boss, armes, arène) → bruitages → police
+tools/build_assets.sh   # timings et niveau → Blender (joueur, boss, armes, chien, pantin, décor) → bruitages → police
 ```
 
 Les fichiers `.blend` sont écrits dans `tools/blender/blend/` pour retouche manuelle (non versionnés :

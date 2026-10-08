@@ -96,11 +96,49 @@ for k, f in enumerate((523, 659, 784, 1046)):
             heal.append(0.0)
         heal[idx] += v
 write("heal", heal)
-# Braises absorbées : souffle qui monte et carillon cristallin.
-embers = whoosh(1.0, 0.01, 0.12, peak=0.35)
-for i in range(len(embers)):
+
+
+def bark(f0, dur):
+    """Aboiement rauque : fondamentale qui chute vite, beaucoup de souffle."""
+    n = int(SR * dur)
+    nz = noise_lp(n, 0.35)
+    out, ph = [], 0.0
+    for i in range(n):
+        t = i / SR
+        f = f0 * (1.4 - 0.6 * min(1.0, t / dur))
+        ph += 2 * math.pi * f / SR
+        voice = math.sin(ph) + 0.6 * math.sin(2 * ph) + 0.4 * math.sin(3 * ph + 1.0)
+        out.append((voice * 0.6 + nz[i] * 1.2) * env(t, 0.008, dur * 0.35))
+    return out
+
+
+# Ennemis : deux aboiements, et le craquement d'un pantin qui se redresse.
+b1, b2 = bark(320, 0.16), bark(280, 0.2)
+write("bark", b1 + [0.0] * int(SR * 0.08) + b2 + [0.0] * int(SR * 0.05))
+creak = []
+for i in range(int(SR * 0.7)):
     t = i / SR
-    bell = sum(a * math.sin(2 * math.pi * f * t + 3 * math.sin(2 * math.pi * 5.5 * t)) for f, a in ((1568, 0.5), (2093, 0.35), (2637, 0.25), (3136, 0.15)))
-    embers[i] = embers[i] * 0.9 + bell * env(max(t - 0.12, 0.0), 0.05, 0.3) * (0.0 if t < 0.12 else 0.45)
-write("embers", embers)
+    tick = 1.0 if (int(t * 38 + 6 * math.sin(t * 9)) % 2 == 0) else -1.0
+    creak.append(tick * (0.5 + 0.5 * math.sin(2 * math.pi * 3 * t)) * env(t, 0.05, 0.3) * 0.5)
+creak = [a + b * 0.6 for a, b in zip(creak, noise_lp(len(creak), 0.08))]
+write("creak", creak)
+# Objet ramassé : deux notes claires.
+pick = []
+for k, f in enumerate((880, 1318)):
+    for i in range(int(SR * 0.35)):
+        t = i / SR
+        idx = int(k * 0.09 * SR) + i
+        while len(pick) <= idx:
+            pick.append(0.0)
+        pick[idx] += math.sin(2 * math.pi * f * t) * env(t, 0.004, 0.12) * 0.5
+write("pickup", pick)
+# Lanterne ranimée : souffle grave qui s'embrase, puis un accord de cloches.
+kindle = whoosh(1.6, 0.01, 0.2, peak=0.3)
+for i in range(len(kindle)):
+    t = i / SR
+    bells = sum(a * math.sin(2 * math.pi * f * t) for f, a in ((392, 0.5), (587, 0.4), (784, 0.35), (1175, 0.2)))
+    kindle[i] = kindle[i] * 0.8 + bells * env(max(t - 0.25, 0.0), 0.05, 0.6) * (0.0 if t < 0.25 else 0.5)
+write("kindle", kindle)
+# Chute : souffle qui s'éloigne et descend.
+write("fall", [s * (1.0 - i / int(SR * 1.4)) for i, s in enumerate(whoosh(1.4, 0.2, 0.01, peak=0.15))])
 print("sfx ok")

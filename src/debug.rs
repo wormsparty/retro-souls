@@ -164,6 +164,12 @@ struct AutoShots {
 
 impl Plugin for AutoShotPlugin {
     fn build(&self, app: &mut App) {
+        // `SOULS_PERF=1` : temps de frame moyen et pire frame, chaque seconde, dans la console.
+        if std::env::var("SOULS_PERF").is_ok() {
+            app.init_resource::<PerfClock>()
+                .add_systems(First, |mut c: ResMut<PerfClock>| c.start = Some(std::time::Instant::now()))
+                .add_systems(Last, perf_log);
+        }
         let Ok(spec) = std::env::var("SOULS_SHOTS") else { return };
         let times = spec.split(',').filter_map(|s| s.trim().parse().ok()).collect();
         let dir = std::env::var("SOULS_SHOT_DIR").unwrap_or_else(|_| ".".into());
@@ -187,6 +193,24 @@ impl Plugin for AutoShotPlugin {
                         && v.len() >= 2
                     {
                         p.pos = Some([v[0], v[1], v.get(2).copied().unwrap_or(0.0).to_radians()]);
+                    }
+                    // Braises de départ optionnelles : SOULS_EMBERS=500 (braises laissées à la mort).
+                    if let (Some(n), Some(p)) = (
+                        std::env::var("SOULS_EMBERS").ok().and_then(|h| h.parse().ok()),
+                        w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
+                    ) {
+                        p.embers = n;
+                    }
+                    // Braises laissées à la mort : SOULS_DROP=x,z,braises (cadavre).
+                    let drop = std::env::var("SOULS_DROP").ok().map(|s| {
+                        s.split(',').filter_map(|p| p.trim().parse().ok()).collect::<Vec<f32>>()
+                    });
+                    if let Some([x, z, n]) = drop.as_deref().and_then(|v| <[f32; 3]>::try_from(v).ok()) {
+                        let t = w.resource::<crate::sim::data::Tuning>().clone();
+                        let y = crate::sim::world::floor_at(&t, x, z, 0.0).unwrap_or(0.0);
+                        if let Some(p) = w.resource_mut::<crate::sim::ResetFight>().progress.as_mut() {
+                            p.dropped = Some(crate::sim::encounter::Dropped { at: [x, y, z], embers: n as u32 });
+                        }
                     }
                     // PV de départ optionnels : SOULS_HP=1 (vérifier la mort et la réapparition).
                     if let (Some(hp), Some(p)) = (
@@ -225,6 +249,38 @@ impl Plugin for AutoShotPlugin {
     }
 }
 
+/// Début de la frame (pour mesurer le temps CPU du monde principal).
+#[derive(Resource, Default)]
+struct PerfClock {
+    start: Option<std::time::Instant>,
+    /// Temps écoulé, pire frame, temps CPU cumulé du monde principal, frames.
+    acc: (f32, f32, f32, u32),
+    /// Frames de plus de 20 ms (saccades).
+    slow: u32,
+}
+
+fn perf_log(time: Res<Time<Real>>, mut clock: ResMut<PerfClock>, entities: Query<()>) {
+    let dt = time.delta_secs();
+    let cpu = clock.start.map_or(0.0, |s| s.elapsed().as_secs_f32());
+    let (total, worst, main, frames) = clock.acc;
+    clock.acc = (total + dt, worst.max(dt), main + cpu, frames + 1);
+    clock.slow += (dt > 0.020) as u32;
+    let (total, worst, main, frames) = clock.acc;
+    if total >= 1.0 {
+        info!(
+            "perf: {:.2} ms/frame en moyenne ({:.0} i/s), pire {:.2} ms ({} > 20 ms), monde principal {:.2} ms, {} entités",
+            total / frames as f32 * 1000.0,
+            frames as f32 / total,
+            worst * 1000.0,
+            clock.slow,
+            main / frames as f32 * 1000.0,
+            entities.iter().count()
+        );
+        clock.acc = (0.0, 0.0, 0.0, 0);
+        clock.slow = 0;
+    }
+}
+
 fn autoshot(
     mut menu: ResMut<crate::menu::MenuState>,
     mut commands: Commands,
@@ -248,6 +304,7 @@ fn autoshot(
             "checkpoint" => Page::Checkpoint,
             "travel" => Page::Travel,
             "language" => Page::Language,
+            "style" => Page::Style,
             _ => Page::Pause,
         });
     }

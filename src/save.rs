@@ -1,6 +1,7 @@
 //! Sauvegarde automatique façon Dark Souls : un seul emplacement, réécrit dès qu'il se passe
-//! quelque chose d'important (repos, entrée dans l'arène, victoire, mort, objet utilisé,
-//! ouverture/fermeture d'un menu), toutes les 5 secondes, et en quittant. Le fichier n'est
+//! quelque chose d'important (repos, entrée dans l'arène, victoire, ennemi vaincu, objet
+//! ramassé ou utilisé, chute, mort, ouverture/fermeture d'un menu), toutes les 5 secondes,
+//! et en quittant. Le fichier n'est
 //! réécrit que s'il a changé. On reprend où on s'était arrêté — sauf en plein combat de boss :
 //! on revient alors devant la brume, et le boss repart de zéro.
 //!
@@ -115,6 +116,11 @@ fn autosave_triggers(
                 | SimEvent::Heal { .. }
                 | SimEvent::WeaponSwitched { .. }
                 | SimEvent::ItemCycled { .. }
+                | SimEvent::ItemUsed { .. }
+                | SimEvent::PickedUp { .. }
+                | SimEvent::Kindled { .. }
+                | SimEvent::EnemyDied { .. }
+                | SimEvent::Fell { .. }
         )
     });
     let menu_toggled = menu.open != *was_open;

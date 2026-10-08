@@ -41,6 +41,10 @@ impl Health {
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Hitstop(pub u8);
 
+/// Adversaire des joueurs (boss ou ennemi du chemin) : on peut le verrouiller et le frapper.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Foe;
+
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Team {
     Players,

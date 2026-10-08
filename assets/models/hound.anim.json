@@ -1,0 +1,90 @@
+{
+ "bite": {
+  "frames": 44.0,
+  "loop": false,
+  "marks": [
+   0,
+   15,
+   20,
+   44
+  ]
+ },
+ "death": {
+  "frames": 70.0,
+  "loop": false,
+  "marks": [
+   0,
+   70
+  ]
+ },
+ "hit": {
+  "frames": 22.0,
+  "loop": false,
+  "marks": [
+   0,
+   22
+  ]
+ },
+ "howl": {
+  "frames": 48.0,
+  "loop": false,
+  "marks": [
+   0,
+   48
+  ]
+ },
+ "idle": {
+  "frames": 60.0,
+  "loop": true,
+  "marks": [
+   0,
+   60.0
+  ]
+ },
+ "lunge": {
+  "frames": 72.0,
+  "loop": false,
+  "marks": [
+   0,
+   24,
+   33,
+   72
+  ]
+ },
+ "run": {
+  "frames": 24.0,
+  "loop": true,
+  "marks": [
+   0,
+   24.0
+  ]
+ },
+ "sleep": {
+  "frames": 120.0,
+  "loop": true,
+  "marks": [
+   0,
+   120.0
+  ]
+ },
+ "snap": {
+  "frames": 60.0,
+  "loop": false,
+  "marks": [
+   0,
+   14,
+   18,
+   30,
+   34,
+   60
+  ]
+ },
+ "walk": {
+  "frames": 40.0,
+  "loop": true,
+  "marks": [
+   0,
+   40.0
+  ]
+ }
+}

@@ -11,6 +11,8 @@ use bevy::render::render_resource::{AsBindGroup, Extent3d, ShaderType, TextureFo
 use bevy::shader::ShaderRef;
 use bevy::window::{PrimaryWindow, WindowResized};
 
+use std::collections::HashMap;
+
 use crate::settings::Settings;
 
 
@@ -25,7 +27,8 @@ pub struct Ps1Params {
     pub fog_color: Vec4,
     pub fog: Vec4,
     pub misc: Vec4,
-    pub lights: [Vec4; 8],
+    /// Par lumière : position + rayon, couleur + intensité, vacillement (voir `PointLightPs1`).
+    pub lights: [Vec4; 12],
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
@@ -57,12 +60,16 @@ impl Material for Ps1Material {
 }
 
 /// Lumière ponctuelle (brasero) prise en compte par le matériau PS1.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PointLightPs1 {
     pub pos: Vec3,
     pub radius: f32,
     pub color: Vec3,
     pub intensity: f32,
+    /// Vacillement calculé par le shader (l'éclairage ne change donc pas à chaque frame) :
+    /// intensité + a1·sin(f1·t + φ) + a2·sin(f2·t + 2φ), φ dépendant de la position.
+    /// (a1, f1, a2, f2).
+    pub flicker: Vec4,
 }
 
 /// Éclairage global, recopié dans tous les matériaux PS1 à chaque frame.
@@ -111,7 +118,7 @@ impl Ps1Material {
                 fog_color: Vec4::ZERO,
                 fog: Vec4::new(1000.0, 2000.0, 0.5, 1.0),
                 misc: Vec4::new(if texture.is_some() { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0),
-                lights: [Vec4::ZERO; 8],
+                lights: [Vec4::ZERO; 12],
             },
             texture,
             alpha_mode: AlphaMode::Opaque,
@@ -140,10 +147,11 @@ impl Ps1Material {
         }
         p.fog_color = l.fog_color.extend(1.0);
         p.fog = Vec4::new(l.fog_start, l.fog_end, l.snap, l.dither);
-        p.lights = [Vec4::ZERO; 8];
+        p.lights = [Vec4::ZERO; 12];
         for (i, pl) in l.lights.iter().take(4).enumerate() {
-            p.lights[i * 2] = pl.pos.extend(pl.radius);
-            p.lights[i * 2 + 1] = pl.color.extend(pl.intensity);
+            p.lights[i * 3] = pl.pos.extend(pl.radius);
+            p.lights[i * 3 + 1] = pl.color.extend(pl.intensity);
+            p.lights[i * 3 + 2] = pl.flicker;
         }
     }
 }
@@ -260,32 +268,110 @@ fn resize_low_res(
     }
 }
 
-fn sync_lighting(lighting: Res<Ps1Lighting>, mut materials: ResMut<Assets<Ps1Material>>) {
-    for (_, m) in materials.iter_mut() {
-        m.apply_lighting(&lighting);
+/// Recopie l'éclairage dans les matériaux : tous quand il change (rarement : le vacillement est
+/// calculé par le shader), sinon seulement les nouveaux. Réécrire chaque matériau à chaque
+/// frame force Bevy à tous les re-préparer, ce qui coûte très cher.
+fn sync_lighting(
+    lighting: Res<Ps1Lighting>,
+    mut events: MessageReader<AssetEvent<Ps1Material>>,
+    mut materials: ResMut<Assets<Ps1Material>>,
+) {
+    if lighting.is_changed() {
+        events.clear();
+        for (_, m) in materials.iter_mut() {
+            m.apply_lighting(&lighting);
+        }
+        return;
+    }
+    let added: Vec<_> = events
+        .read()
+        .filter_map(|e| match e {
+            AssetEvent::Added { id } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    for id in added {
+        if let Some(mut m) = materials.get_mut(id) {
+            m.apply_lighting(&lighting);
+        }
     }
 }
 
-/// Remplace les `StandardMaterial` (créés par le chargeur glTF) par des matériaux PS1.
-/// Chaque entité reçoit sa propre instance pour pouvoir être teintée individuellement.
+/// Remplace les `StandardMaterial` (créés par le chargeur glTF) par des matériaux PS1, partagés
+/// par tous les meshes d'un même matériau d'origine : peu de matériaux à préparer, et des
+/// meshes dessinés ensemble. Un mesh à teinter (flash d'impact…) reçoit sa propre copie le
+/// temps de la teinte (`set_tint`).
 fn swap_standard_materials(
     mut commands: Commands,
     q: Query<(Entity, &MeshMaterial3d<StandardMaterial>)>,
     standard: Res<Assets<StandardMaterial>>,
     mut ps1: ResMut<Assets<Ps1Material>>,
+    mut shared: Local<HashMap<AssetId<StandardMaterial>, Handle<Ps1Material>>>,
     lighting: Res<Ps1Lighting>,
 ) {
     for (e, h) in &q {
         let Some(s) = standard.get(&h.0) else { continue };
-        let mut m = Ps1Material::from_standard(s);
-        m.apply_lighting(&lighting);
+        let handle = shared
+            .entry(h.0.id())
+            .or_insert_with(|| {
+                let mut m = Ps1Material::from_standard(s);
+                m.apply_lighting(&lighting);
+                ps1.add(m)
+            })
+            .clone();
         commands
             .entity(e)
             .remove::<MeshMaterial3d<StandardMaterial>>()
-            .insert((MeshMaterial3d(ps1.add(m)), Ps1Swapped));
+            .insert((MeshMaterial3d(handle.clone()), Ps1Swapped(handle)));
     }
 }
 
-/// Marqueur posé sur les meshes dont le matériau a été converti.
+/// Copie propre d'un matériau partagé, créée à la première teinte et gardée pour la suivante.
 #[derive(Component)]
-pub struct Ps1Swapped;
+pub struct OwnMaterial(Handle<Ps1Material>);
+
+/// Meshes d'un modèle, pour `set_tint`.
+pub type TintMeshes<'w, 's> =
+    Query<'w, 's, (&'static mut MeshMaterial3d<Ps1Material>, &'static Ps1Swapped, Option<&'static OwnMaterial>)>;
+
+/// Teinte tous les meshes sous `root`. Sans teinte, ils reviennent au matériau partagé.
+pub fn set_tint(
+    commands: &mut Commands,
+    root: Entity,
+    tint: Vec4,
+    children: &Query<&Children>,
+    meshes: &mut TintMeshes,
+    materials: &mut Assets<Ps1Material>,
+) {
+    for d in children.iter_descendants(root) {
+        let Ok((mut mat, base, own)) = meshes.get_mut(d) else { continue };
+        if tint == Vec4::ZERO {
+            if mat.0 != base.0 {
+                mat.0 = base.0.clone();
+            }
+            continue;
+        }
+        let own = match own {
+            Some(o) => o.0.clone(),
+            None => {
+                let Some(b) = materials.get(&base.0) else { continue };
+                let h = materials.add(b.clone());
+                commands.entity(d).insert(OwnMaterial(h.clone()));
+                h
+            }
+        };
+        if mat.0 != own {
+            mat.0 = own.clone();
+        }
+        if let Some(m) = materials.get(&own)
+            && m.params.tint != tint
+            && let Some(mut m) = materials.get_mut(&own)
+        {
+            m.params.tint = tint;
+        }
+    }
+}
+
+/// Marqueur posé sur les meshes dont le matériau a été converti (avec le matériau partagé).
+#[derive(Component)]
+pub struct Ps1Swapped(pub Handle<Ps1Material>);

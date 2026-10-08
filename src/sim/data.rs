@@ -5,9 +5,10 @@
 //! Repère local d'un combattant : x = droite, y = haut, z = avant.
 
 use bevy::prelude::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::lang::LText;
+use super::items::Item;
 
 /// Capsule en repère local (segment `a`–`b` de rayon `r`).
 #[derive(Deserialize, Clone, Copy, Debug)]
@@ -164,6 +165,15 @@ pub struct GuardDef {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+pub struct JumpDef {
+    /// Vitesse verticale au départ (m/s) : hauteur = v² / (2 × gravité).
+    pub speed: f32,
+    pub stamina: f32,
+    /// Accélération horizontale en l'air (m/s²) : on corrige un peu sa trajectoire, sans plus.
+    pub air_control: f32,
+}
+
+#[derive(Deserialize, Clone, Debug)]
 pub struct PlayerDef {
     pub max_hp: f32,
     pub max_stamina: f32,
@@ -181,6 +191,7 @@ pub struct PlayerDef {
     pub sprint_hold: u32,
     pub accel: f32,
     pub turn_rate: f32,
+    pub jump: JumpDef,
     pub radius: f32,
     pub height: f32,
     pub lock_range: f32,
@@ -247,11 +258,16 @@ pub struct BossAttack {
     pub max_angle: f32,
     pub weight: f32,
     pub cooldown: u32,
-    /// Phases où l'attaque est disponible (1 et/ou 2).
+    /// Phases où l'attaque est disponible (1 et/ou 2). Les ennemis n'ont qu'une phase.
+    #[serde(default = "default_phases")]
     pub phases: Vec<u8>,
     /// Enchaînement possible : (nom de l'attaque suivante, probabilité).
     #[serde(default)]
     pub next: Option<(String, f32)>,
+}
+
+fn default_phases() -> Vec<u8> {
+    vec![1, 2]
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -283,23 +299,192 @@ pub struct BossDef {
     pub attacks: Vec<BossAttack>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ArenaDef {
     pub radius: f32,
     /// Piliers : (x, z, rayon).
     pub pillars: Vec<[f32; 3]>,
-    /// Point de réapparition du joueur (devant le checkpoint).
-    pub player_spawn: [f32; 2],
     pub boss_spawn: [f32; 2],
-    /// Couloir d'accès, au sud de l'arène (vers -z) : demi-largeur et z du mur du fond.
-    pub corridor_half_width: f32,
-    pub corridor_end: f32,
-    /// Checkpoint (x, z), au bout du couloir.
-    pub checkpoint: [f32; 2],
-    /// Nom du checkpoint (menu de voyage).
-    pub checkpoint_name: LText,
-    /// Vue du checkpoint dans le menu de voyage : position de la caméra puis point visé (x, y, z).
-    pub checkpoint_view: [[f32; 3]; 2],
+    /// Demi-largeur de l'ouverture du mur, au sud (vers -z), où se forme la brume.
+    pub gate_half_width: f32,
+}
+
+/// Forme d'un morceau de sol praticable. Repère jeu : (x, z) au sol, y = hauteur.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+pub enum Shape {
+    /// Ellipse horizontale (un disque si les deux rayons sont égaux).
+    Ellipse { center: [f32; 2], radii: [f32; 2], y: f32 },
+    /// Bande droite de `from` à `to` (x, z, y) : pont, rampe ou escalier si les hauteurs diffèrent.
+    Strip { from: [f32; 3], to: [f32; 3], half_width: f32 },
+}
+
+/// Aspect d'un morceau de sol (décor uniquement).
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FloorStyle {
+    /// Dallage sur un socle de roche.
+    #[default]
+    Paved,
+    /// Pont de pierre sur arches.
+    Bridge,
+    /// Passerelle de planches.
+    Planks,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct FloorDef {
+    pub shape: Shape,
+    /// Bords murés : on y bute. Sinon, au-delà du bord, c'est le vide (et la chute).
+    #[serde(default)]
+    pub walled: bool,
+    /// Fait partie de l'arène (interdit aux ennemis du chemin).
+    #[serde(default)]
+    pub arena: bool,
+    /// Nombre de marches dessinées (décor ; la pente est continue pour la simulation).
+    #[serde(default)]
+    pub steps: u32,
+    #[serde(default)]
+    pub style: FloorStyle,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct CheckpointDef {
+    pub name: LText,
+    /// Position (x, z) du brasier.
+    pub pos: [f32; 2],
+    /// Point (x, z) vers lequel regarde le joueur qui réapparaît au brasier (et la caméra,
+    /// derrière lui) : la suite du chemin. Il se tient à côté du feu, pas devant, pour que le
+    /// brasier et ses braises ne masquent pas la vue.
+    pub look: [f32; 2],
+    /// Vue du lieu dans le menu de voyage : position de la caméra puis point visé (x, y, z).
+    pub view: [[f32; 3]; 2],
+}
+
+/// Décor posé au sol. Les collisions sont données par `Prop::colliders`.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Prop {
+    /// Réverbère (allumé).
+    Lamp,
+    /// Réverbère éteint, tordu.
+    DeadLamp,
+    /// Fontaine sèche.
+    Fountain,
+    Bench,
+    /// Statue de cheval de manège renversée.
+    Horse,
+    /// Guichet de foire (cabane de bois).
+    Booth,
+    /// Colonne brisée (kiosque à musique).
+    Column,
+    Crates,
+}
+
+impl Prop {
+    /// Cercles de collision (dx, dz, rayon), en repère local (z = avant).
+    pub fn colliders(self) -> &'static [[f32; 3]] {
+        match self {
+            Prop::Lamp | Prop::DeadLamp => &[[0.0, 0.0, 0.18]],
+            Prop::Fountain => &[[0.0, 0.0, 1.75]],
+            Prop::Bench => &[[-0.5, 0.0, 0.32], [0.5, 0.0, 0.32]],
+            Prop::Horse => &[[0.0, -0.45, 0.4], [0.0, 0.45, 0.4]],
+            Prop::Booth => &[[0.0, 0.0, 0.95]],
+            Prop::Column => &[[0.0, 0.0, 0.3]],
+            Prop::Crates => &[[0.0, 0.0, 0.55]],
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+pub struct PropDef {
+    pub kind: Prop,
+    pub pos: [f32; 2],
+    /// Orientation (degrés).
+    #[serde(default)]
+    pub yaw: f32,
+}
+
+/// Ennemi placé dans le niveau.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct EnemySpawn {
+    /// Clé du type d'ennemi (`enemies.ron`).
+    pub kind: String,
+    pub pos: [f32; 2],
+    #[serde(default)]
+    pub yaw: f32,
+    /// Endormi : il faut s'approcher davantage pour le réveiller, mais il voit dans toutes les
+    /// directions. Sinon, il guette devant lui.
+    #[serde(default)]
+    pub asleep: bool,
+    /// Les ennemis d'un même groupe (> 0) donnent l'alerte ensemble.
+    #[serde(default)]
+    pub group: u8,
+    /// Ne réapparaît pas une fois vaincu.
+    #[serde(default)]
+    pub unique: bool,
+}
+
+/// Objet qui brille au sol, ramassé une seule fois par partie.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct PickupDef {
+    pub pos: [f32; 2],
+    pub items: Vec<(Item, u8)>,
+}
+
+/// Le niveau autour de l'arène : sols, checkpoints, décor, ennemis, objets.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct LevelDef {
+    pub floors: Vec<FloorDef>,
+    pub checkpoints: Vec<CheckpointDef>,
+    #[serde(default)]
+    pub props: Vec<PropDef>,
+    #[serde(default)]
+    pub enemies: Vec<EnemySpawn>,
+    #[serde(default)]
+    pub pickups: Vec<PickupDef>,
+}
+
+/// Type d'ennemi (chien, pantin…).
+#[derive(Deserialize, Clone, Debug)]
+pub struct EnemyDef {
+    pub key: String,
+    /// Modèle (`assets/models/<model>.glb`) ; plusieurs types peuvent partager un modèle.
+    pub model: String,
+    /// Échelle du modèle (les portées des coups sont à donner à cette échelle).
+    #[serde(default = "one")]
+    pub scale: f32,
+    /// Teinte permanente du modèle (r, g, b, force).
+    #[serde(default)]
+    pub tint: Option<[f32; 4]>,
+    pub name: LText,
+    pub max_hp: f32,
+    pub radius: f32,
+    pub height: f32,
+    pub mass: f32,
+    pub walk_speed: f32,
+    pub run_speed: f32,
+    pub turn_rate: f32,
+    /// Distance de détection (réduite de moitié s'il dort, et alors dans toutes les directions).
+    pub sight: f32,
+    /// Distance max à son point de départ avant d'abandonner la poursuite.
+    pub leash: f32,
+    pub preferred_range: f32,
+    pub idle_ticks: [u32; 2],
+    /// Dégâts encaissés (sur ~1 s) avant d'être interrompu ; 0 = toujours.
+    pub poise: f32,
+    pub embers: u32,
+    /// Cri d'alerte.
+    pub alert: MoveDef,
+    pub hit: MoveDef,
+    pub death: MoveDef,
+    pub attacks: Vec<BossAttack>,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct EnemiesDef {
+    pub kinds: Vec<EnemyDef>,
 }
 
 /// Ensemble des données de tuning utilisées par la simulation.
@@ -309,32 +494,70 @@ pub struct Tuning {
     pub weapons: Vec<WeaponDef>,
     pub boss: BossDef,
     pub arena: ArenaDef,
+    pub level: LevelDef,
+    pub enemies: Vec<EnemyDef>,
 }
 
 pub const PLAYER_RON: &str = include_str!("../../assets/config/player.ron");
 pub const WEAPONS_RON: &str = include_str!("../../assets/config/weapons.ron");
 pub const BOSS_RON: &str = include_str!("../../assets/config/boss.ron");
 pub const ARENA_RON: &str = include_str!("../../assets/config/arena.ron");
+pub const LEVEL_RON: &str = include_str!("../../assets/config/level.ron");
+pub const ENEMIES_RON: &str = include_str!("../../assets/config/enemies.ron");
+
+/// Contenu des fichiers de tuning, dans l'ordre de `Tuning::parse`.
+pub struct TuningSources<'a> {
+    pub player: &'a str,
+    pub weapons: &'a str,
+    pub boss: &'a str,
+    pub arena: &'a str,
+    pub level: &'a str,
+    pub enemies: &'a str,
+}
 
 impl Tuning {
-    pub fn parse(player: &str, weapons: &str, boss: &str, arena: &str) -> Result<Self, String> {
+    pub fn parse(src: &TuningSources) -> Result<Self, String> {
         let opts = ron::Options::default()
             .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME);
         let p = |name: &str, e: ron::error::SpannedError| format!("{name}: {e}");
-        Ok(Self {
-            player: opts.from_str(player).map_err(|e| p("player.ron", e))?,
+        let t = Self {
+            player: opts.from_str(src.player).map_err(|e| p("player.ron", e))?,
             weapons: opts
-                .from_str::<WeaponsDef>(weapons)
+                .from_str::<WeaponsDef>(src.weapons)
                 .map_err(|e| p("weapons.ron", e))?
                 .weapons,
-            boss: opts.from_str(boss).map_err(|e| p("boss.ron", e))?,
-            arena: opts.from_str(arena).map_err(|e| p("arena.ron", e))?,
-        })
+            boss: opts.from_str(src.boss).map_err(|e| p("boss.ron", e))?,
+            arena: opts.from_str(src.arena).map_err(|e| p("arena.ron", e))?,
+            level: opts.from_str(src.level).map_err(|e| p("level.ron", e))?,
+            enemies: opts.from_str::<EnemiesDef>(src.enemies).map_err(|e| p("enemies.ron", e))?.kinds,
+        };
+        for e in &t.level.enemies {
+            if t.enemy_kind(&e.kind).is_none() {
+                return Err(format!("level.ron: type d'ennemi inconnu « {} »", e.kind));
+            }
+        }
+        if t.level.checkpoints.is_empty() {
+            return Err("level.ron: il faut au moins un checkpoint".into());
+        }
+        Ok(t)
     }
 
     /// Données compilées dans le binaire (utilisées au démarrage et par les tests).
     pub fn builtin() -> Self {
-        Self::parse(PLAYER_RON, WEAPONS_RON, BOSS_RON, ARENA_RON).expect("tuning intégré invalide")
+        Self::parse(&TuningSources {
+            player: PLAYER_RON,
+            weapons: WEAPONS_RON,
+            boss: BOSS_RON,
+            arena: ARENA_RON,
+            level: LEVEL_RON,
+            enemies: ENEMIES_RON,
+        })
+        .expect("tuning intégré invalide")
+    }
+
+    /// Index du type d'ennemi `key`.
+    pub fn enemy_kind(&self, key: &str) -> Option<u8> {
+        self.enemies.iter().position(|k| k.key == key).map(|i| i as u8)
     }
 
     pub fn get(&self, r: MoveRef) -> &MoveDef {
@@ -374,6 +597,15 @@ impl Tuning {
                 BossMove::Roar => &self.boss.roar,
                 BossMove::Death => &self.boss.death,
             },
+            MoveRef::Enemy(k, m) => {
+                let e = &self.enemies[k as usize];
+                match m {
+                    EnemyMove::Attack(i) => &e.attacks[i as usize].mv,
+                    EnemyMove::Alert => &e.alert,
+                    EnemyMove::Hit => &e.hit,
+                    EnemyMove::Death => &e.death,
+                }
+            }
         }
     }
 }
@@ -385,6 +617,8 @@ pub enum MoveRef {
     Weapon(u8, WeaponMove),
     BossAttack(u16),
     Boss(BossMove),
+    /// Action d'un ennemi : (type, action).
+    Enemy(u8, EnemyMove),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -419,6 +653,14 @@ pub enum BossMove {
     Death,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EnemyMove {
+    Attack(u8),
+    Alert,
+    Hit,
+    Death,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,6 +677,16 @@ mod tests {
             }
             for h in &a.mv.hits {
                 assert!(h.start < h.end && h.end <= a.mv.total, "{}: fenêtre invalide", a.name);
+            }
+        }
+        for k in &t.enemies {
+            for a in &k.attacks {
+                for h in &a.mv.hits {
+                    assert!(h.start < h.end && h.end <= a.mv.total, "{}/{}: fenêtre invalide", k.key, a.name);
+                }
+                if let Some((n, _)) = &a.next {
+                    assert!(k.attacks.iter().any(|b| &b.name == n), "{}: next inconnu: {n}", k.key);
+                }
             }
         }
     }

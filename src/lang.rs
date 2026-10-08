@@ -51,7 +51,7 @@ pub fn tr(en: &'static str, fr: &'static str) -> &'static str {
 
 /// Texte des fichiers de données : une chaîne unique, ou une par langue
 /// (`name: (en: "Rapier", fr: "Rapière")`).
-#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum LText {
     Tr { en: String, fr: String },

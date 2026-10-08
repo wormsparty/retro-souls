@@ -32,11 +32,16 @@ pub struct Settings {
     pub vsync: bool,
     /// Hauteur de la résolution interne (240 = PS1).
     pub internal_height: u32,
+    /// Faux tant que le joueur n'a pas choisi le style graphique (question posée au premier
+    /// lancement : PS1 ou moderne, c'est-à-dire la plus basse ou la plus haute résolution interne).
+    pub style_chosen: bool,
     pub master_volume: f32,
     pub effects_volume: f32,
     pub sensitivity: f32,
     pub invert_y: bool,
     pub camera_shake: bool,
+    /// Compteur d'images par seconde en haut à droite.
+    pub show_fps: bool,
     /// `None` tant que le joueur n'a pas choisi (la question est posée au premier lancement).
     pub language: Option<Lang>,
 }
@@ -49,11 +54,13 @@ impl Default for Settings {
             refresh_mhz: None,
             vsync: true,
             internal_height: 240,
+            style_chosen: false,
             master_volume: 0.8,
             effects_volume: 1.0,
             sensitivity: 1.0,
             invert_y: false,
             camera_shake: true,
+            show_fps: false,
             language: None,
         }
     }
@@ -61,7 +68,10 @@ impl Default for Settings {
 
 const FILE: &str = "settings";
 
-pub const INTERNAL_HEIGHTS: [u32; 3] = [240, 360, 480];
+/// Résolutions internes des deux styles : PS1 et moderne.
+pub const PS1_HEIGHT: u32 = 240;
+pub const MODERN_HEIGHT: u32 = 480;
+pub const INTERNAL_HEIGHTS: [u32; 2] = [PS1_HEIGHT, MODERN_HEIGHT];
 /// Tailles proposées en mode fenêtré (filtrées selon l'écran).
 pub const WINDOWED_SIZES: [(u32, u32); 6] =
     [(960, 540), (1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160)];
@@ -85,8 +95,9 @@ impl Settings {
         self.master_volume = self.master_volume.clamp(0.0, 1.0);
         self.effects_volume = self.effects_volume.clamp(0.0, 1.0);
         self.sensitivity = self.sensitivity.clamp(0.1, 5.0);
+        // Anciennes valeurs (360p) : le style le plus proche.
         if !INTERNAL_HEIGHTS.contains(&self.internal_height) {
-            self.internal_height = 240;
+            self.internal_height = if self.internal_height > PS1_HEIGHT { MODERN_HEIGHT } else { PS1_HEIGHT };
         }
         if !exclusive_supported() && self.display == DisplayMode::Exclusive {
             self.display = DisplayMode::Fullscreen;

@@ -6,7 +6,7 @@ use bevy::asset::{AssetLoader, LoadContext};
 use bevy::prelude::*;
 
 use crate::sim::ResetFight;
-use crate::sim::data::Tuning;
+use crate::sim::data::{Tuning, TuningSources};
 
 #[derive(Asset, TypePath, Debug)]
 pub struct RonText(pub String);
@@ -29,7 +29,7 @@ impl AssetLoader for RonTextLoader {
 }
 
 #[derive(Resource)]
-struct TuningFiles([Handle<RonText>; 4]);
+struct TuningFiles([Handle<RonText>; 6]);
 
 pub struct ConfigPlugin;
 
@@ -39,7 +39,7 @@ impl Plugin for ConfigPlugin {
             .register_asset_loader(RonTextLoader)
             .add_systems(Startup, |mut commands: Commands, server: Res<AssetServer>| {
                 commands.insert_resource(TuningFiles(
-                    ["player", "weapons", "boss", "arena"].map(|n| server.load(format!("config/{n}.ron"))),
+                    ["player", "weapons", "boss", "arena", "level", "enemies"].map(|n| server.load(format!("config/{n}.ron"))),
                 ));
             })
             .add_systems(Update, reload);
@@ -70,7 +70,8 @@ fn reload(
     if *last_hash == Some(hash) {
         return;
     }
-    match Tuning::parse(t[0], t[1], t[2], t[3]) {
+    let src = TuningSources { player: t[0], weapons: t[1], boss: t[2], arena: t[3], level: t[4], enemies: t[5] };
+    match Tuning::parse(&src) {
         Ok(new) => {
             // Le premier chargement est identique au tuning intégré : pas de reset.
             if last_hash.is_some() {

@@ -1,5 +1,6 @@
 //! Exporte les timings des actions (tirés des RON) en JSON pour les scripts Blender,
-//! afin que les animations soient calées sur les frame data.
+//! afin que les animations soient calées sur les frame data, ainsi que l'arène et le niveau
+//! (le décor est construit à partir des mêmes données que les collisions).
 //!
 //! `cargo run --bin export_timings > tools/blender/timings.json`
 
@@ -40,6 +41,23 @@ fn main() {
     for a in &b.attacks {
         boss.insert(a.mv.anim.clone(), mv(&a.mv));
     }
-    let out = json!({"player": player, "boss": boss, "switch_at": p.switch_at, "heal_at": p.heal_at});
+    // Ennemis : par modèle, le premier type qui l'utilise donne les timings des animations
+    // (les autres s'y recalent à l'exécution).
+    let mut enemies = Map::new();
+    for k in &t.enemies {
+        let Value::Object(m) = enemies.entry(k.model.clone()).or_insert_with(|| json!({})) else { continue };
+        for d in [&k.alert, &k.hit, &k.death].into_iter().chain(k.attacks.iter().map(|a| &a.mv)) {
+            m.entry(d.anim.clone()).or_insert_with(|| mv(d));
+        }
+    }
+    let out = json!({
+        "player": player,
+        "boss": boss,
+        "enemies": enemies,
+        "switch_at": p.switch_at,
+        "heal_at": p.heal_at,
+        "arena": serde_json::to_value(&t.arena).unwrap(),
+        "level": serde_json::to_value(&t.level).unwrap(),
+    });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
 }

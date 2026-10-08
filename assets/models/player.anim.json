@@ -183,6 +183,14 @@
    120.0
   ]
  },
+ "jump": {
+  "frames": 34.0,
+  "loop": false,
+  "marks": [
+   0,
+   34.0
+  ]
+ },
  "perfect_guard": {
   "frames": 14.0,
   "loop": false,

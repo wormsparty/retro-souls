@@ -1,16 +1,12 @@
 // Arène circulaire (cour d'un théâtre en ruine). Piliers : (x, z, rayon).
-// Un couloir part vers le sud (-z) jusqu'au checkpoint ; entrer dans l'arène réveille le boss.
+// Une ouverture au sud (-z) donne sur le palier et l'escalier qui descend vers la place
+// (voir level.ron) ; entrer dans l'arène réveille le boss et la brume ferme l'ouverture.
 (
     radius: 16,
     pillars: [
         (11.3, 11.3, 0.8), (-11.3, 11.3, 0.8), (11.3, -11.3, 0.8), (-11.3, -11.3, 0.8),
         (14.8, 0, 0.7), (-14.8, 0, 0.7), (0, 14.8, 0.7),
     ],
-    player_spawn: (0, -26),
     boss_spawn: (0, 6),
-    corridor_half_width: 1.6,
-    corridor_end: -30,
-    checkpoint: (0, -27.8),
-    checkpoint_name: (en: "Carousel Corridor", fr: "Couloir du Carrousel"),
-    checkpoint_view: ((-0.9, 1.5, -29.5), (0.4, 1.7, -22.0)),
+    gate_half_width: 1.6,
 )
