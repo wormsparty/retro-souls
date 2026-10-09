@@ -1,0 +1,134 @@
+{
+ "belly_flop": {
+  "frames": 156.0,
+  "loop": false,
+  "marks": [
+   0,
+   86,
+   96,
+   156
+  ]
+ },
+ "breath": {
+  "frames": 176.0,
+  "loop": false,
+  "marks": [
+   0,
+   176
+  ]
+ },
+ "death": {
+  "frames": 200.0,
+  "loop": false,
+  "marks": [
+   0,
+   200
+  ]
+ },
+ "fatal_received": {
+  "frames": 130.0,
+  "loop": false,
+  "marks": [
+   0,
+   130
+  ]
+ },
+ "fire_rain": {
+  "frames": 140.0,
+  "loop": false,
+  "marks": [
+   0,
+   140
+  ]
+ },
+ "fly_fire": {
+  "frames": 236.0,
+  "loop": false,
+  "marks": [
+   0,
+   236
+  ]
+ },
+ "fly_slam": {
+  "frames": 210.0,
+  "loop": false,
+  "marks": [
+   0,
+   118,
+   128,
+   210
+  ]
+ },
+ "groggy": {
+  "frames": 220.0,
+  "loop": false,
+  "marks": [
+   0,
+   220
+  ]
+ },
+ "headbutt": {
+  "frames": 112.0,
+  "loop": false,
+  "marks": [
+   0,
+   52,
+   60,
+   112
+  ]
+ },
+ "idle": {
+  "frames": 280.0,
+  "loop": true,
+  "marks": [
+   0,
+   280.0
+  ]
+ },
+ "pivot_L": {
+  "frames": 116.0,
+  "loop": false,
+  "marks": [
+   0,
+   42,
+   68,
+   116
+  ]
+ },
+ "pivot_R": {
+  "frames": 116.0,
+  "loop": false,
+  "marks": [
+   0,
+   42,
+   68,
+   116
+  ]
+ },
+ "roar": {
+  "frames": 130.0,
+  "loop": false,
+  "marks": [
+   0,
+   130
+  ]
+ },
+ "tail_sweep": {
+  "frames": 120.0,
+  "loop": false,
+  "marks": [
+   0,
+   48,
+   70,
+   120
+  ]
+ },
+ "walk": {
+  "frames": 96.0,
+  "loop": true,
+  "marks": [
+   0,
+   96.0
+  ]
+ }
+}

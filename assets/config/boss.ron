@@ -37,7 +37,7 @@
                      capsule: (a: (0.0, 1.0, 0.8), b: (0.0, 0.9, 3.5), r: 0.3)),
                 ],
             ),
-            next: ("estoc_retarde", 0.25),
+            next: [("estoc_retarde", 0.25)],
         ),
         (
             name: "ecrasement",
@@ -110,7 +110,7 @@
                 anim: "leap_back", total: 64, track_until: 64, track_rate: 120,
                 motion: [(start: 14, end: 38, speed: -14.0)],
             ),
-            next: ("saut_ecrasant", 0.7),
+            next: [("saut_ecrasant", 0.7)],
         ),
         (
             // Saut très haut qui retombe là où se trouvait la cible au décollage.

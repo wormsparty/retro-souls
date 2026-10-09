@@ -71,6 +71,16 @@
    70
   ]
  },
+ "greatsword_jump": {
+  "frames": 54.0,
+  "loop": false,
+  "marks": [
+   0,
+   12,
+   19,
+   54
+  ]
+ },
  "greatsword_light1": {
   "frames": 52.0,
   "loop": false,
@@ -235,6 +245,16 @@
    8,
    13,
    44
+  ]
+ },
+ "rapier_jump": {
+  "frames": 34.0,
+  "loop": false,
+  "marks": [
+   0,
+   6,
+   12,
+   34
   ]
  },
  "rapier_light1": {

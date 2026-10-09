@@ -19,7 +19,10 @@
         // Palier devant l'ouverture de l'arène, puis escalier vers la place.
         (shape: Strip(from: (0, -15.0, 0), to: (0, -18.6, 0), half_width: 1.6), walled: true, arena: true),
         (shape: Strip(from: (0, -18.6, 0), to: (0, -23.4, -2.4), half_width: 1.6), walled: true, steps: 8),
-        (shape: Strip(from: (0, -23.4, -2.4), to: (0, -25.0, -2.4), half_width: 1.6)),
+        // Palier au pied de l'escalier : plus large que lui (ses balustrades y reposent), il
+        // commence sous la dernière marche ; sinon il reste un coin de vide entre le bout des
+        // balustrades et le bord de la place.
+        (shape: Strip(from: (0, -23.0, -2.4), to: (0, -25.0, -2.4), half_width: 2.4)),
         // Place des Allumeurs.
         (shape: Ellipse(center: (0, -31.5), radii: (10, 8), y: -2.4)),
         // Pont vers le jardin de la fontaine (cul-de-sac à l'est de la place).
@@ -31,18 +34,21 @@
         // Rampe vers les guichets.
         (shape: Strip(from: (-8, -58.5, -2.4), to: (-1.4, -67, -4.0), half_width: 1.6), style: Bridge),
         (shape: Ellipse(center: (1, -71), radii: (7, 5.5), y: -4.0)),
-        // Passerelle étroite vers une corniche (éclat de fiole).
+        // Passerelle étroite vers une corniche, puis un saut vers un rocher (éclat de fiole).
         (shape: Strip(from: (6.5, -70.5, -4.0), to: (14.5, -68, -4.0), half_width: 0.55), style: Planks),
         (shape: Ellipse(center: (16.5, -67.5), radii: (2.2, 2.2), y: -4.0)),
+        (shape: Ellipse(center: (21.4, -66.6), radii: (1.3, 1.3), y: -4.0)),
         // Long pont vers la piste.
         (shape: Strip(from: (0.5, -75.5, -4.0), to: (5.7, -94.2, -5.2), half_width: 1.2), style: Bridge),
         (shape: Ellipse(center: (6.5, -99.5), radii: (6.5, 6.5), y: -5.2)),
-        // Planche vers une corniche (talisman).
-        (shape: Strip(from: (0.3, -101, -5.2), to: (-5.5, -103.5, -5.2), half_width: 0.6), style: Planks),
+        // Planche étroite vers une corniche (talisman).
+        (shape: Strip(from: (0.3, -101, -5.2), to: (-5.5, -103.5, -5.2), half_width: 0.4), style: Planks),
         (shape: Ellipse(center: (-7, -104), radii: (1.8, 1.8), y: -5.2)),
         // Escalier vers le belvédère (second checkpoint), et le pont effondré au-delà.
         (shape: Strip(from: (8, -105.5, -5.2), to: (9.5, -112, -3.4), half_width: 1.4), steps: 7),
         (shape: Ellipse(center: (10, -116), radii: (4.2, 4.2), y: -3.4)),
+        // Un rocher isolé à l'est du belvédère : il faut y sauter en courant (talisman).
+        (shape: Ellipse(center: (18.4, -115.2), radii: (1.6, 1.6), y: -3.4)),
         (shape: Strip(from: (10.5, -119.8, -3.4), to: (11.5, -124.5, -3.4), half_width: 1.2), style: Bridge),
     ],
 
@@ -66,10 +72,8 @@
         (kind: Lamp, pos: (4.3, -25.6)), (kind: Lamp, pos: (-4.3, -25.6)), (kind: Lamp, pos: (0, -38.3)),
         (kind: DeadLamp, pos: (-8.31, -29.74), yaw: -50),
         (kind: Bench, pos: (1.5, -37.8)), (kind: Bench, pos: (7.6, -29.2), yaw: -90),
-        (kind: Horse, pos: (-6.0, -33.2), yaw: 70),
         // Jardin de la fontaine.
         (kind: Fountain, pos: (19.0, -33.6)),
-        (kind: Lamp, pos: (20.2, -37.2)),
         (kind: Bench, pos: (17.0, -30.3), yaw: 180),
         (kind: DeadLamp, pos: (21.2, -31.0), yaw: 120),
         // Kiosque à musique.
@@ -110,10 +114,10 @@
         (pos: (21.9, -35.2), items: [(FadedEmber, 1)]),
         (pos: (-14.2, -56.0), items: [(GoldenMoss, 2)]),
         (pos: (-5.2, -70.0), items: [(EmberResin, 2)]),
-        (pos: (17.6, -68.4), items: [(FlaskShard, 1)]),
+        (pos: (21.6, -66.7), items: [(FlaskShard, 1)]),
         (pos: (5.17, -89.29), items: [(FadedEmber, 2)]),
         (pos: (2.6, -97.0), items: [(LivelyEmber, 1)]),
-        (pos: (10.8, -103.8), items: [(IronBrooch, 1)]),
-        (pos: (-7.6, -104.6), items: [(CarouselFeather, 1)]),
+        (pos: (18.6, -115.3), items: [(IronBrooch, 1)]),
+        (pos: (-7.6, -104.6), items: [(CrestPlume, 1)]),
     ],
 )

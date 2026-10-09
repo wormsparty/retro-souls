@@ -1,0 +1,944 @@
+// Les autres boss (l'Automate est dans boss.ron), et les rencontres proposées au checkpoint.
+// Même format que boss.ron, avec en plus :
+//
+// - model / scale / tint : modèle (assets/models/<model>.glb, tools/blender/trial_bosses.py),
+//   son échelle et une teinte. Toutes les distances (capsules, parties, sorts) sont en mètres
+//   dans le jeu, donc à l'échelle du modèle.
+// - minor : second rôle (les chiens du boucher) : petite barre au-dessus de lui, et sa mort
+//   n'est pas nécessaire à la victoire. Quand un premier rôle tombe, l'autre passe en phase 2.
+// - keep_away : en deçà, il recule (lanceur de sorts).
+// - parts : zones touchables en plus du corps, et points qu'on peut verrouiller (stick droit
+//   ou souris pour passer de l'un à l'autre). `bone` : l'objet du modèle que suit le réticule.
+// - spells : sorts lancés par les `casts` des attaques. Bolt : projectile (speed, homing en
+//   degrés/s, life en ticks, delay : ticks suspendu là où il apparaît avant de partir vers sa cible) ;
+//   s'il s'écrase au sol, il y brûle encore un moment. Eruption : colonne qui jaillit du sol après `delay` ticks
+//   d'alerte (zone marquée au sol), et dure `life` ticks ; ni garde ni parade.
+//   Beam : jet continu de la bouche jusqu'au sol, qu'il touche à `reach` (min, max) mètres
+//   devant la bouche selon la cible au lancer ; il suit le lanceur pendant `life` ticks.
+//   Les sorts d'une même attaque ne touchent qu'une fois.
+// - casts : (at: tick, spell, from: point de départ local, aim: Target | Forward | Ring,
+//   count, spread : éventail en degrés (projectiles) ou rayon en mètres (éruptions),
+//   step : écart des éruptions en ligne, delay_step : retard de chaque éruption sur la précédente).
+// - min_angle : attaque vers l'arrière (coup de queue) : la cible doit être au moins à cet angle.
+// - side : Left | Right, côté où doit se trouver la cible (pivots).
+// - motion.turn : rotation sur place pendant le segment (degrés, positif = vers la gauche).
+// - heading_slack : grande bête qui ne vise pas exactement sa cible (degrés de tolérance) ;
+//   elle ne se tourne que quand la cible sort de ce cône, et n'avance que face à elle.
+(
+    encounters: [
+        (name: (en: "The Ash Wyrm", fr: "La Wyverne de Cendre"), embers: 2400,
+         members: [(boss: "dragon", offset: (0, 1))]),
+        (name: (en: "The Horned Butcher", fr: "Le Boucher Cornu"), embers: 1600,
+         members: [(boss: "butcher"), (boss: "butcher_hound", offset: (-3, -2.5)), (boss: "butcher_hound", offset: (3, -2))]),
+        (name: (en: "The Lamplighter and the Anvil", fr: "L'Allumeur et l'Enclume"), embers: 2000,
+         members: [(boss: "lamplighter", offset: (-3, 1.5)), (boss: "anvil", offset: (2.6, 0))]),
+        (name: (en: "The Great Marionette", fr: "La Grande Marionnette"), embers: 1800,
+         members: [(boss: "marionette", offset: (0, 0.5))]),
+        (name: (en: "The Hollow-Spined Beast", fr: "La Bête à l'Échine Creuse"), embers: 2000,
+         members: [(boss: "spine_beast", offset: (0, 1))]),
+        (name: (en: "The Flame-Bearing Giant", fr: "Le Géant Porte-Flamme"), embers: 2600,
+         members: [(boss: "giant", offset: (0, 2))]),
+    ],
+
+    bosses: [
+        // ================================================================= wyverne de cendre
+        // Immense : on verrouille sa tête, ses pattes ou sa queue. Elle ne vise pas : c'est une
+        // grosse bête qui avance à peu près vers sa proie. Devant elle, coup de tête ou plaquage ;
+        // sur son flanc, elle pivote d'un quart de tour en fouettant de la queue ; derrière, la
+        // queue balaie. De loin, un jet de feu ; en phase 2, elle s'envole.
+        (
+            key: "dragon", model: "dragon", scale: 1.5,
+            name: (en: "The Ash Wyrm", fr: "La Wyverne de Cendre"),
+            max_hp: 5200, phase2_at: 0.5, radius: 2.6, height: 4.4, mass: 30,
+            walk_speed: 2.2, strafe_speed: 0, turn_rate: 60, heading_slack: 25, preferred_range: 5.5,
+            stagger_max: 170, stagger_delay: 200, stagger_decay: 8, idle_ticks: (40, 80), aggro_ticks: 240,
+            embers: 2400, color: (1.0, 0.36, 0.08),
+            groggy: (anim: "groggy", total: 220),
+            fatal_received: (anim: "fatal_received", total: 130),
+            roar: (anim: "roar", total: 130, hyperarmor: (0, 130)),
+            death: (anim: "death", total: 200),
+            parts: [
+                (at: (0, 5.6, 6.6), r: 1.1, bone: "lock_head"),
+                (at: (1.65, 1.2, 2.3), r: 0.8, bone: "lock_fleg_R"),
+                (at: (-1.65, 1.2, 2.3), r: 0.8, bone: "lock_fleg_L"),
+                (at: (1.65, 1.4, -1.8), r: 0.8, bone: "lock_hleg_R"),
+                (at: (-1.65, 1.4, -1.8), r: 0.8, bone: "lock_hleg_L"),
+                (at: (0, 2.0, -6.5), r: 1.0, bone: "lock_tail"),
+                (at: (0, 4.4, 4.4), r: 1.0, lock: false),
+                (at: (0, 2.6, -4.0), r: 1.0, lock: false),
+                (at: (0, 1.4, -9.0), r: 0.7, lock: false),
+            ],
+            spells: [
+                (name: "souffle", kind: Beam, element: Fire, damage: 150, radius: 1.0, reaction: Heavy,
+                 life: 64, hitstop: 5, reach: (3.5, 9)),
+                (name: "pluie", kind: Eruption, element: Fire, damage: 140, radius: 2.0, reaction: Heavy,
+                 delay: 55, life: 22, hitstop: 5),
+                (name: "boule", kind: Bolt, element: Fire, damage: 120, radius: 0.75, reaction: Heavy, speed: 14,
+                 homing: 30, life: 150, hitstop: 5),
+            ],
+            attacks: [
+                (
+                    // La tête se dresse, puis s'abat jusqu'au sol devant elle. Elle ne fait pas face
+                    // à sa cible (heading_slack) : elle se tourne vers elle en se dressant.
+                    name: "coup_de_tete",
+                    min_range: 0, max_range: 8.5, max_angle: 35, weight: 3, cooldown: 150, phases: [1, 2],
+                    mv: (
+                        anim: "headbutt", total: 112, track_until: 44, track_rate: 80,
+                        motion: [(start: 46, end: 56, speed: 3.0)],
+                        hits: [(start: 52, end: 60, damage: 140, hitstop: 7, reaction: Heavy,
+                                capsule: (a: (0.0, 2.4, 4.0), b: (0.0, 0.6, 7.9), r: 1.2))],
+                    ),
+                ),
+                (
+                    // Se dresse et se laisse tomber de tout son poids devant elle : on fuit sur le côté.
+                    name: "plaquage",
+                    min_range: 0, max_range: 7.5, max_angle: 45, weight: 3, cooldown: 320, phases: [1, 2],
+                    mv: (
+                        anim: "belly_flop", total: 156, track_until: 30, track_rate: 30, hyperarmor: (20, 100),
+                        motion: [(start: 72, end: 86, speed: 5.0)],
+                        hits: [(start: 86, end: 96, damage: 165, hitstop: 8, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 4.6), b: (0.0, 0.3, 4.6), r: 4.2))],
+                    ),
+                ),
+                (
+                    // Cible sur son flanc gauche : elle pivote d'un quart de tour vers la droite, et
+                    // la queue balaie tout ce côté.
+                    name: "pivot_gauche",
+                    min_range: 0, max_range: 10, min_angle: 60, max_angle: 140, side: Left, weight: 2, cooldown: 300,
+                    phases: [1, 2],
+                    mv: (
+                        anim: "pivot_L", total: 116, track_until: 0,
+                        motion: [(start: 40, end: 66, turn: -90)],
+                        hits: [(start: 42, end: 68, damage: 125, hitstop: 6, reaction: Heavy, arc: (0, -50),
+                                capsule: (a: (0.0, 1.4, -2.6), b: (0.0, 1.0, -11.0), r: 0.9))],
+                    ),
+                ),
+                (
+                    name: "pivot_droite",
+                    min_range: 0, max_range: 10, min_angle: 60, max_angle: 140, side: Right, weight: 2, cooldown: 300,
+                    phases: [1, 2],
+                    mv: (
+                        anim: "pivot_R", total: 116, track_until: 0,
+                        motion: [(start: 40, end: 66, turn: 90)],
+                        hits: [(start: 42, end: 68, damage: 125, hitstop: 6, reaction: Heavy, arc: (0, 50),
+                                capsule: (a: (0.0, 1.4, -2.6), b: (0.0, 1.0, -11.0), r: 0.9))],
+                    ),
+                ),
+                (
+                    // Pour qui se cache derrière : la queue balaie tout l'arrière.
+                    name: "queue",
+                    min_range: 0, max_range: 12, max_angle: 180, min_angle: 130, weight: 2, cooldown: 320, phases: [1, 2],
+                    mv: (
+                        anim: "tail_sweep", total: 120, track_until: 0,
+                        hits: [(start: 48, end: 70, damage: 120, hitstop: 6, reaction: Heavy, arc: (100, -100),
+                                capsule: (a: (0.0, 1.4, -3.0), b: (0.0, 1.0, -11.0), r: 0.9))],
+                    ),
+                ),
+                (
+                    // Un seul flot de feu, de sa gueule jusqu'au sol, qui ne suit sa cible que lentement.
+                    name: "souffle",
+                    min_range: 4, max_range: 15, max_angle: 25, weight: 3, cooldown: 420, phases: [1, 2],
+                    mv: (
+                        anim: "breath", total: 176, track_until: 120, track_rate: 24,
+                        casts: [(at: 56, spell: "souffle", from: (0, 4.6, 7.4))],
+                    ),
+                ),
+                (
+                    // S'envole et retombe là où se tenait sa cible au décollage.
+                    name: "envol",
+                    min_range: 5, max_range: 22, max_angle: 120, weight: 2, cooldown: 600, phases: [1, 2],
+                    mv: (
+                        anim: "fly_slam", total: 210, track_until: 60, track_rate: 120, hyperarmor: (0, 150),
+                        motion: [(start: 60, end: 118, speed: 18.0, to_target: true, retarget: true, stop_dist: 0.0)],
+                        hits: [(start: 118, end: 128, damage: 190, hitstop: 9, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 0.0), b: (0.0, 0.3, 0.0), r: 5.5))],
+                    ),
+                ),
+                (
+                    // S'élève hors d'atteinte et crache trois boules de feu sur sa cible, puis se pose.
+                    name: "vol_de_feu",
+                    min_range: 0, max_range: 24, max_angle: 180, weight: 2, cooldown: 720, phases: [1, 2],
+                    mv: (
+                        anim: "fly_fire", total: 236, track_until: 190, track_rate: 70,
+                        iframes: (56, 196), hyperarmor: (0, 236),
+                        casts: [
+                            (at: 104, spell: "boule", from: (0, 10.5, 6.5), aim: Target),
+                            (at: 132, spell: "boule", from: (0, 10.5, 6.5), aim: Target),
+                            (at: 160, spell: "boule", from: (0, 10.5, 6.5), aim: Target),
+                        ],
+                    ),
+                ),
+                // ---- Phase 2
+                (
+                    // Rugit vers le ciel : une pluie de braises s'abat autour de sa cible.
+                    name: "pluie_de_cendre",
+                    min_range: 0, max_range: 22, max_angle: 180, weight: 2, cooldown: 720, phases: [2],
+                    mv: (
+                        anim: "fire_rain", total: 140, track_until: 30, track_rate: 60, hyperarmor: (0, 140),
+                        casts: [(at: 50, spell: "pluie", aim: Target, count: 6, spread: 5.5, delay_step: 9)],
+                    ),
+                ),
+            ],
+        ),
+
+        // ================================================================= boucher cornu
+        (
+            key: "butcher", model: "horned_butcher", scale: 1.15,
+            name: (en: "The Horned Butcher", fr: "Le Boucher Cornu"),
+            max_hp: 3000, phase2_at: 0.5, radius: 1.0, height: 4.1, mass: 10,
+            walk_speed: 1.7, strafe_speed: 1.0, turn_rate: 120, preferred_range: 2.8,
+            stagger_max: 110, stagger_delay: 170, stagger_decay: 8, idle_ticks: (30, 70), aggro_ticks: 240,
+            embers: 1600, color: (0.92, 0.08, 0.16),
+            groggy: (anim: "groggy", total: 200),
+            fatal_received: (anim: "fatal_received", total: 120),
+            roar: (anim: "roar", total: 110, hyperarmor: (0, 110)),
+            death: (anim: "death", total: 160),
+            parts: [(at: (0, 3.7, -0.2), r: 0.6, lock: false)],
+            spells: [
+                (name: "couperet", kind: Bolt, element: Iron, damage: 95, radius: 0.5, speed: 15, homing: 50,
+                 life: 70, hitstop: 4),
+            ],
+            attacks: [
+                (
+                    name: "couperets",
+                    min_range: 0, max_range: 3.8, max_angle: 55, weight: 3, cooldown: 110, phases: [1, 2],
+                    mv: (
+                        anim: "double_chop", total: 118, track_until: 60, track_rate: 110,
+                        motion: [(start: 34, end: 42, speed: 1.8), (start: 64, end: 72, speed: 1.8)],
+                        // En diagonale : de l'épaule jusqu'au sol devant lui, en travers.
+                        hits: [
+                            (start: 40, end: 46, damage: 95, hitstop: 5, arc: (-12, 14),
+                             capsule: (a: (1.1, 2.6, 0.6), b: (-0.5, 0.4, 3.2), r: 0.4)),
+                            (start: 70, end: 76, damage: 95, hitstop: 5, arc: (12, -14),
+                             capsule: (a: (-1.1, 2.6, 0.6), b: (0.5, 0.4, 3.2), r: 0.4)),
+                        ],
+                    ),
+                    next: [("tourbillon", 0.25)],
+                ),
+                (
+                    name: "tourbillon",
+                    min_range: 0, max_range: 3.6, max_angle: 180, weight: 2, cooldown: 300, phases: [1, 2],
+                    mv: (
+                        anim: "whirl", total: 130, track_until: 30, track_rate: 90,
+                        motion: [(start: 46, end: 76, speed: 1.5)],
+                        // Penché, les couperets tendus à hauteur d'homme.
+                        hits: [(start: 48, end: 76, damage: 110, hitstop: 5, arc: (-200, 200),
+                                capsule: (a: (0.0, 1.5, 0.8), b: (0.0, 1.2, 3.4), r: 0.4))],
+                    ),
+                ),
+                (
+                    // Charge tête baissée, cornes en avant.
+                    name: "charge",
+                    min_range: 4.5, max_range: 13, max_angle: 30, weight: 3, cooldown: 300, phases: [1, 2],
+                    mv: (
+                        anim: "gore", total: 116, track_until: 38, track_rate: 140,
+                        motion: [(start: 36, end: 70, speed: 10.0, to_target: true, stop_dist: 0.4)],
+                        hits: [(start: 40, end: 70, damage: 125, hitstop: 6, reaction: Heavy,
+                                capsule: (a: (0.0, 3.0, 0.4), b: (0.0, 2.8, 1.6), r: 0.6))],
+                    ),
+                ),
+                (
+                    // Les deux couperets ensemble, de tout son poids : le sol se fend.
+                    name: "fendoir",
+                    min_range: 0, max_range: 4.2, max_angle: 40, weight: 2, cooldown: 420, phases: [1, 2],
+                    mv: (
+                        anim: "cleave", total: 140, track_until: 50, track_rate: 90, hyperarmor: (30, 70),
+                        hits: [
+                            (start: 62, end: 68, damage: 150, hitstop: 7, reaction: Heavy,
+                             capsule: (a: (0.0, 2.0, 0.8), b: (0.0, 0.3, 3.6), r: 0.55)),
+                            (start: 64, end: 76, damage: 70, hitstop: 4, reaction: Heavy, aoe: true,
+                             capsule: (a: (0.0, 0.3, 3.0), b: (0.0, 0.3, 3.0), r: 2.6)),
+                        ],
+                    ),
+                ),
+                (
+                    // Bondit loin en arrière… puis charge, ou lance un couperet.
+                    name: "bond_arriere",
+                    min_range: 0, max_range: 4.5, max_angle: 180, weight: 2, cooldown: 420, phases: [1, 2],
+                    mv: (
+                        anim: "leap_back", total: 64, track_until: 64, track_rate: 160, hyperarmor: (10, 44),
+                        motion: [(start: 16, end: 40, speed: -15.0)],
+                    ),
+                    next: [("charge", 0.5), ("lancer", 0.5)],
+                ),
+                (
+                    // Lance un couperet qui file vers sa cible (et revient à sa main).
+                    name: "lancer",
+                    min_range: 6, max_range: 16, max_angle: 30, weight: 3, cooldown: 240, phases: [1, 2],
+                    mv: (
+                        anim: "throw", total: 96, track_until: 44, track_rate: 120,
+                        casts: [(at: 46, spell: "couperet", from: (0.9, 2.8, 0.8), aim: Target)],
+                    ),
+                ),
+                // ---- Phase 2
+                (
+                    name: "frenesie",
+                    min_range: 0, max_range: 3.8, max_angle: 55, weight: 3, cooldown: 260, phases: [2],
+                    mv: (
+                        anim: "frenzy", total: 150, track_until: 96, track_rate: 120,
+                        motion: [(start: 26, end: 32, speed: 2.0), (start: 48, end: 54, speed: 2.0), (start: 70, end: 76, speed: 2.0)],
+                        hits: [
+                            (start: 30, end: 36, damage: 80, hitstop: 4, arc: (-12, 14),
+                             capsule: (a: (1.1, 2.6, 0.6), b: (-0.5, 0.4, 3.2), r: 0.4)),
+                            (start: 52, end: 58, damage: 80, hitstop: 4, arc: (12, -14),
+                             capsule: (a: (-1.1, 2.6, 0.6), b: (0.5, 0.4, 3.2), r: 0.4)),
+                            (start: 74, end: 80, damage: 80, hitstop: 4, arc: (-12, 14),
+                             capsule: (a: (1.1, 2.6, 0.6), b: (-0.5, 0.4, 3.2), r: 0.4)),
+                            (start: 100, end: 108, damage: 130, hitstop: 7, reaction: Heavy, arc: (-90, 90),
+                             capsule: (a: (0.0, 1.4, 0.6), b: (0.0, 1.2, 3.4), r: 0.4)),
+                        ],
+                    ),
+                ),
+            ],
+        ),
+        (
+            // Ses chiens : les mêmes que ceux du chemin, plus gros et plus hargneux.
+            key: "butcher_hound", model: "hound", scale: 1.5, minor: true,
+            name: (en: "Butcher's Hound", fr: "Chien du boucher"),
+            max_hp: 300, phase2_at: 0, radius: 0.62, height: 1.35, mass: 1.6,
+            walk_speed: 5.2, strafe_speed: 1.6, turn_rate: 400, preferred_range: 2.4,
+            stagger_max: 40, stagger_delay: 120, stagger_decay: 10, idle_ticks: (24, 70), aggro_ticks: 200,
+            embers: 0, color: (0.92, 0.08, 0.16),
+            groggy: (anim: "hit", total: 80),
+            fatal_received: (anim: "death", total: 70),
+            roar: (anim: "howl", total: 48),
+            death: (anim: "death", total: 70),
+            attacks: [
+                (
+                    name: "morsure", min_range: 0, max_range: 2.6, max_angle: 40, weight: 3, cooldown: 40,
+                    mv: (
+                        anim: "bite", total: 48, track_until: 12, track_rate: 420,
+                        motion: [(start: 10, end: 18, speed: 3.5)],
+                        hits: [(start: 15, end: 20, damage: 55, hitstop: 3,
+                                capsule: (a: (0.0, 0.65, 0.4), b: (0.0, 0.65, 1.55), r: 0.45))],
+                    ),
+                ),
+                (
+                    name: "claquements", min_range: 0, max_range: 2.6, max_angle: 40, weight: 2, cooldown: 100,
+                    mv: (
+                        anim: "snap", total: 64, track_until: 26, track_rate: 360,
+                        motion: [(start: 10, end: 16, speed: 3.0), (start: 26, end: 32, speed: 3.0)],
+                        hits: [
+                            (start: 14, end: 18, damage: 35, hitstop: 2,
+                             capsule: (a: (0.0, 0.65, 0.4), b: (0.0, 0.65, 1.5), r: 0.45)),
+                            (start: 30, end: 34, damage: 35, hitstop: 2,
+                             capsule: (a: (0.0, 0.65, 0.4), b: (0.0, 0.65, 1.5), r: 0.45)),
+                        ],
+                    ),
+                ),
+                (
+                    name: "bond", min_range: 3.4, max_range: 9.0, max_angle: 25, weight: 2, cooldown: 170,
+                    mv: (
+                        anim: "lunge", total: 76, track_until: 18, track_rate: 300,
+                        motion: [(start: 20, end: 32, speed: 12.0, to_target: true, stop_dist: 0.8),
+                                 (start: 32, end: 40, speed: 2.0)],
+                        hits: [(start: 24, end: 33, damage: 80, hitstop: 4, reaction: Heavy,
+                                capsule: (a: (0.0, 0.75, 0.3), b: (0.0, 0.75, 1.5), r: 0.5))],
+                    ),
+                ),
+            ],
+        ),
+
+        // ================================================================= l'allumeur et l'enclume
+        (
+            // Le magicien du duo : il garde ses distances et lance des lueurs.
+            key: "lamplighter", model: "lamplighter",
+            name: (en: "The Lamplighter", fr: "L'Allumeur"),
+            max_hp: 1400, phase2_at: 0.4, radius: 0.55, height: 3.0, mass: 4,
+            walk_speed: 1.9, strafe_speed: 2.0, turn_rate: 160, preferred_range: 8, keep_away: 5,
+            stagger_max: 70, stagger_delay: 150, stagger_decay: 8, idle_ticks: (40, 90), aggro_ticks: 200,
+            embers: 0, color: (1.0, 0.58, 0.1),
+            groggy: (anim: "groggy", total: 190),
+            fatal_received: (anim: "fatal_received", total: 120),
+            roar: (anim: "roar", total: 100, hyperarmor: (0, 100)),
+            death: (anim: "death", total: 150),
+            spells: [
+                (name: "lueur", kind: Bolt, element: Light, damage: 75, radius: 0.35, speed: 8.5, homing: 75,
+                 life: 170, hitstop: 3),
+                (name: "fusee", kind: Eruption, element: Light, damage: 105, radius: 1.6, reaction: Heavy,
+                 delay: 46, life: 16, hitstop: 5),
+                (name: "nova", kind: Eruption, element: Light, damage: 110, radius: 1.5, reaction: Heavy,
+                 delay: 34, life: 16, hitstop: 5),
+            ],
+            attacks: [
+                (
+                    name: "trait",
+                    min_range: 3, max_range: 22, max_angle: 40, weight: 3, cooldown: 120, phases: [1, 2],
+                    mv: (
+                        anim: "bolt", total: 92, track_until: 46, track_rate: 160,
+                        casts: [(at: 46, spell: "lueur", from: (0.3, 3.7, 0.5), aim: Target)],
+                    ),
+                ),
+                (
+                    // Trois lueurs, l'une après l'autre : chacune vise là où se trouve sa cible.
+                    name: "salve",
+                    min_range: 4, max_range: 22, max_angle: 40, weight: 2, cooldown: 260, phases: [1, 2],
+                    mv: (
+                        anim: "volley", total: 124, track_until: 78, track_rate: 140,
+                        casts: [
+                            (at: 50, spell: "lueur", from: (0.3, 3.7, 0.5), aim: Target),
+                            (at: 64, spell: "lueur", from: (0.3, 3.7, 0.5), aim: Target),
+                            (at: 78, spell: "lueur", from: (0.3, 3.7, 0.5), aim: Target),
+                        ],
+                    ),
+                ),
+                (
+                    // Plante sa perche : des fusées de lumière jaillissent sous sa cible.
+                    name: "fusees",
+                    min_range: 3, max_range: 22, max_angle: 180, weight: 2, cooldown: 300, phases: [1, 2],
+                    mv: (
+                        anim: "flares", total: 124, track_until: 30, track_rate: 120,
+                        casts: [(at: 40, spell: "fusee", aim: Target, count: 3, spread: 3.2, delay_step: 14)],
+                    ),
+                ),
+                (
+                    name: "perche",
+                    min_range: 0, max_range: 3.6, max_angle: 70, weight: 3, cooldown: 120, phases: [1, 2],
+                    mv: (
+                        anim: "pole_sweep", total: 92, track_until: 30, track_rate: 140,
+                        hits: [(start: 40, end: 50, damage: 80, hitstop: 4, arc: (-70, 60),
+                                capsule: (a: (0.0, 2.2, 0.5), b: (0.0, 1.4, 3.6), r: 0.3))],
+                    ),
+                    next: [("eclipse", 0.6)],
+                ),
+                (
+                    // S'éclipse en arrière d'un bond, puis tire.
+                    name: "eclipse",
+                    min_range: 0, max_range: 4.5, max_angle: 180, weight: 3, cooldown: 300, phases: [1, 2],
+                    mv: (
+                        anim: "blink", total: 62, track_until: 62, track_rate: 200, iframes: (8, 30),
+                        motion: [(start: 10, end: 32, speed: -15.0)],
+                    ),
+                    next: [("trait", 0.7)],
+                ),
+                (
+                    // Il ne reste pas en place : il file de côté, puis tire souvent de là.
+                    name: "glissade_gauche",
+                    min_range: 0, max_range: 24, max_angle: 180, weight: 2, cooldown: 200, phases: [1, 2],
+                    mv: (
+                        anim: "glide_L", total: 56, track_until: 56, track_rate: 200, iframes: (12, 30),
+                        motion: [(start: 12, end: 36, side: -11.0)],
+                    ),
+                    next: [("trait", 0.5), ("fusees", 0.2)],
+                ),
+                (
+                    name: "glissade_droite",
+                    min_range: 0, max_range: 24, max_angle: 180, weight: 2, cooldown: 200, phases: [1, 2],
+                    mv: (
+                        anim: "glide_R", total: 56, track_until: 56, track_rate: 200, iframes: (12, 30),
+                        motion: [(start: 12, end: 36, side: 11.0)],
+                    ),
+                    next: [("trait", 0.5), ("fusees", 0.2)],
+                ),
+                // ---- Phase 2 (seul, ou blessé)
+                (
+                    // Lève sa lanterne : un cercle de lumière éclate autour de lui.
+                    name: "nova",
+                    min_range: 0, max_range: 6, max_angle: 180, weight: 3, cooldown: 360, phases: [2],
+                    mv: (
+                        anim: "nova", total: 120, track_until: 0, hyperarmor: (0, 60),
+                        casts: [(at: 30, spell: "nova", aim: Ring, count: 8, spread: 2.6),
+                                (at: 44, spell: "nova", aim: Ring, count: 12, spread: 4.8)],
+                    ),
+                ),
+                (
+                    name: "pluie_de_fusees",
+                    min_range: 4, max_range: 22, max_angle: 180, weight: 2, cooldown: 480, phases: [2],
+                    mv: (
+                        anim: "flares", total: 124, track_until: 30, track_rate: 120,
+                        casts: [(at: 40, spell: "fusee", aim: Target, count: 7, spread: 5.0, delay_step: 7)],
+                    ),
+                ),
+            ],
+        ),
+        (
+            // Le forgeron : lent et massif, son marteau-enclume fend le sol.
+            key: "anvil", model: "anvil",
+            name: (en: "The Anvil", fr: "L'Enclume"),
+            max_hp: 1800, phase2_at: 0.4, radius: 1.1, height: 3.2, mass: 14,
+            walk_speed: 1.5, strafe_speed: 0.8, turn_rate: 100, preferred_range: 2.8,
+            stagger_max: 120, stagger_delay: 180, stagger_decay: 7, idle_ticks: (40, 90), aggro_ticks: 240,
+            embers: 0, color: (1.0, 0.58, 0.1),
+            groggy: (anim: "groggy", total: 200),
+            fatal_received: (anim: "fatal_received", total: 120),
+            roar: (anim: "roar", total: 110, hyperarmor: (0, 110)),
+            death: (anim: "death", total: 160),
+            spells: [
+                (name: "braises", kind: Eruption, element: Fire, damage: 110, radius: 1.3, reaction: Heavy,
+                 delay: 18, life: 18, hitstop: 5),
+            ],
+            attacks: [
+                (
+                    name: "marteau",
+                    min_range: 0, max_range: 4.2, max_angle: 45, weight: 3, cooldown: 130, phases: [1, 2],
+                    mv: (
+                        anim: "hammer_slam", total: 126, track_until: 44, track_rate: 90, hyperarmor: (20, 70),
+                        motion: [(start: 46, end: 56, speed: 1.6)],
+                        hits: [(start: 58, end: 64, damage: 145, hitstop: 7, reaction: Heavy,
+                                capsule: (a: (0.4, 1.6, 0.8), b: (0.2, 0.3, 3.4), r: 0.6))],
+                    ),
+                ),
+                (
+                    name: "revers",
+                    min_range: 0, max_range: 3.9, max_angle: 90, weight: 3, cooldown: 120, phases: [1, 2],
+                    mv: (
+                        anim: "sweep", total: 112, track_until: 34, track_rate: 100,
+                        hits: [(start: 48, end: 60, damage: 115, hitstop: 6, arc: (-90, 80),
+                                capsule: (a: (0.0, 1.1, 0.8), b: (0.0, 0.8, 3.7), r: 0.5))],
+                    ),
+                    next: [("marteau", 0.3)],
+                ),
+                (
+                    name: "charge",
+                    min_range: 4.5, max_range: 12, max_angle: 30, weight: 2, cooldown: 360, phases: [1, 2],
+                    mv: (
+                        anim: "shoulder_charge", total: 112, track_until: 36, track_rate: 130, hyperarmor: (30, 70),
+                        motion: [(start: 34, end: 66, speed: 9.0, to_target: true, stop_dist: 0.6)],
+                        hits: [(start: 38, end: 66, damage: 120, hitstop: 6, reaction: Heavy,
+                                capsule: (a: (0.0, 1.6, 0.5), b: (0.0, 1.6, 1.7), r: 0.8))],
+                    ),
+                ),
+                (
+                    name: "seisme",
+                    min_range: 0, max_range: 5.5, max_angle: 180, weight: 2, cooldown: 540, phases: [1, 2],
+                    mv: (
+                        anim: "quake", total: 150, track_until: 24, track_rate: 60, hyperarmor: (20, 100),
+                        hits: [(start: 80, end: 96, damage: 140, hitstop: 6, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 1.0), b: (0.0, 0.3, 1.0), r: 5.0))],
+                    ),
+                ),
+                // ---- Phase 2 (seul, ou blessé)
+                (
+                    // Le marteau frappe le sol : une traînée de braises file vers la cible.
+                    name: "forge",
+                    min_range: 2, max_range: 13, max_angle: 30, weight: 3, cooldown: 300, phases: [2],
+                    mv: (
+                        anim: "hammer_slam", total: 126, track_until: 50, track_rate: 90, hyperarmor: (20, 70),
+                        hits: [(start: 58, end: 64, damage: 145, hitstop: 7, reaction: Heavy,
+                                capsule: (a: (0.4, 1.6, 0.8), b: (0.2, 0.3, 3.4), r: 0.6))],
+                        casts: [(at: 60, spell: "braises", from: (0, 0, 2.0), aim: Forward, count: 7, step: 1.7, delay_step: 4)],
+                    ),
+                ),
+            ],
+        ),
+
+        // ================================================================= grande marionnette
+        (
+            key: "marionette", model: "marionette", scale: 1.3,
+            name: (en: "The Great Marionette", fr: "La Grande Marionnette"),
+            max_hp: 3600, phase2_at: 0.5, radius: 1.3, height: 5.4, mass: 16,
+            walk_speed: 2.2, strafe_speed: 0, turn_rate: 110, heading_slack: 30, preferred_range: 3.4,
+            stagger_max: 130, stagger_delay: 180, stagger_decay: 8, idle_ticks: (20, 50), aggro_ticks: 240,
+            embers: 1800, color: (0.78, 0.32, 1.0),
+            groggy: (anim: "groggy", total: 210),
+            fatal_received: (anim: "fatal_received", total: 120),
+            roar: (anim: "roar", total: 120, hyperarmor: (0, 120)),
+            death: (anim: "death", total: 180),
+            parts: [(at: (0, 4.7, 0), r: 0.5, bone: "lock_head"), (at: (0, 3.3, 0), r: 0.6, bone: "lock_chest")],
+            spells: [
+                (name: "fil", kind: Eruption, element: Light, damage: 110, radius: 1.1, reaction: Heavy,
+                 delay: 40, life: 14, hitstop: 5),
+                // Lancées de bras levés, bien au-dessus d'elle : elles restent un instant
+                // suspendues (on les voit venir), puis partent vers leur cible.
+                (name: "aiguille", kind: Bolt, element: Light, damage: 95, radius: 0.5, reaction: Heavy, speed: 12,
+                 homing: 22, delay: 30, life: 150, hitstop: 4),
+            ],
+            attacks: [
+                (
+                    name: "gifle",
+                    min_range: 0, max_range: 4.0, max_angle: 70, weight: 3, cooldown: 110, phases: [1, 2],
+                    mv: (
+                        anim: "slap", total: 104, track_until: 36, track_rate: 60,
+                        motion: [(start: 40, end: 50, speed: 1.8)],
+                        hits: [(start: 44, end: 54, damage: 100, hitstop: 5, arc: (-80, 70),
+                                capsule: (a: (0.0, 1.8, 0.8), b: (0.0, 1.0, 3.5), r: 0.55))],
+                    ),
+                    next: [("danse", 0.3)],
+                ),
+                (
+                    // Les fils la hissent, et la lâchent sur sa cible.
+                    name: "chute",
+                    min_range: 4, max_range: 14, max_angle: 60, weight: 3, cooldown: 420, phases: [1, 2],
+                    mv: (
+                        anim: "drop", total: 164, track_until: 50, track_rate: 160,
+                        motion: [(start: 50, end: 88, speed: 15.0, to_target: true, retarget: true, stop_dist: 0.0)],
+                        hits: [(start: 88, end: 98, damage: 165, hitstop: 8, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 0.0), b: (0.0, 0.3, 0.0), r: 3.4))],
+                    ),
+                ),
+                (
+                    name: "pirouette",
+                    min_range: 0, max_range: 4.2, max_angle: 180, weight: 2, cooldown: 300, phases: [1, 2],
+                    mv: (
+                        anim: "spin", total: 140, track_until: 30, track_rate: 60,
+                        hits: [(start: 56, end: 84, damage: 110, hitstop: 5, arc: (-190, 190),
+                                capsule: (a: (0.0, 2.0, 0.4), b: (0.0, 1.2, 3.8), r: 0.5))],
+                    ),
+                ),
+                (
+                    name: "danse",
+                    min_range: 0, max_range: 4.0, max_angle: 50, weight: 2, cooldown: 200, phases: [1, 2],
+                    mv: (
+                        anim: "stomp_dance", total: 128, track_until: 70, track_rate: 60,
+                        motion: [(start: 44, end: 52, speed: 2.4), (start: 78, end: 86, speed: 2.4)],
+                        hits: [
+                            (start: 50, end: 56, damage: 90, hitstop: 5,
+                             capsule: (a: (0.4, 0.3, 0.6), b: (0.4, 0.3, 2.6), r: 0.7)),
+                            (start: 84, end: 90, damage: 90, hitstop: 5,
+                             capsule: (a: (-0.4, 0.3, 0.6), b: (-0.4, 0.3, 2.6), r: 0.7)),
+                        ],
+                    ),
+                ),
+                (
+                    // Ses fils la hissent à la verticale, puis la lâchent de tout son poids : le sol
+                    // tremble tout autour d'elle.
+                    name: "hissee",
+                    min_range: 0, max_range: 5.5, max_angle: 180, weight: 3, cooldown: 380, phases: [1, 2],
+                    mv: (
+                        anim: "hoist", total: 156, track_until: 0, iframes: (30, 98), hyperarmor: (0, 110),
+                        hits: [(start: 100, end: 110, damage: 160, hitstop: 8, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 0.0), b: (0.0, 0.3, 0.0), r: 5.6))],
+                    ),
+                ),
+                (
+                    // Elle se sait vulnérable : un bond de côté, en jetant deux aiguilles.
+                    name: "bond_gauche",
+                    min_range: 0, max_range: 12, max_angle: 180, weight: 3, cooldown: 260, phases: [1, 2],
+                    mv: (
+                        anim: "hop", total: 76, track_until: 76, track_rate: 200, iframes: (14, 40), hyperarmor: (0, 44),
+                        motion: [(start: 14, end: 40, side: -9.0)],
+                        casts: [(at: 34, spell: "aiguille", from: (0, 8.8, -0.3), aim: Target, count: 2, spread: 16)],
+                    ),
+                ),
+                (
+                    name: "bond_droite",
+                    min_range: 0, max_range: 12, max_angle: 180, weight: 3, cooldown: 260, phases: [1, 2],
+                    mv: (
+                        anim: "hop", total: 76, track_until: 76, track_rate: 200, iframes: (14, 40), hyperarmor: (0, 44),
+                        motion: [(start: 14, end: 40, side: 9.0)],
+                        casts: [(at: 34, spell: "aiguille", from: (0, 8.8, -0.3), aim: Target, count: 2, spread: 16)],
+                    ),
+                ),
+                (
+                    // Un bond en arrière, loin de sa cible, en jetant deux aiguilles.
+                    name: "bond_arriere",
+                    min_range: 0, max_range: 12, max_angle: 180, weight: 3, cooldown: 260, phases: [1, 2],
+                    mv: (
+                        anim: "hop", total: 76, track_until: 76, track_rate: 200, iframes: (14, 40), hyperarmor: (0, 44),
+                        motion: [(start: 14, end: 40, speed: -9.0)],
+                        casts: [(at: 34, spell: "aiguille", from: (0, 8.8, -0.3), aim: Target, count: 2, spread: 16)],
+                    ),
+                ),
+                (
+                    // Ses fils la hissent tout là-haut (hors d'atteinte) : elle jette trois aiguilles
+                    // l'une après l'autre, puis se laisse tomber sur sa cible.
+                    name: "envolee",
+                    min_range: 5, max_range: 18, max_angle: 180, weight: 2, cooldown: 720, phases: [1, 2],
+                    mv: (
+                        anim: "ascent", total: 196, track_until: 118, track_rate: 120,
+                        iframes: (30, 136), hyperarmor: (0, 150),
+                        casts: [
+                            (at: 62, spell: "aiguille", from: (0, 10.8, -0.3), aim: Target),
+                            (at: 80, spell: "aiguille", from: (0, 10.8, -0.3), aim: Target),
+                            (at: 98, spell: "aiguille", from: (0, 10.8, -0.3), aim: Target),
+                        ],
+                        motion: [(start: 118, end: 136, speed: 16.0, to_target: true, retarget: true, stop_dist: 0.0)],
+                        hits: [(start: 136, end: 146, damage: 150, hitstop: 8, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 0.0), b: (0.0, 0.3, 0.0), r: 3.2))],
+                    ),
+                ),
+                // ---- Phase 2
+                (
+                    // Elle tire sur ses propres fils : ils s'abattent comme des lames autour de sa cible.
+                    name: "fils",
+                    min_range: 0, max_range: 20, max_angle: 180, weight: 3, cooldown: 400, phases: [2],
+                    mv: (
+                        anim: "strings", total: 130, track_until: 30, track_rate: 90, hyperarmor: (0, 80),
+                        casts: [(at: 40, spell: "fil", aim: Target, count: 6, spread: 3.6, delay_step: 8)],
+                    ),
+                ),
+            ],
+        ),
+
+        // ================================================================= bête à l'échine creuse
+        (
+            // Un lézard démesuré, ventre à terre : bras dorsaux, bonds, une queue pour qui tourne
+            // autour. Parfois elle se dresse et retombe : la glace jaillit du sol.
+            key: "spine_beast", model: "spine_beast", scale: 1.7,
+            name: (en: "The Hollow-Spined Beast", fr: "La Bête à l'Échine Creuse"),
+            max_hp: 4200, phase2_at: 0.5, radius: 2.0, height: 3.0, mass: 24,
+            walk_speed: 2.4, strafe_speed: 0, turn_rate: 70, heading_slack: 30, preferred_range: 5.0,
+            stagger_max: 150, stagger_delay: 180, stagger_decay: 8, idle_ticks: (30, 70), aggro_ticks: 240,
+            embers: 2000, color: (0.45, 0.85, 1.0),
+            groggy: (anim: "groggy", total: 210),
+            fatal_received: (anim: "fatal_received", total: 120),
+            roar: (anim: "roar", total: 130, hyperarmor: (0, 130)),
+            death: (anim: "death", total: 190),
+            parts: [
+                (at: (0, 1.9, 4.6), r: 0.9, bone: "lock_head"),
+                // Verrouillage à la tête et à l'arrière-train (la queue bouge trop, le dos sert peu).
+                (at: (0, 1.5, -2.4), r: 0.9, bone: "lock_hips"),
+                (at: (0, 2.7, 0.2), r: 1.0, lock: false),
+                (at: (0, 1.0, -5.5), r: 0.8, lock: false),
+                (at: (1.9, 0.8, 1.9), r: 0.6, lock: false),
+                (at: (-1.9, 0.8, 1.9), r: 0.6, lock: false),
+                (at: (0, 1.2, -3.4), r: 0.8, lock: false),
+            ],
+            spells: [
+                (name: "pics", kind: Eruption, element: Ice, damage: 120, radius: 1.3, reaction: Heavy,
+                 delay: 20, life: 22, hitstop: 5),
+                (name: "givre", kind: Eruption, element: Ice, damage: 115, radius: 1.5, reaction: Heavy,
+                 delay: 30, life: 22, hitstop: 5),
+            ],
+            attacks: [
+                (
+                    name: "morsure",
+                    min_range: 0, max_range: 6.8, max_angle: 35, weight: 3, cooldown: 110, phases: [1, 2],
+                    mv: (
+                        anim: "bite", total: 92, track_until: 36, track_rate: 50,
+                        motion: [(start: 34, end: 46, speed: 4.0)],
+                        hits: [(start: 40, end: 48, damage: 115, hitstop: 6, reaction: Heavy,
+                                capsule: (a: (0.0, 1.9, 3.2), b: (0.0, 0.9, 6.2), r: 0.8))],
+                    ),
+                ),
+                (
+                    // Les bras qui sortent du dos frappent l'un après l'autre.
+                    name: "griffes_dorsales",
+                    min_range: 0, max_range: 6.5, max_angle: 60, weight: 3, cooldown: 140, phases: [1, 2],
+                    mv: (
+                        anim: "back_stabs", total: 112, track_until: 60, track_rate: 40,
+                        hits: [
+                            (start: 44, end: 50, damage: 90, hitstop: 5,
+                             capsule: (a: (2.8, 2.8, 1.2), b: (0.8, 0.3, 5.8), r: 0.5)),
+                            (start: 68, end: 74, damage: 90, hitstop: 5,
+                             capsule: (a: (-2.8, 2.8, 1.2), b: (-0.8, 0.3, 5.8), r: 0.5)),
+                        ],
+                    ),
+                ),
+                (
+                    // Cible sur son flanc : elle pivote d'un quart de tour, la queue fouette ce côté.
+                    name: "pivot_gauche",
+                    min_range: 0, max_range: 9, min_angle: 45, max_angle: 140, side: Left, weight: 4, cooldown: 150,
+                    phases: [1, 2],
+                    mv: (
+                        anim: "pivot_L", total: 108, track_until: 0,
+                        motion: [(start: 38, end: 62, turn: -90)],
+                        hits: [(start: 40, end: 64, damage: 115, hitstop: 6, reaction: Heavy, arc: (0, -50),
+                                capsule: (a: (0.0, 1.0, -2.2), b: (0.0, 0.6, -9.0), r: 0.75))],
+                    ),
+                ),
+                (
+                    name: "pivot_droite",
+                    min_range: 0, max_range: 9, min_angle: 45, max_angle: 140, side: Right, weight: 4, cooldown: 150,
+                    phases: [1, 2],
+                    mv: (
+                        anim: "pivot_R", total: 108, track_until: 0,
+                        motion: [(start: 38, end: 62, turn: 90)],
+                        hits: [(start: 40, end: 64, damage: 115, hitstop: 6, reaction: Heavy, arc: (0, 50),
+                                capsule: (a: (0.0, 1.0, -2.2), b: (0.0, 0.6, -9.0), r: 0.75))],
+                    ),
+                ),
+                (
+                    name: "fouet",
+                    min_range: 0, max_range: 10, max_angle: 180, min_angle: 130, weight: 4, cooldown: 140, phases: [1, 2],
+                    mv: (
+                        anim: "tail_whip", total: 112, track_until: 0,
+                        hits: [(start: 46, end: 64, damage: 115, hitstop: 6, reaction: Heavy, arc: (100, -100),
+                                capsule: (a: (0.0, 1.0, -2.2), b: (0.0, 0.6, -9.0), r: 0.75))],
+                    ),
+                ),
+                (
+                    name: "bond",
+                    min_range: 6.5, max_range: 17, max_angle: 35, weight: 3, cooldown: 300, phases: [1, 2],
+                    mv: (
+                        anim: "pounce", total: 124, track_until: 40, track_rate: 90,
+                        motion: [(start: 40, end: 62, speed: 14.0, to_target: true, stop_dist: 2.6)],
+                        hits: [(start: 56, end: 66, damage: 150, hitstop: 7, reaction: Heavy,
+                                capsule: (a: (0.0, 1.0, 1.2), b: (0.0, 1.0, 4.8), r: 1.1))],
+                    ),
+                    next: [("morsure", 0.35)],
+                ),
+                (
+                    // Elle se dresse sur ses pattes arrière et retombe : la glace jaillit droit devant.
+                    name: "fracas",
+                    min_range: 0, max_range: 13, max_angle: 30, weight: 3, cooldown: 360, phases: [1, 2],
+                    mv: (
+                        anim: "rise_crash", total: 140, track_until: 40, track_rate: 40, hyperarmor: (20, 90),
+                        hits: [(start: 70, end: 80, damage: 130, hitstop: 7, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 3.6), b: (0.0, 0.3, 3.6), r: 2.8))],
+                        casts: [(at: 72, spell: "pics", from: (0, 0, 5.2), aim: Forward, count: 6, step: 1.7, delay_step: 4)],
+                    ),
+                ),
+                // ---- Phase 2
+                (
+                    name: "frenesie",
+                    min_range: 0, max_range: 6.0, max_angle: 60, weight: 3, cooldown: 280, phases: [2],
+                    mv: (
+                        anim: "frenzy", total: 154, track_until: 90, track_rate: 60,
+                        motion: [(start: 32, end: 40, speed: 2.0), (start: 52, end: 60, speed: 2.0), (start: 72, end: 80, speed: 2.0)],
+                        hits: [
+                            (start: 36, end: 42, damage: 65, hitstop: 4, arc: (-60, 40),
+                             capsule: (a: (0.0, 1.6, 1.5), b: (0.0, 0.4, 5.2), r: 0.55)),
+                            (start: 56, end: 62, damage: 65, hitstop: 4, arc: (60, -40),
+                             capsule: (a: (0.0, 1.6, 1.5), b: (0.0, 0.4, 5.2), r: 0.55)),
+                            (start: 76, end: 82, damage: 65, hitstop: 4, arc: (-60, 40),
+                             capsule: (a: (0.0, 1.6, 1.5), b: (0.0, 0.4, 5.2), r: 0.55)),
+                            (start: 100, end: 108, damage: 110, hitstop: 7, reaction: Heavy,
+                             capsule: (a: (0.0, 1.9, 3.2), b: (0.0, 0.9, 6.2), r: 0.8)),
+                        ],
+                    ),
+                ),
+                (
+                    // Elle se dresse et hurle, retombe : deux cercles de glace jaillissent autour d'elle.
+                    name: "hurlement",
+                    min_range: 0, max_range: 9, max_angle: 180, weight: 2, cooldown: 600, phases: [2],
+                    mv: (
+                        anim: "howl", total: 140, track_until: 20, track_rate: 40, hyperarmor: (0, 100),
+                        hits: [(start: 64, end: 80, damage: 125, hitstop: 6, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 1.0), b: (0.0, 0.3, 1.0), r: 4.0))],
+                        casts: [(at: 66, spell: "givre", aim: Ring, count: 10, spread: 5.5),
+                                (at: 82, spell: "givre", aim: Ring, count: 16, spread: 8.5)],
+                    ),
+                ),
+            ],
+        ),
+
+        // ================================================================= géant porte-flamme
+        (
+            // La flamme qui brûle dans sa poitrine : piliers de feu, boules, vagues et anneaux.
+            key: "giant", model: "giant", scale: 1.1,
+            name: (en: "The Flame-Bearing Giant", fr: "Le Géant Porte-Flamme"),
+            max_hp: 5000, phase2_at: 0.5, radius: 1.7, height: 6.4, mass: 30,
+            walk_speed: 1.8, strafe_speed: 0.7, turn_rate: 80, preferred_range: 4.0,
+            stagger_max: 170, stagger_delay: 200, stagger_decay: 7, idle_ticks: (30, 70), aggro_ticks: 240,
+            embers: 2600, color: (1.0, 0.78, 0.15),
+            groggy: (anim: "groggy", total: 220),
+            fatal_received: (anim: "fatal_received", total: 130),
+            roar: (anim: "roar", total: 130, hyperarmor: (0, 130)),
+            death: (anim: "death", total: 200),
+            parts: [
+                (at: (0, 6.2, -0.1), r: 0.7, bone: "lock_head"),
+                (at: (0, 4.5, -0.3), r: 1.0, bone: "lock_chest"),
+                (at: (0.6, 1.0, 0), r: 0.6, lock: false),
+                (at: (-0.6, 1.0, 0), r: 0.6, lock: false),
+            ],
+            spells: [
+                (name: "boule", kind: Bolt, element: Fire, damage: 110, radius: 0.6, reaction: Heavy,
+                 speed: 11, homing: 35, life: 140, hitstop: 5),
+                (name: "pilier", kind: Eruption, element: Fire, damage: 130, radius: 1.8, reaction: Heavy,
+                 delay: 44, life: 24, hitstop: 5),
+                (name: "flammes", kind: Eruption, element: Fire, damage: 115, radius: 1.4, reaction: Heavy,
+                 delay: 18, life: 18, hitstop: 5),
+            ],
+            attacks: [
+                (
+                    // La colonne s'abat, et le feu file droit devant.
+                    name: "colonne",
+                    min_range: 0, max_range: 6.0, max_angle: 40, weight: 3, cooldown: 160, phases: [1, 2],
+                    mv: (
+                        anim: "column_smash", total: 134, track_until: 50, track_rate: 80, hyperarmor: (30, 80),
+                        hits: [(start: 66, end: 72, damage: 160, hitstop: 8, reaction: Heavy,
+                                capsule: (a: (1.0, 2.0, 1.2), b: (0.6, 0.4, 6.4), r: 0.65))],
+                        casts: [(at: 68, spell: "flammes", from: (0.6, 0, 3.4), aim: Forward, count: 5, step: 1.8, delay_step: 5)],
+                    ),
+                ),
+                (
+                    // Trop près de lui : il bondit en arrière, puis jette le feu de sa poitrine.
+                    name: "recul",
+                    min_range: 0, max_range: 6.5, max_angle: 180, weight: 2, cooldown: 480, phases: [1, 2],
+                    mv: (
+                        anim: "leap_back", total: 92, track_until: 24, track_rate: 90, hyperarmor: (10, 64),
+                        motion: [(start: 26, end: 52, speed: -14.0)],
+                    ),
+                    next: [("boules", 0.8)],
+                ),
+                (
+                    // Lève la main : des piliers de feu jaillissent sous sa cible.
+                    name: "piliers",
+                    min_range: 3, max_range: 24, max_angle: 180, weight: 3, cooldown: 300, phases: [1, 2],
+                    mv: (
+                        anim: "pillars", total: 124, track_until: 40, track_rate: 90,
+                        casts: [(at: 46, spell: "pilier", aim: Target, count: 4, spread: 4.0, delay_step: 10)],
+                    ),
+                ),
+                (
+                    // Arrache le feu de sa poitrine et le jette, trois fois de suite.
+                    name: "boules",
+                    min_range: 5, max_range: 24, max_angle: 40, weight: 3, cooldown: 280, phases: [1, 2],
+                    mv: (
+                        anim: "fireballs", total: 132, track_until: 88, track_rate: 100,
+                        casts: [
+                            (at: 56, spell: "boule", from: (-1.2, 4.2, 1.4), aim: Target),
+                            (at: 72, spell: "boule", from: (-1.2, 4.2, 1.4), aim: Target),
+                            (at: 88, spell: "boule", from: (-1.2, 4.2, 1.4), aim: Target),
+                        ],
+                    ),
+                ),
+                (
+                    // Frappe le sol du pied : deux anneaux de flammes autour de lui.
+                    name: "anneaux",
+                    min_range: 0, max_range: 6.5, max_angle: 180, weight: 2, cooldown: 420, phases: [1, 2],
+                    mv: (
+                        anim: "stomp", total: 132, track_until: 20, track_rate: 60, hyperarmor: (20, 90),
+                        // Le premier anneau est à ses pieds : on ne reste pas collé à lui.
+                        casts: [(at: 58, spell: "flammes", aim: Ring, count: 7, spread: 2.2),
+                                (at: 72, spell: "flammes", aim: Ring, count: 13, spread: 4.8)],
+                    ),
+                ),
+                (
+                    // Qui reste collé à lui : il lève le pied et l'abat, le sol se fend tout autour.
+                    name: "pietinement",
+                    min_range: 0, max_range: 4.5, max_angle: 180, weight: 4, cooldown: 220, phases: [1, 2],
+                    mv: (
+                        anim: "trample", total: 112, track_until: 30, track_rate: 90, hyperarmor: (20, 80),
+                        hits: [(start: 58, end: 66, damage: 140, hitstop: 7, reaction: Heavy, aoe: true,
+                                capsule: (a: (0.0, 0.3, 0.6), b: (0.0, 0.3, 0.6), r: 3.9))],
+                    ),
+                ),
+                (
+                    // La colonne balaie le sol devant lui, à hauteur de genou.
+                    name: "balayage",
+                    min_range: 0, max_range: 6.0, max_angle: 120, weight: 3, cooldown: 200, phases: [1, 2],
+                    mv: (
+                        anim: "low_sweep", total: 118, track_until: 36, track_rate: 90, hyperarmor: (24, 70),
+                        hits: [(start: 52, end: 64, damage: 130, hitstop: 7, reaction: Heavy, arc: (-80, 90),
+                                capsule: (a: (0.0, 0.8, 1.2), b: (0.0, 0.6, 6.0), r: 0.6))],
+                    ),
+                ),
+                // ---- Phase 2
+                (
+                    // Le brasier de sa poitrine explose : flammes tout autour, puis jusqu'au mur.
+                    name: "brasier",
+                    min_range: 0, max_range: 9, max_angle: 180, weight: 3, cooldown: 600, phases: [2],
+                    mv: (
+                        anim: "nova", total: 170, track_until: 0, hyperarmor: (0, 120),
+                        casts: [
+                            (at: 60, spell: "flammes", aim: Ring, count: 8, spread: 2.6),
+                            (at: 74, spell: "flammes", aim: Ring, count: 14, spread: 5.2),
+                            (at: 88, spell: "flammes", aim: Ring, count: 20, spread: 7.8),
+                        ],
+                    ),
+                ),
+                (
+                    name: "meteores",
+                    min_range: 3, max_range: 24, max_angle: 180, weight: 2, cooldown: 540, phases: [2],
+                    mv: (
+                        anim: "pillars", total: 124, track_until: 40, track_rate: 90,
+                        casts: [(at: 46, spell: "pilier", aim: Target, count: 8, spread: 6.5, delay_step: 6)],
+                    ),
+                ),
+                (
+                    // Une vague de flammes file droit vers sa cible.
+                    name: "vague",
+                    min_range: 3, max_range: 18, max_angle: 30, weight: 3, cooldown: 300, phases: [2],
+                    mv: (
+                        anim: "column_smash", total: 134, track_until: 60, track_rate: 80, hyperarmor: (30, 80),
+                        hits: [(start: 66, end: 72, damage: 160, hitstop: 8, reaction: Heavy,
+                                capsule: (a: (1.0, 2.0, 1.2), b: (0.6, 0.4, 6.4), r: 0.65))],
+                        casts: [(at: 68, spell: "flammes", from: (0.6, 0, 3.0), aim: Forward, count: 9, step: 1.7, delay_step: 4)],
+                    ),
+                ),
+            ],
+        ),
+    ],
+)

@@ -26,8 +26,10 @@ pub enum Item {
     FlaskShard,
     /// Talisman : dégâts subis réduits.
     IronBrooch,
-    /// Talisman : esquives moins coûteuses en endurance.
-    CarouselFeather,
+    /// Talisman : esquives moins coûteuses en endurance (`CarouselFeather` : son ancien nom,
+    /// dans les sauvegardes).
+    #[serde(alias = "CarouselFeather")]
+    CrestPlume,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,7 +50,7 @@ pub const RESIN_DAMAGE: f32 = 1.2;
 pub const RESIN_TICKS: u32 = 60 * 60;
 /// Broche de fer : part des dégâts subis.
 pub const BROOCH_DAMAGE: f32 = 0.85;
-/// Plume de manège : part du coût d'endurance des esquives.
+/// Plume de cimier : part du coût d'endurance des esquives.
 pub const FEATHER_DODGE: f32 = 0.7;
 
 impl Item {
@@ -60,12 +62,12 @@ impl Item {
         Item::EmberResin,
         Item::FlaskShard,
         Item::IronBrooch,
-        Item::CarouselFeather,
+        Item::CrestPlume,
     ];
 
     pub fn kind(self) -> Kind {
         match self {
-            Item::IronBrooch | Item::CarouselFeather => Kind::Talisman,
+            Item::IronBrooch | Item::CrestPlume => Kind::Talisman,
             Item::FlaskShard => Kind::Key,
             _ => Kind::Consumable,
         }
@@ -81,7 +83,7 @@ impl Item {
             Item::EmberResin => tr("Ember Resin", "Résine ardente"),
             Item::FlaskShard => tr("Flask Shard", "Éclat de fiole"),
             Item::IronBrooch => tr("Iron Brooch", "Broche de fer"),
-            Item::CarouselFeather => tr("Carousel Feather", "Plume de manège"),
+            Item::CrestPlume => tr("Crest Plume", "Plume de cimier"),
         }
     }
 
@@ -96,7 +98,7 @@ impl Item {
             Item::EmberResin => tr("Weapon deals more damage for a minute.", "L'arme frappe plus fort pendant une minute."),
             Item::FlaskShard => tr("Healing Flask: one more charge.", "Fiole de soin : une charge de plus."),
             Item::IronBrooch => tr("Talisman. Damage taken reduced by 15%.", "Talisman. Dégâts subis réduits de 15 %."),
-            Item::CarouselFeather => tr("Talisman. Dodging costs 30% less stamina.", "Talisman. Esquiver coûte 30 % d'endurance en moins."),
+            Item::CrestPlume => tr("Talisman. Dodging costs 30% less stamina.", "Talisman. Esquiver coûte 30 % d'endurance en moins."),
         }
     }
 }
@@ -283,10 +285,10 @@ mod tests {
         assert!(inv.wears(Item::IronBrooch));
         inv.equip(2, Some(Item::IronBrooch));
         assert_eq!(inv.slots[2], None);
-        inv.add(Item::CarouselFeather, 1);
+        inv.add(Item::CrestPlume, 1);
         assert!(inv.wears(Item::IronBrooch));
-        inv.equip_talisman(Some(Item::CarouselFeather));
-        assert!(inv.wears(Item::CarouselFeather));
+        inv.equip_talisman(Some(Item::CrestPlume));
+        assert!(inv.wears(Item::CrestPlume));
         // Éclat de fiole : une charge de plus, gardée au repos ; les consommables ne se rechargent pas.
         inv.add(Item::FlaskShard, 1);
         assert!(!inv.owns(Item::FlaskShard));

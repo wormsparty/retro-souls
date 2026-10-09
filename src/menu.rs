@@ -30,7 +30,11 @@ use crate::sim::items::{Item, Kind, QUICK_SLOTS};
 use crate::sim::player::Player;
 use crate::sim::{ResetFight, SimEntity, SimEvent, SimEvents};
 use crate::render::preview::{CheckpointPreview, PREVIEW_SIZE};
-use crate::ui::{Glyph, Hint, Icons, Seg, UiFont, hint_node, i, icon_bundle, image_bundle, set_hint, t};
+use crate::hud::{ITEM_ICON, ItemIcons, MenuIcons, WeaponIcons};
+use crate::ui::{Glyph, Hint, Icons, PixelSize, PixelText, Seg, UiFont, hint_node, i, icon_bundle, image_bundle, set_hint, t};
+
+/// Le dépôt du projet (entrée « Fork me »).
+pub const REPO_URL: &str = "https://github.com/wormsparty/retro-souls";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -40,7 +44,13 @@ pub enum Page {
     Checkpoint,
     /// Voyage rapide entre checkpoints (avec un aperçu du lieu).
     Travel,
+    /// Choix du boss qui attend dans l'arène (boss à l'essai).
+    Bosses,
     Equipment,
+    /// Système : options, aide, retour à l'écran titre, quitter.
+    System,
+    /// Choix de l'objet d'un emplacement (`MenuState::choosing`) parmi ceux qu'on possède.
+    Choose,
     Options,
     Help,
     /// Choix de la langue au premier lancement.
@@ -66,11 +76,13 @@ pub struct MenuState {
     /// Temps pendant lequel on ignore les mouvements du curseur après l'ouverture (il peut
     /// sauter quand on le libère).
     settle: f32,
+    /// Emplacement en cours de choix (page `Choose`) : 0..QUICK_SLOTS, ou QUICK_SLOTS pour le talisman.
+    choosing: u8,
 }
 
 impl Default for MenuState {
     fn default() -> Self {
-        Self { open: false, page: Page::Pause, stack: Vec::new(), selected: 0, repeat: 0.0, fresh: false, cursor: None, settle: 0.0 }
+        Self { open: false, page: Page::Pause, stack: Vec::new(), selected: 0, repeat: 0.0, fresh: false, cursor: None, settle: 0.0, choosing: 0 }
     }
 }
 
@@ -114,7 +126,6 @@ pub fn menu_closed(menu: Res<MenuState>) -> bool {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Act {
-    Resume,
     Leave,
     NewGame,
     ConfirmNew,
@@ -126,6 +137,8 @@ enum Act {
     ReviveBoss,
     /// Monter de niveau (pas encore disponible : affiché grisé).
     LevelUp,
+    /// Ouvre la page du projet sur GitHub.
+    Fork,
 }
 
 /// Option de réglage.
@@ -153,8 +166,14 @@ enum Entry {
     Slot(u8),
     /// Talisman porté.
     Talisman,
+    /// Arme (index dans `Tuning::weapons`) : affichée dans l'équipement, on change d'arme en jeu.
+    Weapon(u8),
+    /// Objet proposé pour l'emplacement en cours de choix (`None` : le vider).
+    Pick(Option<Item>),
     /// Destination de voyage (index du checkpoint).
     Place(u8),
+    /// Rencontre de boss (index dans `Tuning::encounters`).
+    Boss(u8),
     /// Ligne d'aide (index dans `help_lines`), non sélectionnable.
     Line(u8),
     /// Langue proposée (page de choix de la langue).
@@ -168,11 +187,53 @@ enum Entry {
 struct PageCtx {
     has_save: bool,
     boss_defeated: bool,
+    boss_choice: u8,
+    /// Nombre de rencontres de boss proposées, et d'armes.
+    encounters: u8,
+    weapons: u8,
     device: Device,
     /// Checkpoints découverts par le joueur local (bits), et celui où il se trouve.
     found: u32,
     here: Option<u8>,
+    /// Objets possédés (bits, dans l'ordre de `Item::ALL`), et emplacement en cours de choix.
+    owned: u16,
+    choosing: u8,
 }
+
+fn owned_bits(p: Option<&Player>) -> u16 {
+    p.map_or(0, |p| Item::ALL.iter().enumerate().filter(|(_, it)| p.inventory.owns(**it)).fold(0, |b, (i, _)| b | 1 << i))
+}
+
+/// Pages en grille (gauche/droite et haut/bas s'y déplacent) : nombre de cases de chaque rangée,
+/// pour `n` entrées.
+fn grid_rows(page: Page, n: usize, weapons: usize) -> Option<Vec<usize>> {
+    match page {
+        Page::Bosses => Some((0..n).step_by(BOSS_COLUMNS as usize).map(|i| (n - i).min(BOSS_COLUMNS as usize)).collect()),
+        // L'équipement important (armes, talisman), puis les consommables.
+        Page::Equipment => Some(vec![weapons + 1, QUICK_SLOTS]),
+        // Le menu pause : une rangée d'icônes.
+        Page::Pause => Some(vec![n]),
+        _ => None,
+    }
+}
+
+/// Rangée et colonne de l'entrée `i` d'une grille.
+fn grid_pos(rows: &[usize], i: usize) -> (usize, usize) {
+    let mut start = 0;
+    for (r, &len) in rows.iter().enumerate() {
+        if i < start + len {
+            return (r, i - start);
+        }
+        start += len;
+    }
+    (rows.len().saturating_sub(1), 0)
+}
+
+const BOSS_COLUMNS: i32 = 4;
+/// Portrait d'un boss (page de choix), en points.
+const PORTRAIT: u32 = 64;
+/// Marge intérieure du panneau des menus.
+const PANEL_PADDING: f32 = 16.0;
 
 const NATIVE: bool = !cfg!(target_arch = "wasm32");
 
@@ -190,9 +251,11 @@ fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
             (tr("Sprint", "Course"), vec![t(tr("hold", "maintenir")), i(Glyph::PadB), or(), i(Glyph::StickL3)]),
             (tr("Use item", "Utiliser l'objet"), vec![i(Glyph::PadX)]),
             (tr("Next item", "Objet suivant"), vec![i(Glyph::DpadDown)]),
-            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::DpadRight)]),
+            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::DpadUp)]),
             (tr("Lock on", "Verrouillage"), vec![i(Glyph::StickR3)]),
+            (tr("Switch target (locked on)", "Changer de cible (verrouillé)"), vec![i(Glyph::StickR), t(tr("4 directions (up: higher)", "4 directions (haut : plus haut)"))]),
             (tr("Rest (checkpoint)", "Se reposer (checkpoint)"), vec![i(Glyph::PadA)]),
+            (tr("Jump, then attack: jump attack", "Sauter, puis frapper : attaque sautée"), vec![i(Glyph::PadA), t("+"), i(Glyph::PadRB)]),
             (tr("Menu", "Menu"), vec![i(Glyph::PadMenu)]),
             (tr("Back (menus)", "Retour (menus)"), vec![i(Glyph::PadB)]),
         ]
@@ -215,7 +278,9 @@ fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
             (tr("Next item", "Objet suivant"), vec![i(Glyph::Key("C"))]),
             (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::Key("R"))]),
             (tr("Lock on", "Verrouillage"), vec![i(Glyph::Key("TAB")), or(), i(Glyph::MouseMiddle)]),
+            (tr("Switch target (locked on)", "Changer de cible (verrouillé)"), vec![i(Glyph::MouseMove), t(tr("4 directions (up: higher)", "4 directions (haut : plus haut)"))]),
             (tr("Rest (checkpoint)", "Se reposer (checkpoint)"), vec![i(Glyph::Key("G"))]),
+            (tr("Jump, then attack: jump attack", "Sauter, puis frapper : attaque sautée"), vec![i(Glyph::Key("G")), t("+"), i(Glyph::MouseLeft)]),
             (tr("Menu", "Menu"), vec![i(Glyph::Key("ESC"))]),
             (tr("Tuning (debug)", "Réglages (debug)"), vec![i(Glyph::Key("F1")), t(tr("to", "à")), i(Glyph::Key("F5"))]),
         ]
@@ -226,27 +291,35 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
     use Act::*;
     let mut v = match page {
         // Avec une sauvegarde, « Continuer » vient en premier (choix par défaut).
-        Page::Title if c.has_save => vec![Entry::Act(Load), Entry::Act(NewGame), Entry::Act(Open(Page::Options))],
-        Page::Title => vec![Entry::Act(NewGame), Entry::Act(Load), Entry::Act(Open(Page::Options))],
+        Page::Title if c.has_save => vec![Entry::Act(Load), Entry::Act(NewGame), Entry::Act(Open(Page::Options)), Entry::Act(Fork)],
+        Page::Title => vec![Entry::Act(NewGame), Entry::Act(Load), Entry::Act(Open(Page::Options)), Entry::Act(Fork)],
         Page::ConfirmNew => vec![Entry::Act(Back), Entry::Act(ConfirmNew)],
-        Page::Pause => vec![
-            Entry::Act(Resume),
-            Entry::Act(Open(Page::Equipment)),
-            Entry::Act(Open(Page::Options)),
-            Entry::Act(Open(Page::Help)),
-            Entry::Act(ToTitle),
-        ],
+        // Des icônes : l'équipement, puis le système (roue crantée).
+        Page::Pause => vec![Entry::Act(Open(Page::Equipment)), Entry::Act(Open(Page::System))],
+        Page::System => vec![Entry::Act(Open(Page::Options)), Entry::Act(Open(Page::Help)), Entry::Act(Fork), Entry::Act(ToTitle)],
         Page::Checkpoint => {
             // « Partir » d'abord : c'est la ligne sélectionnée à l'ouverture.
-            let mut v = vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(LevelUp), Entry::Act(Open(Page::Equipment))];
+            let mut v = vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(Open(Page::Bosses)), Entry::Act(LevelUp), Entry::Act(Open(Page::Equipment))];
             if c.boss_defeated {
                 v.push(Entry::Act(ReviveBoss));
             }
             v
         }
         Page::Travel => (0..32u8).filter(|i| c.found & (1 << i) != 0).map(Entry::Place).chain([Entry::Act(Back)]).collect(),
-        Page::Equipment => {
-            (0..QUICK_SLOTS as u8).map(Entry::Slot).chain([Entry::Talisman, Entry::Act(Back)]).collect()
+        // Grilles : on revient avec Échap / (B).
+        Page::Bosses => (0..c.encounters).map(Entry::Boss).collect(),
+        Page::Equipment => (0..c.weapons).map(Entry::Weapon).chain([Entry::Talisman]).chain((0..QUICK_SLOTS as u8).map(Entry::Slot)).collect(),
+        Page::Choose => {
+            let kind = if c.choosing as usize == QUICK_SLOTS { Kind::Talisman } else { Kind::Consumable };
+            std::iter::once(Entry::Pick(None))
+                .chain(
+                    Item::ALL
+                        .into_iter()
+                        .enumerate()
+                        .filter(|(i, it)| it.kind() == kind && c.owned & (1 << i) != 0)
+                        .map(|(_, it)| Entry::Pick(Some(it))),
+                )
+                .collect()
         }
         Page::Options => {
             use Opt::*;
@@ -262,7 +335,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
         Page::Language => Lang::ALL.into_iter().map(Entry::Lang).collect(),
         Page::Style => vec![Entry::Style(PS1_HEIGHT), Entry::Style(MODERN_HEIGHT)],
     };
-    if NATIVE && matches!(page, Page::Title | Page::Pause) {
+    if NATIVE && matches!(page, Page::Title | Page::System) {
         v.push(Entry::Act(Quit));
     }
     v
@@ -279,21 +352,23 @@ fn selectable(e: Entry, c: &PageCtx) -> bool {
 
 fn act_label(a: Act) -> &'static str {
     match a {
-        Act::Resume => tr("Resume", "Reprendre"),
         Act::Leave => tr("Leave", "Partir"),
         Act::NewGame => tr("New game", "Nouvelle partie"),
         Act::ConfirmNew => tr("Start a new game", "Commencer une nouvelle partie"),
         Act::Load => tr("Continue", "Continuer"),
         Act::Open(Page::Equipment) => tr("Equipment", "Équipement"),
+        Act::Open(Page::System) => tr("System", "Système"),
         Act::Open(Page::Options) => tr("Options", "Options"),
         Act::Open(Page::Help) => tr("Help", "Aide"),
         Act::Open(Page::Travel) => tr("Travel", "Voyager"),
+        Act::Open(Page::Bosses) => tr("Choose the boss", "Choisir le boss"),
         Act::Open(_) => "…",
         Act::Back => tr("Back", "Retour"),
         Act::ToTitle => tr("Return to title screen", "Retour à l'écran titre"),
         Act::Quit => tr("Quit game", "Quitter le jeu"),
-        Act::ReviveBoss => tr("Revive the Automaton", "Ranimer l'Automate"),
+        Act::ReviveBoss => tr("Revive the boss", "Ranimer le boss"),
         Act::LevelUp => tr("Level up", "Monter de niveau"),
+        Act::Fork => tr("Fork me", "Forkez-moi"),
     }
 }
 
@@ -321,7 +396,10 @@ fn page_title(p: Page, device: Device) -> &'static str {
         Page::Pause => "PAUSE",
         Page::Checkpoint => "CHECKPOINT",
         Page::Travel => tr("TRAVEL", "VOYAGER"),
+        Page::Bosses => "BOSS",
         Page::Equipment => tr("EQUIPMENT", "ÉQUIPEMENT"),
+        Page::System => tr("SYSTEM", "SYSTÈME"),
+        Page::Choose => tr("CHOOSE", "CHOISIR"),
         Page::Options => "OPTIONS",
         Page::Help if device == Device::Gamepad => tr("HELP — GAMEPAD", "AIDE — MANETTE"),
         Page::Help => tr("HELP — KEYBOARD AND MOUSE", "AIDE — CLAVIER ET SOURIS"),
@@ -332,15 +410,22 @@ fn page_title(p: Page, device: Device) -> &'static str {
 
 fn page_info(p: Page) -> &'static str {
     match p {
-        Page::Title => tr("The Carousel Automaton", "L'Automate du Carrousel"),
         Page::ConfirmNew => tr("The current save will be overwritten.", "La sauvegarde actuelle sera remplacée."),
         Page::Checkpoint => tr("You rest. HP, stamina and items restored.", "Vous vous reposez. PV, endurance et objets restaurés."),
         Page::Travel => tr("Travel to a brazier you have already kindled.", "Rejoindre un brasier déjà ranimé."),
+        Page::Bosses => tr(
+            "Who awaits in the arena. The chosen boss appears there at once, fully healed.",
+            "Qui attend dans l'arène. Le boss choisi y apparaît aussitôt, en pleine forme.",
+        ),
         Page::Style => tr(
             "Can be changed at any time in Options (Internal resolution).",
             "Modifiable à tout moment dans les Options (Résolution interne).",
         ),
-        Page::Equipment => tr("Quick slot items (“Next item” cycles through them in game), and your talisman.", "Objets des emplacements rapides (« Objet suivant » passe de l'un à l'autre en jeu), et talisman."),
+        Page::Equipment => tr(
+            "Weapons and talisman, then the quick slots (“Next item” cycles through them in game). Select a slot to change it.",
+            "Armes et talisman, puis les emplacements rapides (« Objet suivant » passe de l'un à l'autre en jeu). Choisir un emplacement pour le changer.",
+        ),
+        Page::Choose => tr("What goes in this slot.", "Ce que contiendra cet emplacement."),
         _ => "",
     }
 }
@@ -517,6 +602,22 @@ fn change(item: Opt, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
 struct MenuRoot;
 #[derive(Component)]
 struct MenuTitle;
+/// Colonne du menu (titre, lignes, pied de page) : plus étroite et centrée sur l'écran titre.
+#[derive(Component)]
+struct MenuPanel;
+/// Fond de l'écran titre : lueur au bas de l'écran, braises et cendres qui montent.
+#[derive(Component)]
+struct TitleBackdrop;
+/// Une braise (ou un flocon de cendre) du fond de l'écran titre. Position en fraction de
+/// l'écran, vitesse de montée (écrans/s), balancement.
+#[derive(Component)]
+struct Ash {
+    pos: Vec2,
+    rise: f32,
+    sway: f32,
+    phase: f32,
+    ember: bool,
+}
 #[derive(Component)]
 struct MenuInfo;
 #[derive(Component)]
@@ -539,6 +640,16 @@ struct RowLabel(usize);
 struct RowValue(usize);
 #[derive(Component)]
 struct Arrow(usize, i32);
+/// Icône et quantité de l'objet d'un emplacement (page d'équipement), par ligne.
+#[derive(Component)]
+struct SlotIcon(usize);
+#[derive(Component)]
+struct SlotCount(usize);
+
+/// Portraits des rencontres de boss (`assets/ui/boss_<n>.png`, rendus par
+/// `tools/blender/boss_icons.py`), dans l'ordre de `Tuning::encounters`.
+#[derive(Resource)]
+struct BossPortraits(Vec<Handle<Image>>);
 
 /// Illustrations des deux styles graphiques (captures du jeu en 240p et en 480p).
 #[derive(Resource)]
@@ -559,7 +670,7 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(AppState::Title), enter_title)
             .add_systems(
                 Update,
-                (open_on_rest.run_if(in_state(AppState::Playing)), menu_input, refresh_menu)
+                (open_on_rest.run_if(in_state(AppState::Playing)), menu_input, refresh_menu, title_backdrop)
                     .chain()
                     .after(crate::fx::consume_events)
                     .run_if(not(in_state(AppState::Loading))),
@@ -567,8 +678,9 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<CheckpointPreview>, assets: Res<AssetServer>) {
+fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<CheckpointPreview>, assets: Res<AssetServer>, tuning: Res<Tuning>) {
     commands.insert_resource(StyleImages { ps1: assets.load("ui/style_ps1.png"), modern: assets.load("ui/style_modern.png") });
+    commands.insert_resource(BossPortraits((0..tuning.encounters.len()).map(|i| assets.load(format!("ui/boss_{i}.png"))).collect()));
     let text = Color::srgba(0.85, 0.82, 0.75, 0.75);
     commands
         .spawn((
@@ -586,10 +698,11 @@ fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<Checkpo
             ZIndex(50),
         ))
         .with_children(|c| {
-            c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(6), padding: UiRect::all(px(16)), width: px(960), ..default() })
+            spawn_backdrop(c);
+            c.spawn((Node { flex_direction: FlexDirection::Column, row_gap: px(6), padding: UiRect::all(px(PANEL_PADDING)), width: px(960), ..default() }, MenuPanel))
                 .with_children(|c| {
-                    c.spawn((ui_font.text("", 2, Color::srgb(0.9, 0.82, 0.62)), MenuTitle));
-                    c.spawn((ui_font.text("", 1, text), Node { margin: UiRect::bottom(px(10)), ..default() }, MenuInfo));
+                    c.spawn((ui_font.text("", 2, Color::srgb(0.9, 0.82, 0.62)), TextLayout::linebreak(LineBreak::NoWrap), Node::default(), MenuTitle));
+                    c.spawn((ui_font.text("", 1, text), Node { margin: UiRect::bottom(px(10)), width: px(960.0 - 2.0 * PANEL_PADDING), ..default() }, MenuInfo));
                     c.spawn(Node { flex_direction: FlexDirection::Row, column_gap: px(24), align_items: AlignItems::FlexStart, ..default() })
                         .with_children(|c| {
                             c.spawn((Node { flex_direction: FlexDirection::Column, row_gap: px(2), flex_grow: 1.0, ..default() }, MenuList));
@@ -614,12 +727,124 @@ fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<Checkpo
                         });
                     c.spawn((
                         ui_font.text("", 1, Color::srgb(0.9, 0.82, 0.62)),
-                        Node { display: Display::None, margin: UiRect::top(px(10)), ..default() },
+                        Node { display: Display::None, margin: UiRect::top(px(10)), width: px(960.0 - 2.0 * PANEL_PADDING), ..default() },
                         MenuDetail,
                     ));
                     c.spawn((Hint::new(1, text), Node { margin: UiRect::top(px(10)), ..hint_node() }, MenuFooter));
                 });
         });
+}
+
+/// Nombre de braises et de flocons du fond de l'écran titre.
+const ASHES: usize = 150;
+
+/// Pseudo-aléatoire du fond de l'écran titre (purement visuel), dans [0, 1].
+fn ash_rand(seed: u32) -> f32 {
+    let x = seed.wrapping_mul(747796405).wrapping_add(2891336453);
+    let x = (x ^ (x >> 15)).wrapping_mul(2246822519);
+    ((x >> 9) & 0xffff) as f32 / 65535.0
+}
+
+fn spawn_backdrop(c: &mut ChildSpawnerCommands) {
+    c.spawn((
+        Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100), overflow: Overflow::clip(), ..default() },
+        Visibility::Hidden,
+        TitleBackdrop,
+    ))
+    .with_children(|c| {
+        // Lueur d'un brasier sous l'écran : bandes de plus en plus chaudes vers le bas.
+        const BANDS: u32 = 30;
+        for k in 0..BANDS {
+            let a = 0.17 * ((k + 1) as f32 / BANDS as f32).powi(3);
+            c.spawn((
+                Node { position_type: PositionType::Absolute, left: px(0), right: px(0), bottom: percent((BANDS - 1 - k) as f32 * 1.6), height: percent(1.6), ..default() },
+                BackgroundColor(Color::srgba(0.75, 0.22, 0.04, a)),
+            ));
+        }
+        for n in 0..ASHES as u32 {
+            let r = |k: u32| ash_rand(n * 7 + k);
+            let ember = r(0) < 0.55;
+            let size = if ember { 1 + (r(1) * 1.6) as u32 } else { 1 + (r(1) * 2.2) as u32 };
+            c.spawn((
+                Node { position_type: PositionType::Absolute, ..default() },
+                PixelSize(UVec2::splat(size)),
+                BackgroundColor(Color::NONE),
+                Ash {
+                    pos: Vec2::new(r(2), r(3) * 1.1),
+                    rise: if ember { 0.05 + r(4) * 0.09 } else { 0.025 + r(4) * 0.04 },
+                    sway: 0.004 + r(5) * 0.012,
+                    phase: r(6) * std::f32::consts::TAU,
+                    ember,
+                },
+            ));
+        }
+    });
+}
+
+/// Écran titre : titre grand et centré au-dessus d'un menu plus étroit ; les braises et les
+/// cendres du fond montent (seulement s'il est affiché).
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn title_backdrop(
+    time: Res<Time>,
+    menu: Res<MenuState>,
+    mut backdrop: Single<&mut Visibility, With<TitleBackdrop>>,
+    mut panel: Single<&mut Node, (With<MenuPanel>, Without<Ash>)>,
+    mut title_text: Single<(&mut PixelText, &mut Node), (With<MenuTitle>, Without<MenuPanel>, Without<Ash>)>,
+    mut footer: Single<&mut Node, (With<MenuFooter>, Without<MenuTitle>, Without<MenuPanel>, Without<Ash>)>,
+    mut texts: Query<&mut Node, (Or<(With<MenuInfo>, With<MenuDetail>)>, Without<MenuFooter>, Without<MenuTitle>, Without<MenuPanel>, Without<Ash>)>,
+    mut ashes: Query<(&mut Ash, &mut Node, &mut BackgroundColor), (Without<MenuPanel>, Without<MenuTitle>, Without<MenuFooter>, Without<MenuInfo>, Without<MenuDetail>)>,
+    mut seed: Local<u32>,
+) {
+    let title = menu.open && menu.page == Page::Title;
+    let width = if title { 720.0 } else { 960.0 };
+    if panel.width != px(width) {
+        panel.width = px(width);
+        // Textes sur plusieurs lignes à largeur explicite : sinon, pour la hauteur du panneau,
+        // ils sont estimés un mot par ligne et le panneau, trop haut, déborde en haut de l'écran.
+        for mut n in &mut texts {
+            n.width = px(width - 2.0 * PANEL_PADDING);
+        }
+    }
+    let size = if title { 4 } else { 2 };
+    if title_text.0.0 != size {
+        title_text.0.0 = size;
+    }
+    let (align, margin) = if title { (AlignSelf::Center, UiRect::bottom(px(28))) } else { (AlignSelf::Auto, UiRect::ZERO) };
+    if title_text.1.align_self != align {
+        title_text.1.align_self = align;
+        title_text.1.margin = margin;
+        footer.align_self = align;
+    }
+    let shown = menu.on_title();
+    let want = if shown { Visibility::Inherited } else { Visibility::Hidden };
+    if **backdrop != want {
+        **backdrop = want;
+    }
+    if !shown {
+        return;
+    }
+    let dt = time.delta_secs().min(0.1);
+    let t = time.elapsed_secs();
+    for (mut a, mut n, mut bg) in &mut ashes {
+        a.pos.y -= a.rise * dt;
+        if a.pos.y < -0.02 {
+            // Repart du bas, ailleurs.
+            *seed = seed.wrapping_add(1);
+            a.pos = Vec2::new(ash_rand(*seed ^ 0x9e37), 1.02 + ash_rand(*seed ^ 0x51ed) * 0.08);
+        }
+        let x = a.pos.x + (t * 0.7 + a.phase).sin() * a.sway + (t * 0.23 + a.phase * 2.0).sin() * a.sway * 0.6;
+        n.left = percent(x * 100.0);
+        n.top = percent(a.pos.y * 100.0);
+        // Elles pâlissent en montant ; les braises scintillent.
+        let fade = (a.pos.y * 1.25).clamp(0.0, 1.0) * ((1.02 - a.pos.y) * 8.0).clamp(0.0, 1.0);
+        bg.0 = if a.ember {
+            let flicker = 0.75 + 0.25 * (t * 9.0 + a.phase * 5.0).sin();
+            let cool = 1.0 - a.pos.y;
+            Color::srgba(1.0, 0.72 - 0.3 * cool, 0.25 - 0.18 * cool, fade * flicker)
+        } else {
+            Color::srgba(0.58, 0.54, 0.5, fade * 0.55)
+        };
+    }
 }
 
 fn cursor_free(w: &mut World, free: bool) {
@@ -839,9 +1064,15 @@ fn menu_input(
 
 fn page_ctx(w: &mut World) -> PageCtx {
     let (found, here) = local_place(w);
+    let owned = owned_bits(local_player(w).as_ref());
     PageCtx {
+        owned,
+        choosing: w.resource::<MenuState>().choosing,
         has_save: w.resource::<SaveSlot>().data.is_some(),
         boss_defeated: w.resource::<Encounter>().boss_defeated,
+        boss_choice: w.resource::<Encounter>().boss_choice,
+        encounters: w.resource::<Tuning>().encounters.len() as u8,
+        weapons: w.resource::<Tuning>().weapons.len() as u8,
         device: *w.resource::<Device>(),
         found,
         here,
@@ -885,6 +1116,26 @@ fn handle(w: &mut World, intent: Intent) {
                 close(w);
             }
         }
+        // Grilles : haut/bas changent de rangée (en restant dans la colonne, ou sur la dernière
+        // case d'une rangée plus courte), gauche/droite de colonne (sans boucler).
+        Intent::Move(d) if grid_rows(page, list.len(), ctx.weapons as usize).is_some() => {
+            let rows = grid_rows(page, list.len(), ctx.weapons as usize).unwrap_or_default();
+            let (r, c) = grid_pos(&rows, selected);
+            let to = r as i32 + d;
+            if (0..rows.len() as i32).contains(&to) {
+                let to = to as usize;
+                let start: usize = rows[..to].iter().sum();
+                w.resource_mut::<MenuState>().selected = start + c.min(rows[to] - 1);
+            }
+        }
+        Intent::Change(d) if grid_rows(page, list.len(), ctx.weapons as usize).is_some() => {
+            let rows = grid_rows(page, list.len(), ctx.weapons as usize).unwrap_or_default();
+            let (r, c) = grid_pos(&rows, selected);
+            let to = c as i32 + d;
+            if (0..rows[r] as i32).contains(&to) {
+                w.resource_mut::<MenuState>().selected = (selected as i32 + d) as usize;
+            }
+        }
         Intent::Move(d) => {
             let n = list.len() as i32;
             let mut i = selected as i32;
@@ -918,7 +1169,7 @@ fn handle(w: &mut World, intent: Intent) {
         Intent::Click(i) => {
             if let Some(e) = list.get(i).filter(|e| selectable(**e, &ctx)) {
                 w.resource_mut::<MenuState>().selected = i;
-                if matches!(e, Entry::Act(_)) {
+                if matches!(e, Entry::Act(_) | Entry::Boss(_) | Entry::Slot(_) | Entry::Talisman | Entry::Pick(_)) {
                     confirm(w, *e);
                 }
             }
@@ -932,44 +1183,23 @@ fn handle(w: &mut World, intent: Intent) {
     }
 }
 
+/// Gauche / droite sur une option : la valeur précédente ou suivante.
 fn change_entry(w: &mut World, e: Entry, d: i32) {
-    match e {
-        Entry::Opt(o) => {
-            let mon = monitor(w);
-            let mut s = w.resource::<Settings>().clone();
-            change(o, d, &mut s, mon.as_ref());
-            if *w.resource::<Settings>() != s {
-                *w.resource_mut::<Settings>() = s;
-            }
+    if let Entry::Opt(o) = e {
+        let mon = monitor(w);
+        let mut s = w.resource::<Settings>().clone();
+        change(o, d, &mut s, mon.as_ref());
+        if *w.resource::<Settings>() != s {
+            *w.resource_mut::<Settings>() = s;
         }
-        Entry::Slot(slot) => {
-            let Some(p) = local_player(w) else { return };
-            let choices = slot_choices(&p, Kind::Consumable);
-            let cur = choices.iter().position(|c| *c == p.inventory.slots[slot as usize]).unwrap_or(0);
-            let i = (cur as i32 + d).rem_euclid(choices.len() as i32) as usize;
-            if i != cur {
-                w.resource_mut::<SimCommands>().0.push(SimCommand::Equip { player: p.id, slot, item: choices[i] });
-                // La sim est en pause pendant le menu : la commande est appliquée tout de suite.
-                let _ = w.run_system_cached(apply_commands);
-            }
-        }
-        Entry::Talisman => {
-            let Some(p) = local_player(w) else { return };
-            let choices = slot_choices(&p, Kind::Talisman);
-            let cur = choices.iter().position(|c| *c == p.inventory.talisman).unwrap_or(0);
-            let i = (cur as i32 + d).rem_euclid(choices.len() as i32) as usize;
-            if i != cur {
-                w.resource_mut::<SimCommands>().0.push(SimCommand::EquipTalisman { player: p.id, item: choices[i] });
-                let _ = w.run_system_cached(apply_commands);
-            }
-        }
-        _ => {}
     }
 }
 
 fn confirm(w: &mut World, e: Entry) {
     match e {
         Entry::Act(a) => act(w, a),
+        // Les armes sont seulement montrées : on en change en jeu.
+        Entry::Weapon(_) => {}
         // Valider une option la fait avancer d'un cran (en bouclant pour les choix binaires).
         Entry::Opt(o) => {
             let mon = monitor(w);
@@ -985,7 +1215,29 @@ fn confirm(w: &mut World, e: Entry) {
                 *w.resource_mut::<Settings>() = s;
             }
         }
-        Entry::Slot(_) | Entry::Talisman => change_entry(w, e, 1),
+        // Emplacement : la liste de ce qu'on possède, l'objet actuel sélectionné.
+        Entry::Slot(_) | Entry::Talisman => {
+            let slot = if let Entry::Slot(s) = e { s } else { QUICK_SLOTS as u8 };
+            let current = local_player(w).and_then(|p| if let Entry::Slot(s) = e { p.inventory.slots[s as usize] } else { p.inventory.talisman });
+            w.resource_mut::<MenuState>().choosing = slot;
+            w.resource_mut::<MenuState>().push(Page::Choose);
+            let ctx = page_ctx(w);
+            let at = entries(Page::Choose, &ctx).iter().position(|x| *x == Entry::Pick(current)).unwrap_or(0);
+            w.resource_mut::<MenuState>().selected = at;
+        }
+        Entry::Pick(item) => {
+            let Some(p) = local_player(w) else { return };
+            let slot = w.resource::<MenuState>().choosing;
+            let cmd = if slot as usize == QUICK_SLOTS {
+                SimCommand::EquipTalisman { player: p.id, item }
+            } else {
+                SimCommand::Equip { player: p.id, slot, item }
+            };
+            w.resource_mut::<SimCommands>().0.push(cmd);
+            // La sim est en pause pendant le menu : la commande est appliquée tout de suite.
+            let _ = w.run_system_cached(apply_commands);
+            w.resource_mut::<MenuState>().back();
+        }
         // Voyage : on réapparaît reposé devant l'autre brasier (ennemis revenus à leur poste).
         Entry::Place(i) => {
             let Some(p) = local_player(w) else { return };
@@ -993,6 +1245,13 @@ fn confirm(w: &mut World, e: Entry) {
             let _ = w.run_system_cached(apply_commands);
             crate::save::save_now(w);
             close(w);
+        }
+        // Le boss choisi apparaît tout de suite dans l'arène (neuf, s'il avait été vaincu).
+        Entry::Boss(i) => {
+            w.resource_mut::<SimCommands>().0.push(SimCommand::ChooseBoss(i));
+            let _ = w.run_system_cached(apply_commands);
+            crate::save::save_now(w);
+            w.resource_mut::<MenuState>().back();
         }
         Entry::Line(..) => {}
         Entry::Lang(l) => {
@@ -1012,7 +1271,7 @@ fn confirm(w: &mut World, e: Entry) {
 
 fn act(w: &mut World, a: Act) {
     match a {
-        Act::Resume | Act::Leave => close(w),
+        Act::Leave => close(w),
         Act::NewGame => {
             if w.resource::<SaveSlot>().data.is_some() {
                 w.resource_mut::<MenuState>().push(Page::ConfirmNew);
@@ -1041,19 +1300,34 @@ fn act(w: &mut World, a: Act) {
             w.resource_mut::<MenuState>().selected = 0;
         }
         Act::LevelUp => {}
+        Act::Fork => open_url(REPO_URL),
+    }
+}
+
+/// Ouvre une page web (navigateur du système, ou nouvel onglet dans le navigateur).
+fn open_url(url: &str) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(w) = web_sys::window() {
+        let _ = w.open_with_url_and_target(url, "_blank");
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let cmd = if cfg!(target_os = "windows") {
+            std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn()
+        } else if cfg!(target_os = "macos") {
+            std::process::Command::new("open").arg(url).spawn()
+        } else {
+            std::process::Command::new("xdg-open").arg(url).spawn()
+        };
+        if let Err(e) = cmd {
+            warn!("impossible d'ouvrir {url} : {e}");
+        }
     }
 }
 
 fn monitor(w: &mut World) -> Option<Monitor> {
     let mut q = w.query::<(&Monitor, Has<PrimaryMonitor>)>();
     crate::settings::pick_monitor(q.iter(w)).cloned()
-}
-
-/// Choix possibles pour un emplacement (rapide ou talisman) : vide, ou un des objets possédés.
-fn slot_choices(p: &Player, kind: Kind) -> Vec<Option<Item>> {
-    std::iter::once(None)
-        .chain(Item::ALL.into_iter().filter(|i| i.kind() == kind && p.inventory.owns(*i)).map(Some))
-        .collect()
 }
 
 fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player: Option<&Player>, save: Option<&SaveData>) -> (String, bool) {
@@ -1064,12 +1338,18 @@ fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player:
             (item.map_or("—".into(), |(it, n)| format!("{} ×{n}", it.name())), true)
         }
         Entry::Talisman => (player.and_then(|p| p.inventory.talisman).map_or("—", Item::name).into(), true),
+        Entry::Pick(Some(it)) if it.kind() == Kind::Consumable => (format!("×{}", player.map_or(0, |p| p.inventory.count(it))), true),
+        Entry::Pick(_) => (String::new(), true),
         Entry::Act(Act::Load) => match save {
             Some(_) => (String::new(), true),
             None => (tr("No save", "Aucune sauvegarde").into(), false),
         },
         Entry::Place(i) if c.here == Some(i) => (tr("You are here", "Vous êtes ici").into(), false),
         Entry::Place(_) => (String::new(), true),
+        Entry::Boss(i) if c.boss_choice == i => (tr("In the arena", "Dans l'arène").into(), true),
+        Entry::Boss(_) => (String::new(), true),
+        Entry::Weapon(i) if player.is_some_and(|p| p.weapon == i) => (tr("In hand", "En main").into(), true),
+        Entry::Weapon(_) => (String::new(), true),
         Entry::Act(Act::LevelUp) => (tr("Coming soon", "Bientôt").into(), false),
         Entry::Line(..) | Entry::Lang(_) | Entry::Style(_) | Entry::Act(_) => (String::new(), true),
     }
@@ -1078,7 +1358,11 @@ fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player:
 fn entry_label(e: Entry, t: &Tuning, device: Device) -> String {
     match e {
         Entry::Place(i) => t.level.checkpoints.get(i as usize).map_or("", |c| c.name.get()).into(),
+        Entry::Boss(i) => t.encounters.get(i as usize).map_or("", |c| c.name.get()).into(),
         Entry::Talisman => tr("Talisman", "Talisman").into(),
+        Entry::Weapon(i) => t.weapons.get(i as usize).map_or("", |w| w.name.get()).into(),
+        Entry::Pick(Some(it)) => it.name().into(),
+        Entry::Pick(None) => tr("(empty)", "(vide)").into(),
         Entry::Act(a) => act_label(a).into(),
         Entry::Opt(o) => opt_label(o).into(),
         Entry::Slot(i) => format!("{} {}", tr("Slot", "Emplacement"), i + 1),
@@ -1089,8 +1373,80 @@ fn entry_label(e: Entry, t: &Tuning, device: Device) -> String {
     }
 }
 
-/// Recrée les lignes de la liste.
-fn build_rows(w: &mut World, list: Entity, entries: &[Entry]) {
+/// Carte d'une page en grille : portrait d'un boss, case d'équipement, icône du menu pause.
+struct CardCtx {
+    font: UiFont,
+    frame: Color,
+    portraits: Vec<Handle<Image>>,
+    weapons: Vec<Handle<Image>>,
+    equipment: Handle<Image>,
+    system: Handle<Image>,
+}
+
+fn spawn_card(c: &mut ChildSpawnerCommands, i: usize, e: Entry, k: &CardCtx) {
+    let width = match e {
+        Entry::Boss(_) => 226,
+        Entry::Act(_) => 180,
+        _ => 170,
+    };
+    c.spawn((
+        Row(i),
+        Button,
+        Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: px(4), padding: UiRect::all(px(6)), width: px(width), ..default() },
+        BackgroundColor(Color::NONE),
+    ))
+    .with_children(|c| {
+        // Case encadrée autour d'une icône de `n` points.
+        let boxed = |c: &mut ChildSpawnerCommands, n: u32| {
+            c.spawn((
+                Node { border: UiRect::all(px(2)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                PixelSize(UVec2::splat(n + 8)),
+                BorderColor::all(k.frame),
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.85)),
+            ))
+            .id()
+        };
+        match e {
+            Entry::Boss(b) => {
+                let portrait = k.portraits.get(b as usize).cloned().unwrap_or_default();
+                c.spawn((Node { border: UiRect::all(px(2)), ..default() }, BorderColor::all(k.frame), BackgroundColor(Color::BLACK)))
+                    .with_child(image_bundle(portrait, UVec2::splat(PORTRAIT)));
+            }
+            // Icônes du menu pause, à la taille des autres.
+            Entry::Act(a) => {
+                let icon = if a == Act::Open(Page::System) { k.system.clone() } else { k.equipment.clone() };
+                let b = boxed(c, ITEM_ICON as u32);
+                c.commands().entity(b).with_child(image_bundle(icon, UVec2::splat(ITEM_ICON as u32)));
+            }
+            Entry::Weapon(wi) => {
+                let b = boxed(c, ITEM_ICON as u32);
+                c.commands().entity(b).with_child(image_bundle(k.weapons.get(wi as usize).cloned().unwrap_or_default(), UVec2::splat(ITEM_ICON as u32)));
+            }
+            // Case d'objet, à la taille des icônes de la liste de choix (et sa quantité).
+            _ => {
+                let b = boxed(c, ITEM_ICON as u32);
+                let font = k.font.clone();
+                c.commands().entity(b).with_children(|c| {
+                    c.spawn((image_bundle(Handle::default(), UVec2::splat(ITEM_ICON as u32)), SlotIcon(i)));
+                    c.spawn((
+                        font.text("", 1, Color::srgb(0.95, 0.92, 0.85)),
+                        Node { position_type: PositionType::Absolute, right: px(1), bottom: px(-2), ..default() },
+                        SlotCount(i),
+                    ));
+                });
+            }
+        }
+        let wrap = if matches!(e, Entry::Boss(_)) { LineBreak::WordBoundary } else { LineBreak::NoWrap };
+        c.spawn((k.font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::new(Justify::Center, wrap), RowLabel(i)));
+        if matches!(e, Entry::Boss(_) | Entry::Weapon(_)) {
+            // Sans retour à la ligne : sinon la carte est estimée plus haute qu'elle ne l'est.
+            c.spawn((k.font.text("", 1, Color::srgb(0.95, 0.92, 0.85)), TextLayout::new(Justify::Center, LineBreak::NoWrap), RowValue(i)));
+        }
+    });
+}
+
+/// Recrée les lignes de la liste (en rangées de cartes sur les pages en grille).
+fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
     let ui_font = w.resource::<UiFont>().clone();
     let help = help_lines(*w.resource::<Device>());
     let (left, right) = w.resource_scope(|w, mut icons: Mut<Icons>| {
@@ -1098,12 +1454,45 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry]) {
         (icon_bundle(&mut icons, &mut images, Glyph::ValueLeft, 1), icon_bundle(&mut icons, &mut images, Glyph::ValueRight, 1))
     });
     let style = (w.resource::<StyleImages>().ps1.clone(), w.resource::<StyleImages>().modern.clone());
+    let github = w.resource_scope(|w, mut icons: Mut<Icons>| icon_bundle(&mut icons, &mut w.resource_mut::<Assets<Image>>(), Glyph::GitHub, 1));
+    let item_icon = |w: &World, it: Item| w.get_resource::<ItemIcons>().map(|ic| ic.get(it)).unwrap_or_default();
+    let pick_icons: Vec<Option<Handle<Image>>> =
+        entries.iter().map(|e| if let Entry::Pick(Some(it)) = e { Some(item_icon(w, *it)) } else { None }).collect();
     let side_by_side = entries.iter().any(|e| matches!(e, Entry::Style(_)));
+    let n_weapons = w.resource::<Tuning>().weapons.len();
+    let grid = grid_rows(page, entries.len(), n_weapons);
+    let card = CardCtx {
+        font: ui_font.clone(),
+        frame: Color::srgb(0.62, 0.55, 0.42),
+        portraits: w.resource::<BossPortraits>().0.clone(),
+        weapons: (0..n_weapons).map(|i| w.get_resource::<WeaponIcons>().map(|ic| ic.get(i)).unwrap_or_default()).collect(),
+        equipment: w.get_resource::<MenuIcons>().map(|m| m.equipment.clone()).unwrap_or_default(),
+        system: w.get_resource::<MenuIcons>().map(|m| m.system.clone()).unwrap_or_default(),
+    };
     let mut commands = w.commands();
     commands.entity(list).entry::<Node>().and_modify(move |mut n| {
         n.flex_direction = if side_by_side { FlexDirection::Row } else { FlexDirection::Column };
         n.justify_content = if side_by_side { JustifyContent::SpaceEvenly } else { JustifyContent::Default };
+        n.flex_wrap = FlexWrap::NoWrap;
+        n.row_gap = px(2);
     });
+    if let Some(rows) = grid {
+        // Pages en grille : une rangée de cartes par rangée de la grille.
+        commands.entity(list).despawn_children().with_children(|c| {
+            let mut i = 0;
+            for len in rows {
+                c.spawn(Node { flex_direction: FlexDirection::Row, column_gap: px(8), margin: UiRect::bottom(px(6)), ..default() }).with_children(|c| {
+                    for _ in 0..len {
+                        if let Some(e) = entries.get(i) {
+                            spawn_card(c, i, *e, &card);
+                        }
+                        i += 1;
+                    }
+                });
+            }
+        });
+        return;
+    }
     commands.entity(list).despawn_children().with_children(|c| {
         for (i, e) in entries.iter().enumerate() {
             if let Entry::Style(h) = *e {
@@ -1147,12 +1536,46 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry]) {
                 BackgroundColor(Color::NONE),
             ))
             .with_children(|c| {
-                c.spawn((
-                    ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)),
-                    TextLayout::linebreak(LineBreak::NoWrap),
-                    Node { flex_shrink: 0.0, margin: UiRect::right(px(16)), ..default() },
-                    RowLabel(i),
-                ));
+                // Icône devant le libellé : objet proposé, logo de GitHub.
+                let icon = match e {
+                    Entry::Pick(Some(_)) => pick_icons[i].clone().map(|h| image_bundle(h, UVec2::splat(ITEM_ICON as u32))),
+                    // Case vide : une icône transparente, pour aligner les libellés.
+                    Entry::Pick(None) => {
+                        let mut b = image_bundle(Handle::default(), UVec2::splat(ITEM_ICON as u32));
+                        b.0.color = Color::NONE;
+                        Some(b)
+                    }
+                    Entry::Act(Act::Fork) => Some(github.clone()),
+                    _ => None,
+                };
+                let label = Node { flex_shrink: 0.0, margin: UiRect::right(px(16)), ..default() };
+                if let (Entry::Act(Act::Fork), Some(icon)) = (e, icon.clone()) {
+                    // Le logo déborde de la ligne sans l'agrandir : toutes les lignes du menu
+                    // gardent la même hauteur.
+                    let width = icon.2.0.x;
+                    c.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(8), ..default() })
+                        .with_children(|c| {
+                            c.spawn(Node {
+                                position_type: PositionType::Absolute,
+                                left: px(0),
+                                top: px(0),
+                                bottom: px(0),
+                                align_items: AlignItems::Center,
+                                ..default()
+                            })
+                            .with_child(icon);
+                            // Place réservée au logo (à sa largeur, sans hauteur).
+                            c.spawn((Node { flex_shrink: 0.0, ..default() }, PixelSize(UVec2::new(width, 0))));
+                            c.spawn((ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::linebreak(LineBreak::NoWrap), label, RowLabel(i)));
+                        });
+                } else if let Some(icon) = icon {
+                    c.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(8), ..default() }).with_children(|c| {
+                        c.spawn(icon);
+                        c.spawn((ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::linebreak(LineBreak::NoWrap), label, RowLabel(i)));
+                    });
+                } else {
+                    c.spawn((ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::linebreak(LineBreak::NoWrap), label, RowLabel(i)));
+                }
                 if let Entry::Line(l) = e {
                     // Aide : icônes des touches, alignées à gauche.
                     let mut h = Hint::new(1, Color::srgb(0.85, 0.82, 0.75));
@@ -1199,7 +1622,10 @@ fn refresh_menu(
         Query<(&RowValue, &mut Text, &mut TextColor)>,
         Query<&mut Text, With<MenuPreviewCaption>>,
         Query<(&mut Text, &mut Node), (With<MenuDetail>, Without<MenuPreview>)>,
+        Query<(&SlotCount, &mut Text)>,
     )>,
+    mut slot_icons: Query<(&SlotIcon, &mut ImageNode)>,
+    item_icons: Option<Res<ItemIcons>>,
     mut rows: Query<(&Row, &mut BackgroundColor), Without<MenuRoot>>,
     mut arrows: Query<(&Arrow, &mut Visibility), Without<MenuRoot>>,
     mut built: Local<(Vec<Entry>, Option<Lang>)>,
@@ -1228,13 +1654,26 @@ fn refresh_menu(
         .iter()
         .next()
         .map_or((0, None), |(p, b)| (p.found, near_checkpoint(&tuning, b.pos)));
-    let ctx = PageCtx { has_save: save.data.is_some(), boss_defeated: enc.boss_defeated, device: *device, found, here };
+    let owned = owned_bits(players.iter().next().map(|(p, _)| p));
+    let ctx = PageCtx {
+        has_save: save.data.is_some(),
+        boss_defeated: enc.boss_defeated,
+        boss_choice: enc.boss_choice,
+        encounters: tuning.encounters.len() as u8,
+        weapons: tuning.weapons.len() as u8,
+        device: *device,
+        found,
+        here,
+        owned,
+        choosing: menu.choosing,
+    };
     let list_entries = entries(menu.page, &ctx);
     // Les lignes d'aide (icônes) dépendent aussi de la langue.
     let key = (list_entries.clone(), Some(crate::lang::current()));
     if *built != key {
         let (list, entries) = (*list, list_entries.clone());
-        commands.queue(move |w: &mut World| build_rows(w, list, &entries));
+        let page = menu.page;
+        commands.queue(move |w: &mut World| build_rows(w, list, &entries, page));
         *built = key;
         // Les nouvelles lignes n'existent qu'à la frame suivante.
         return;
@@ -1265,6 +1704,17 @@ fn refresh_menu(
         let (nav, ok) = if *device == Device::Gamepad { (vec![i(Glyph::Dpad)], Glyph::PadA) } else { (keys.map(|k| i(Glyph::Key(k))).to_vec(), Glyph::Key("↵")) };
         let select = if menu.page == Page::Style { tr("select", "choisir") } else { "select / choisir" };
         nav.into_iter().chain([t(select), i(ok), t("OK")]).collect()
+    } else if grid_rows(menu.page, list_entries.len(), ctx.weapons as usize).is_some() || menu.page == Page::Choose {
+        // Rien à modifier : on choisit, on valide.
+        let nav = if *device == Device::Gamepad {
+            vec![i(Glyph::Dpad)]
+        } else if menu.page == Page::Choose {
+            vec![i(Glyph::Key("↑")), i(Glyph::Key("↓"))]
+        } else {
+            ["↑", "↓", "←", "→"].map(|k| i(Glyph::Key(k))).to_vec()
+        };
+        let ok = if *device == Device::Gamepad { Glyph::PadA } else { Glyph::Key("↵") };
+        nav.into_iter().chain([t(tr("select", "choisir")), i(ok), t(tr("confirm", "valider"))]).collect()
     } else if *device == Device::Gamepad {
         vec![i(Glyph::Dpad), t(tr("select / change", "choisir / modifier")), i(Glyph::PadA), t(tr("confirm", "valider"))]
     } else {
@@ -1320,16 +1770,50 @@ fn refresh_menu(
     for mut t in &mut texts.p5() {
         set(&mut t, tuning.level.checkpoints.get(shown).map_or("", |c| c.name.get()));
     }
-    // Équipement : ce que fait l'objet de la ligne sélectionnée.
-    let item = match list_entries.get(menu.selected) {
+    // Équipement : l'objet de chaque case, et ce que fait celui de la case sélectionnée.
+    let slot_item = |e: Option<&Entry>| match e {
         Some(Entry::Slot(i)) => player.and_then(|p| p.inventory.slots[*i as usize]),
         Some(Entry::Talisman) => player.and_then(|p| p.inventory.talisman),
+        Some(Entry::Pick(it)) => *it,
         _ => None,
     };
-    let detail = item.map_or(String::new(), |it| format!("{} — {}", it.name(), it.description()));
+    for (s, mut img) in &mut slot_icons {
+        let it = slot_item(list_entries.get(s.0));
+        let handle = it.zip(item_icons.as_ref()).map(|(it, ic)| ic.get(it)).unwrap_or_default();
+        if img.image != handle {
+            img.image = handle;
+        }
+        let a = if it.is_some() { 1.0 } else { 0.0 };
+        if img.color.alpha() != a {
+            img.color.set_alpha(a);
+        }
+    }
+    for (s, mut t) in &mut texts.p7() {
+        let n = slot_item(list_entries.get(s.0)).filter(|it| it.kind() == Kind::Consumable).map_or(0, |it| player.map_or(0, |p| p.inventory.count(it)));
+        set(&mut t, &if n > 0 { n.to_string() } else { String::new() });
+    }
+    let selected_entry = list_entries.get(menu.selected);
+    let detail = match (slot_item(selected_entry), selected_entry) {
+        (Some(it), _) => format!("{} — {}", it.name(), it.description()),
+        (None, Some(Entry::Slot(_) | Entry::Talisman)) => tr("(empty)", "(vide)").into(),
+        (None, Some(Entry::Pick(None))) => tr("(empty) — Clears this slot.", "(vide) — Libère cet emplacement.").into(),
+        (None, Some(Entry::Weapon(i))) => {
+            let w = tuning.weapons.get(*i as usize);
+            format!(
+                "{} — {} {}",
+                w.map_or("", |w| w.name.get()),
+                w.map_or("", |w| w.description.get()),
+                tr("“Switch weapon” goes from one to the other in game.", "« Changer d'arme » passe de l'une à l'autre en jeu.")
+            )
+        }
+        _ => String::new(),
+    };
+    // Sur les pages d'équipement, la ligne de description est toujours là (même vide) : les
+    // éléments ne bougent pas d'une sélection à l'autre.
+    let keep = matches!(menu.page, Page::Equipment | Page::Choose);
     for (mut t, mut n) in &mut texts.p6() {
-        set(&mut t, &detail);
-        let want = if detail.is_empty() { Display::None } else { Display::Flex };
+        set(&mut t, if detail.is_empty() && keep { " " } else { &detail });
+        let want = if detail.is_empty() && !keep { Display::None } else { Display::Flex };
         if n.display != want {
             n.display = want;
         }
@@ -1337,8 +1821,6 @@ fn refresh_menu(
     for (a, mut vis) in &mut arrows {
         let show = match list_entries.get(a.0) {
             Some(Entry::Opt(o)) => choices(*o, &settings, m).is_some_and(|c| c.enabled && c.labels.len() > 1),
-            Some(Entry::Slot(_)) => player.is_some_and(|p| slot_choices(p, Kind::Consumable).len() > 1),
-            Some(Entry::Talisman) => player.is_some_and(|p| slot_choices(p, Kind::Talisman).len() > 1),
             _ => false,
         };
         let w = if show { Visibility::Inherited } else { Visibility::Hidden };

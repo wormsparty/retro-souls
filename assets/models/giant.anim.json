@@ -1,0 +1,120 @@
+{
+ "column_smash": {
+  "frames": 134.0,
+  "loop": false,
+  "marks": [
+   0,
+   66,
+   72,
+   134
+  ]
+ },
+ "death": {
+  "frames": 200.0,
+  "loop": false,
+  "marks": [
+   0,
+   200
+  ]
+ },
+ "fatal_received": {
+  "frames": 130.0,
+  "loop": false,
+  "marks": [
+   0,
+   130
+  ]
+ },
+ "fireballs": {
+  "frames": 132.0,
+  "loop": false,
+  "marks": [
+   0,
+   132
+  ]
+ },
+ "groggy": {
+  "frames": 220.0,
+  "loop": false,
+  "marks": [
+   0,
+   220
+  ]
+ },
+ "idle": {
+  "frames": 320.0,
+  "loop": true,
+  "marks": [
+   0,
+   320.0
+  ]
+ },
+ "leap_back": {
+  "frames": 92.0,
+  "loop": false,
+  "marks": [
+   0,
+   92
+  ]
+ },
+ "low_sweep": {
+  "frames": 118.0,
+  "loop": false,
+  "marks": [
+   0,
+   52,
+   64,
+   118
+  ]
+ },
+ "nova": {
+  "frames": 170.0,
+  "loop": false,
+  "marks": [
+   0,
+   170
+  ]
+ },
+ "pillars": {
+  "frames": 124.0,
+  "loop": false,
+  "marks": [
+   0,
+   124
+  ]
+ },
+ "roar": {
+  "frames": 130.0,
+  "loop": false,
+  "marks": [
+   0,
+   130
+  ]
+ },
+ "stomp": {
+  "frames": 132.0,
+  "loop": false,
+  "marks": [
+   0,
+   132
+  ]
+ },
+ "trample": {
+  "frames": 112.0,
+  "loop": false,
+  "marks": [
+   0,
+   58,
+   66,
+   112
+  ]
+ },
+ "walk": {
+  "frames": 110.0,
+  "loop": true,
+  "marks": [
+   0,
+   110.0
+  ]
+ }
+}

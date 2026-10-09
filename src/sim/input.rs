@@ -22,7 +22,13 @@ pub mod btn {
     pub const INTERACT: u16 = 1 << 9;
     /// Lancer la course (clic du stick) : elle dure tant que le stick est poussé.
     pub const SPRINT: u16 = 1 << 10;
-    pub const COUNT: usize = 11;
+    /// Cible suivante, à gauche ou à droite (verrouillé : stick droit, souris).
+    pub const TARGET_LEFT: u16 = 1 << 11;
+    pub const TARGET_RIGHT: u16 = 1 << 12;
+    /// Point verrouillable plus haut ou plus bas (la tête d'un grand boss, ses pattes).
+    pub const TARGET_UP: u16 = 1 << 13;
+    pub const TARGET_DOWN: u16 = 1 << 14;
+    pub const COUNT: usize = 15;
 }
 
 /// Input compact d'un joueur pour un tick (7 octets, prêt à être sérialisé pour le réseau).

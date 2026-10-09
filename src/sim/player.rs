@@ -54,6 +54,10 @@ pub struct Player {
     pub guard_spam: u8,
     pub charge: u32,
     pub lock: Option<Entity>,
+    /// Point verrouillé de la cible (parties d'un grand boss : tête, pattes…).
+    pub lock_part: u8,
+    /// Dernière salve de sorts qui l'a touché (`Spell::volley`) : elle ne le touche qu'une fois.
+    pub volley: u32,
     pub vel: Vec3,
     pub sprinting: bool,
     /// Course lancée par `btn::SPRINT`, active jusqu'à ce que le joueur s'arrête.
@@ -116,6 +120,8 @@ impl Player {
             guard_spam: 0,
             charge: 0,
             lock: None,
+            lock_part: 0,
+            volley: 0,
             vel: Vec3::ZERO,
             sprinting: false,
             sprint_latched: false,
@@ -208,18 +214,85 @@ struct TargetInfo {
     pos: Vec3,
     yaw: f32,
     radius: f32,
-    groggy: bool,
+    /// Boss groggy (sa définition) : on peut lui porter le coup fatal.
+    groggy: Option<u8>,
 }
 
 /// Adversaires (boss et ennemis) vus par le joueur.
-type Foes<'w, 's> = Query<'w, 's, (Entity, &'static Body, &'static mut Action, &'static Health, Has<Boss>), (With<Foe>, Without<Player>)>;
+type Foes<'w, 's> = Query<'w, 's, (Entity, &'static Body, &'static mut Action, &'static Health, Option<&'static Boss>), (With<Foe>, Without<Player>)>;
+
+/// Distance à un adversaire, comptée depuis le bord de son corps (les grands boss).
+fn foe_dist(b: &Body, pos: Vec3) -> f32 {
+    (b.pos.distance(pos) - b.radius).max(0.0)
+}
 
 /// Adversaire vivant à portée (et à peu près à la même hauteur) le plus proche.
 fn nearest_foe(foes: &Foes, pos: Vec3, range: f32) -> Option<Entity> {
     foes.iter()
-        .filter(|(_, b, _, h, _)| !h.dead() && b.pos.distance(pos) <= range && (b.pos.y - pos.y).abs() < 4.0)
-        .min_by(|a, b| a.1.pos.distance(pos).total_cmp(&b.1.pos.distance(pos)))
+        .filter(|(_, b, _, h, _)| !h.dead() && foe_dist(b, pos) <= range && (b.pos.y - pos.y).abs() < 4.0)
+        .min_by(|a, b| foe_dist(a.1, pos).total_cmp(&foe_dist(b.1, pos)))
         .map(|(e, ..)| e)
+}
+
+/// Points verrouillables à portée : (adversaire, point, position).
+fn lock_candidates(t: &Tuning, foes: &Foes, pos: Vec3, range: f32) -> Vec<(Entity, u8, Vec3)> {
+    let mut out = Vec::new();
+    for (e, b, _, h, boss) in foes.iter() {
+        if h.dead() || foe_dist(b, pos) > range || (b.pos.y - pos.y).abs() > 4.0 {
+            continue;
+        }
+        for (i, p) in super::boss::lock_points(t, b, boss).into_iter().enumerate() {
+            out.push((e, i as u8, p));
+        }
+    }
+    out
+}
+
+/// Verrouillage : le point le plus proche de l'axe de la caméra (à défaut, le plus proche).
+fn pick_lock(t: &Tuning, foes: &Foes, pos: Vec3, cam_yaw: f32, range: f32) -> Option<(Entity, u8)> {
+    let score = |p: Vec3| {
+        let ang = math::wrap(math::yaw_of(p - pos) - cam_yaw).abs();
+        ang * 6.0 + math::flat_len(p - pos) * 0.15
+    };
+    lock_candidates(t, foes, pos, range)
+        .into_iter()
+        .min_by(|a, b| score(a.2).total_cmp(&score(b.2)))
+        .map(|(e, i, _)| (e, i))
+}
+
+/// Changement de cible : le point verrouillable suivant vers la gauche (`dir` > 0) ou la droite.
+fn switch_lock(t: &Tuning, foes: &Foes, pos: Vec3, cur: (Entity, u8), cur_pos: Vec3, dir: f32, range: f32) -> Option<(Entity, u8)> {
+    let base = math::yaw_of(cur_pos - pos);
+    lock_candidates(t, foes, pos, range)
+        .into_iter()
+        .filter(|(e, i, _)| (*e, *i) != cur)
+        .map(|(e, i, p)| (e, i, math::wrap(math::yaw_of(p - pos) - base) * dir))
+        .filter(|(.., d)| *d > 0.01)
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .map(|(e, i, _)| (e, i))
+}
+
+/// Changement de cible vers le haut (`dir` > 0) ou le bas : le point plus haut (ou plus bas) le
+/// plus proche, de préférence dans la même direction.
+fn switch_lock_vertical(t: &Tuning, foes: &Foes, pos: Vec3, cur: (Entity, u8), cur_pos: Vec3, dir: f32, range: f32) -> Option<(Entity, u8)> {
+    let base = math::yaw_of(cur_pos - pos);
+    lock_candidates(t, foes, pos, range)
+        .into_iter()
+        .filter(|(e, i, _)| (*e, *i) != cur)
+        .map(|(e, i, p)| (e, i, (p.y - cur_pos.y) * dir, math::wrap(math::yaw_of(p - pos) - base).abs()))
+        .filter(|(_, _, dy, _)| *dy > 0.3)
+        .min_by(|a, b| (a.2 + a.3 * 4.0).total_cmp(&(b.2 + b.3 * 4.0)))
+        .map(|(e, i, ..)| (e, i))
+}
+
+/// Position du point verrouillé.
+fn lock_pos(t: &Tuning, foes: &Foes, e: Entity, part: u8) -> Option<Vec3> {
+    let (_, b, _, h, boss) = foes.get(e).ok()?;
+    if h.dead() {
+        return None;
+    }
+    let pts = super::boss::lock_points(t, b, boss);
+    pts.get(part as usize).or(pts.first()).copied()
 }
 
 #[allow(clippy::type_complexity)]
@@ -270,27 +343,50 @@ pub fn player_act(
 
         // Verrouillage (perdu à la mort du joueur ou de la cible, ou si elle est trop loin).
         let lockable = |e: Entity| {
-            foes.get(e).is_ok_and(|(_, b, _, h, _)| !h.dead() && b.pos.distance(body.pos) <= pd.lock_range * 1.3)
+            foes.get(e).is_ok_and(|(_, b, _, h, _)| !h.dead() && foe_dist(b, body.pos) <= pd.lock_range * 1.3)
         };
         if health.dead() || p.lock.is_some_and(|e| !lockable(e)) {
             p.lock = None;
         }
+        let cam_yaw = inp.cam_yaw_rad();
         if pressed & btn::LOCK != 0 && !health.dead() && !p.falling {
-            p.lock = if p.lock.is_some() { None } else { nearest_foe(&foes, body.pos, pd.lock_range) };
+            let pick = if p.lock.is_some() { None } else { pick_lock(t, &foes, body.pos, cam_yaw, pd.lock_range) };
+            p.lock = pick.map(|x| x.0);
+            p.lock_part = pick.map_or(0, |x| x.1);
+        }
+        // Changement de cible (stick droit, souris) : point suivant à gauche, à droite, plus
+        // haut ou plus bas.
+        const TARGET_BTNS: u16 = btn::TARGET_LEFT | btn::TARGET_RIGHT | btn::TARGET_UP | btn::TARGET_DOWN;
+        if let Some(cur) = p.lock
+            && pressed & TARGET_BTNS != 0
+            && let Some(cur_pos) = lock_pos(t, &foes, cur, p.lock_part)
+        {
+            let next = if pressed & (btn::TARGET_UP | btn::TARGET_DOWN) != 0 {
+                let dir = if pressed & btn::TARGET_UP != 0 { 1.0 } else { -1.0 };
+                switch_lock_vertical(t, &foes, body.pos, (cur, p.lock_part), cur_pos, dir, pd.lock_range)
+            } else {
+                let dir = if pressed & btn::TARGET_LEFT != 0 { 1.0 } else { -1.0 };
+                switch_lock(t, &foes, body.pos, (cur, p.lock_part), cur_pos, dir, pd.lock_range)
+            };
+            if let Some((e, i)) = next {
+                p.lock = Some(e);
+                p.lock_part = i;
+            }
         }
 
         let target = p
             .lock
             .or_else(|| nearest_foe(&foes, body.pos, AUTO_TARGET_RANGE))
             .and_then(|e| foes.get(e).ok())
-            .map(|(e, b, a, _, is_boss)| TargetInfo {
+            .map(|(e, b, a, _, boss)| TargetInfo {
                 entity: e,
                 pos: b.pos,
                 yaw: b.yaw,
                 radius: b.radius,
-                groggy: is_boss && a.is(MoveRef::Boss(BossMove::Groggy)),
+                groggy: boss.filter(|b| a.is(MoveRef::Boss(b.def, BossMove::Groggy))).map(|b| b.def),
             });
-        let locked_pos = p.lock.and(target.map(|ti| ti.pos));
+        // On vise le point verrouillé (la tête, une patte…), pas le centre du corps.
+        let locked_pos = p.lock.and_then(|e| lock_pos(t, &foes, e, p.lock_part));
 
         // Direction de déplacement en monde, relative à la caméra.
         let stick = inp.stick();
@@ -394,6 +490,10 @@ pub fn player_act(
                         && (try_item(&mut p, &mut body, &mut action, &mut ctx)
                             || try_offensive(&mut p, &mut body, &mut action, &mut foes, &mut ctx)));
                 if !interrupted {
+                    if p.airborne {
+                        // Attaque sautée : l'élan du saut continue.
+                        body.pos += p.vel * DT;
+                    }
                     run_frame(&mut body, &action, def, locked_pos, move_dir);
                     if def.walk > 0.0 {
                         // Marche lente autorisée (soin).
@@ -446,8 +546,14 @@ pub fn player_act(
                     p.state = PState::Free;
                 }
                 if p.airborne {
-                    // En l'air : on ne fait que corriger un peu sa trajectoire.
-                    air_control(&mut p, &mut body, stick_len, move_dir, t);
+                    // En l'air : on ne fait que corriger un peu sa trajectoire, ou on frappe.
+                    if try_jump_attack(&mut p, &mut body, &mut action, &mut ctx) {
+                        body.pos += p.vel * DT;
+                        let def = action.def(t).expect("action");
+                        run_frame(&mut body, &action, def, locked_pos, move_dir);
+                    } else {
+                        air_control(&mut p, &mut body, stick_len, move_dir, t);
+                    }
                 } else if try_interact(&mut p, &body, &mut health, &mut encounter, &mut ctx) {
                     // Repos ou objet ramassé : rien d'autre ce tick.
                 } else if try_jump(&mut p, &mut body, &mut ctx) {
@@ -526,13 +632,13 @@ fn try_offensive(p: &mut Player, body: &mut Body, action: &mut Action, foes: &mu
     if p.buffer.buffered(btn::LIGHT, now, buf) {
         p.buffer.consume(btn::LIGHT);
         // Coup fatal sur un boss groggy, de face et à portée.
-        if let Some(ti) = ctx.target.filter(|ti| ti.groggy) {
+        if let Some((ti, def)) = ctx.target.and_then(|ti| ti.groggy.map(|d| (ti, d))) {
             let to_player = body.pos - ti.pos;
             let dist = math::flat_len(to_player);
             let ang = math::wrap(math::yaw_of(to_player) - ti.yaw).abs();
             if dist <= pd.fatal_range + ti.radius && ang <= pd.fatal_arc.to_radians() {
                 if let Ok((_, _, mut bact, _, _)) = foes.get_mut(ti.entity) {
-                    bact.start(MoveRef::Boss(BossMove::FatalReceived), 0.0);
+                    bact.start(MoveRef::Boss(def, BossMove::FatalReceived), 0.0);
                     bact.executed = true;
                 }
                 body.pos = ti.pos + math::forward(ti.yaw) * (ti.radius + body.radius + 0.35);
@@ -605,7 +711,7 @@ fn use_item_effect(p: &mut Player, health: &mut Health, entity: Entity, ctx: &mu
         Item::LivelyEmber => p.embers = p.embers.saturating_add(items::LIVELY_EMBERS),
         Item::GoldenMoss => p.regen_ticks = items::MOSS_TICKS,
         Item::EmberResin => p.resin_ticks = items::RESIN_TICKS,
-        Item::FlaskShard | Item::IronBrooch | Item::CarouselFeather => {}
+        Item::FlaskShard | Item::IronBrooch | Item::CrestPlume => {}
     }
     ctx.events.push(SimEvent::ItemUsed { entity, item });
 }
@@ -678,6 +784,20 @@ fn try_jump(p: &mut Player, body: &mut Body, ctx: &mut Ctx) -> bool {
     true
 }
 
+/// Attaque sautée : attaque légère ou lourde pressée en l'air.
+fn try_jump_attack(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut Ctx) -> bool {
+    let buf = ctx.t.player.input_buffer;
+    let pressed = [btn::LIGHT, btn::HEAVY].into_iter().any(|b| p.buffer.buffered(b, ctx.now, buf));
+    if !pressed || !p.can_act() {
+        return false;
+    }
+    p.buffer.consume(btn::LIGHT);
+    p.buffer.consume(btn::HEAVY);
+    p.combo = 0;
+    start_move(p, body, action, MoveRef::Weapon(p.weapon, WeaponMove::Jump), ctx);
+    true
+}
+
 /// Coût d'endurance d'une action : explicite, ou proportionnel aux dégâts pour les attaques.
 pub fn stamina_cost(mv: MoveRef, t: &Tuning) -> f32 {
     let def = t.get(mv);
@@ -691,7 +811,7 @@ pub fn stamina_cost(mv: MoveRef, t: &Tuning) -> f32 {
 /// Démarre une action : coût d'endurance, orientation initiale, événements.
 fn start_move(p: &mut Player, body: &mut Body, action: &mut Action, mv: MoveRef, ctx: &mut Ctx) {
     let mut cost = stamina_cost(mv, ctx.t);
-    if matches!(mv, MoveRef::Player(PlayerMove::Dodge | PlayerMove::Backstep)) && p.inventory.wears(Item::CarouselFeather) {
+    if matches!(mv, MoveRef::Player(PlayerMove::Dodge | PlayerMove::Backstep)) && p.inventory.wears(Item::CrestPlume) {
         cost *= items::FEATHER_DODGE;
     }
     p.spend_stamina(cost, ctx.t);
@@ -702,7 +822,7 @@ fn start_move(p: &mut Player, body: &mut Body, action: &mut Action, mv: MoveRef,
         } else if let Some(d) = ctx.move_dir {
             body.yaw = math::yaw_of(d);
         }
-        let heavy = matches!(mv, MoveRef::Weapon(_, WeaponMove::Heavy | WeaponMove::HeavyCharged));
+        let heavy = matches!(mv, MoveRef::Weapon(_, WeaponMove::Heavy | WeaponMove::HeavyCharged | WeaponMove::Jump));
         ctx.events.push(SimEvent::Swing { entity: ctx.entity, heavy });
     }
     let dist = ctx.target.map(|ti| math::flat_len(ti.pos - body.pos)).unwrap_or(0.0);
@@ -742,7 +862,13 @@ pub fn run_frame(
     }
     for m in &def.motion {
         if action.tick >= m.start && action.tick < m.end {
+            if m.turn != 0.0 {
+                body.yaw = math::wrap(body.yaw + m.turn.to_radians() / (m.end - m.start).max(1) as f32);
+            }
             body.pos += math::forward(body.yaw) * motion_speed(m, action.target_dist) * DT;
+            if m.side != 0.0 {
+                body.pos += math::right(body.yaw) * m.side * DT;
+            }
         }
     }
 }
@@ -822,7 +948,7 @@ pub fn player_end_tick(tuning: Res<Tuning>, mut q: Query<(&mut Player, &Action, 
                 health.cur = (health.cur + items::MOSS_HP_PER_SEC * DT).min(health.max);
             }
         }
-        if !matches!(p.state, PState::Free | PState::Guard) {
+        if !matches!(p.state, PState::Free | PState::Guard) && !p.airborne {
             p.vel = Vec3::ZERO;
         }
         if p.stamina_delay > 0 {

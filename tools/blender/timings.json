@@ -46,6 +46,7 @@
   },
   "boss": {
     "charge": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -64,6 +65,7 @@
       "total": 120
     },
     "death": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -71,6 +73,7 @@
       "total": 160
     },
     "delayed_thrust": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -89,6 +92,7 @@
       "total": 122
     },
     "double_swing": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -116,6 +120,7 @@
       "total": 128
     },
     "fatal_received": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -123,6 +128,7 @@
       "total": 120
     },
     "fury_leap": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -141,6 +147,7 @@
       "total": 156
     },
     "fury_thrust": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -159,6 +166,7 @@
       "total": 118
     },
     "groggy": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -166,6 +174,7 @@
       "total": 210
     },
     "ground_quake": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -178,6 +187,7 @@
       "total": 150
     },
     "leap_back": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -191,6 +201,7 @@
       "total": 64
     },
     "leap_slam": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -209,6 +220,7 @@
       "total": 170
     },
     "overhead_slam": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -227,6 +239,7 @@
       "total": 124
     },
     "roar": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -234,6 +247,7 @@
       "total": 110
     },
     "spin_sweep": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -246,6 +260,7 @@
       "total": 140
     },
     "triple_combo": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -282,9 +297,1246 @@
       "total": 172
     }
   },
+  "bosses": {
+    "anvil": {
+      "death": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 160
+      },
+      "fatal_received": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 120
+      },
+      "groggy": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 200
+      },
+      "hammer_slam": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            58,
+            64
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 56,
+            "speed": 1.600000023841858,
+            "start": 46
+          }
+        ],
+        "total": 126
+      },
+      "quake": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            80,
+            96
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 150
+      },
+      "roar": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 110
+      },
+      "shoulder_charge": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            38,
+            66
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 66,
+            "speed": 9.0,
+            "start": 34
+          }
+        ],
+        "total": 112
+      },
+      "sweep": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            48,
+            60
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 112
+      }
+    },
+    "dragon": {
+      "belly_flop": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            86,
+            96
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 86,
+            "speed": 5.0,
+            "start": 72
+          }
+        ],
+        "total": 156
+      },
+      "breath": {
+        "casts": [
+          56
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 176
+      },
+      "death": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 200
+      },
+      "fatal_received": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 130
+      },
+      "fire_rain": {
+        "casts": [
+          50
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 140
+      },
+      "fly_fire": {
+        "casts": [
+          104,
+          132,
+          160
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": [
+          56,
+          196
+        ],
+        "motion": [],
+        "total": 236
+      },
+      "fly_slam": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            118,
+            128
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 118,
+            "speed": 18.0,
+            "start": 60
+          }
+        ],
+        "total": 210
+      },
+      "groggy": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 220
+      },
+      "headbutt": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            52,
+            60
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 56,
+            "speed": 3.0,
+            "start": 46
+          }
+        ],
+        "total": 112
+      },
+      "pivot_L": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            42,
+            68
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 66,
+            "speed": 0.0,
+            "start": 40
+          }
+        ],
+        "total": 116
+      },
+      "pivot_R": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            42,
+            68
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 66,
+            "speed": 0.0,
+            "start": 40
+          }
+        ],
+        "total": 116
+      },
+      "roar": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 130
+      },
+      "tail_sweep": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            48,
+            70
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 120
+      }
+    },
+    "giant": {
+      "column_smash": {
+        "casts": [
+          68
+        ],
+        "counter": null,
+        "hits": [
+          [
+            66,
+            72
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 134
+      },
+      "death": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 200
+      },
+      "fatal_received": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 130
+      },
+      "fireballs": {
+        "casts": [
+          56,
+          72,
+          88
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 132
+      },
+      "groggy": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 220
+      },
+      "leap_back": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 52,
+            "speed": -14.0,
+            "start": 26
+          }
+        ],
+        "total": 92
+      },
+      "low_sweep": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            52,
+            64
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 118
+      },
+      "nova": {
+        "casts": [
+          60,
+          74,
+          88
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 170
+      },
+      "pillars": {
+        "casts": [
+          46
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 124
+      },
+      "roar": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 130
+      },
+      "stomp": {
+        "casts": [
+          58,
+          72
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 132
+      },
+      "trample": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            58,
+            66
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 112
+      }
+    },
+    "horned_butcher": {
+      "cleave": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            62,
+            68
+          ],
+          [
+            64,
+            76
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 140
+      },
+      "death": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 160
+      },
+      "double_chop": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            40,
+            46
+          ],
+          [
+            70,
+            76
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 42,
+            "speed": 1.7999999523162842,
+            "start": 34
+          },
+          {
+            "end": 72,
+            "speed": 1.7999999523162842,
+            "start": 64
+          }
+        ],
+        "total": 118
+      },
+      "fatal_received": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 120
+      },
+      "frenzy": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            30,
+            36
+          ],
+          [
+            52,
+            58
+          ],
+          [
+            74,
+            80
+          ],
+          [
+            100,
+            108
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 32,
+            "speed": 2.0,
+            "start": 26
+          },
+          {
+            "end": 54,
+            "speed": 2.0,
+            "start": 48
+          },
+          {
+            "end": 76,
+            "speed": 2.0,
+            "start": 70
+          }
+        ],
+        "total": 150
+      },
+      "gore": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            40,
+            70
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 70,
+            "speed": 10.0,
+            "start": 36
+          }
+        ],
+        "total": 116
+      },
+      "groggy": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 200
+      },
+      "leap_back": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 40,
+            "speed": -15.0,
+            "start": 16
+          }
+        ],
+        "total": 64
+      },
+      "roar": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 110
+      },
+      "throw": {
+        "casts": [
+          46
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 96
+      },
+      "whirl": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            48,
+            76
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 76,
+            "speed": 1.5,
+            "start": 46
+          }
+        ],
+        "total": 130
+      }
+    },
+    "lamplighter": {
+      "blink": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": [
+          8,
+          30
+        ],
+        "motion": [
+          {
+            "end": 32,
+            "speed": -15.0,
+            "start": 10
+          }
+        ],
+        "total": 62
+      },
+      "bolt": {
+        "casts": [
+          46
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 92
+      },
+      "death": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 150
+      },
+      "fatal_received": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 120
+      },
+      "flares": {
+        "casts": [
+          40
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 124
+      },
+      "glide_L": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": [
+          12,
+          30
+        ],
+        "motion": [
+          {
+            "end": 36,
+            "speed": 0.0,
+            "start": 12
+          }
+        ],
+        "total": 56
+      },
+      "glide_R": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": [
+          12,
+          30
+        ],
+        "motion": [
+          {
+            "end": 36,
+            "speed": 0.0,
+            "start": 12
+          }
+        ],
+        "total": 56
+      },
+      "groggy": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 190
+      },
+      "nova": {
+        "casts": [
+          30,
+          44
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 120
+      },
+      "pole_sweep": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            40,
+            50
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 92
+      },
+      "roar": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 100
+      },
+      "volley": {
+        "casts": [
+          50,
+          64,
+          78
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 124
+      }
+    },
+    "marionette": {
+      "ascent": {
+        "casts": [
+          62,
+          80,
+          98
+        ],
+        "counter": null,
+        "hits": [
+          [
+            136,
+            146
+          ]
+        ],
+        "iframes": [
+          30,
+          136
+        ],
+        "motion": [
+          {
+            "end": 136,
+            "speed": 16.0,
+            "start": 118
+          }
+        ],
+        "total": 196
+      },
+      "death": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 180
+      },
+      "drop": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            88,
+            98
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 88,
+            "speed": 15.0,
+            "start": 50
+          }
+        ],
+        "total": 164
+      },
+      "fatal_received": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 120
+      },
+      "groggy": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 210
+      },
+      "hoist": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            100,
+            110
+          ]
+        ],
+        "iframes": [
+          30,
+          98
+        ],
+        "motion": [],
+        "total": 156
+      },
+      "hop": {
+        "casts": [
+          34
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": [
+          14,
+          40
+        ],
+        "motion": [
+          {
+            "end": 40,
+            "speed": 0.0,
+            "start": 14
+          }
+        ],
+        "total": 76
+      },
+      "roar": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 120
+      },
+      "slap": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            44,
+            54
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 50,
+            "speed": 1.7999999523162842,
+            "start": 40
+          }
+        ],
+        "total": 104
+      },
+      "spin": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            56,
+            84
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 140
+      },
+      "stomp_dance": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            50,
+            56
+          ],
+          [
+            84,
+            90
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 52,
+            "speed": 2.4000000953674316,
+            "start": 44
+          },
+          {
+            "end": 86,
+            "speed": 2.4000000953674316,
+            "start": 78
+          }
+        ],
+        "total": 128
+      },
+      "strings": {
+        "casts": [
+          40
+        ],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 130
+      }
+    },
+    "spine_beast": {
+      "back_stabs": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            44,
+            50
+          ],
+          [
+            68,
+            74
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 112
+      },
+      "bite": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            40,
+            48
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 46,
+            "speed": 4.0,
+            "start": 34
+          }
+        ],
+        "total": 92
+      },
+      "death": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 190
+      },
+      "fatal_received": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 120
+      },
+      "frenzy": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            36,
+            42
+          ],
+          [
+            56,
+            62
+          ],
+          [
+            76,
+            82
+          ],
+          [
+            100,
+            108
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 40,
+            "speed": 2.0,
+            "start": 32
+          },
+          {
+            "end": 60,
+            "speed": 2.0,
+            "start": 52
+          },
+          {
+            "end": 80,
+            "speed": 2.0,
+            "start": 72
+          }
+        ],
+        "total": 154
+      },
+      "groggy": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 210
+      },
+      "howl": {
+        "casts": [
+          66,
+          82
+        ],
+        "counter": null,
+        "hits": [
+          [
+            64,
+            80
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 140
+      },
+      "pivot_L": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            40,
+            64
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 62,
+            "speed": 0.0,
+            "start": 38
+          }
+        ],
+        "total": 108
+      },
+      "pivot_R": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            40,
+            64
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 62,
+            "speed": 0.0,
+            "start": 38
+          }
+        ],
+        "total": 108
+      },
+      "pounce": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            56,
+            66
+          ]
+        ],
+        "iframes": null,
+        "motion": [
+          {
+            "end": 62,
+            "speed": 14.0,
+            "start": 40
+          }
+        ],
+        "total": 124
+      },
+      "rise_crash": {
+        "casts": [
+          72
+        ],
+        "counter": null,
+        "hits": [
+          [
+            70,
+            80
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 140
+      },
+      "roar": {
+        "casts": [],
+        "counter": null,
+        "hits": [],
+        "iframes": null,
+        "motion": [],
+        "total": 130
+      },
+      "tail_whip": {
+        "casts": [],
+        "counter": null,
+        "hits": [
+          [
+            46,
+            64
+          ]
+        ],
+        "iframes": null,
+        "motion": [],
+        "total": 112
+      }
+    }
+  },
+  "encounters": [
+    [
+      {
+        "minor": false,
+        "model": "boss",
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "scale": 1.0
+      }
+    ],
+    [
+      {
+        "minor": false,
+        "model": "dragon",
+        "offset": [
+          0.0,
+          1.0
+        ],
+        "scale": 1.5
+      }
+    ],
+    [
+      {
+        "minor": false,
+        "model": "horned_butcher",
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "scale": 1.149999976158142
+      },
+      {
+        "minor": true,
+        "model": "hound",
+        "offset": [
+          -3.0,
+          -2.5
+        ],
+        "scale": 1.5
+      },
+      {
+        "minor": true,
+        "model": "hound",
+        "offset": [
+          3.0,
+          -2.0
+        ],
+        "scale": 1.5
+      }
+    ],
+    [
+      {
+        "minor": false,
+        "model": "lamplighter",
+        "offset": [
+          -3.0,
+          1.5
+        ],
+        "scale": 1.0
+      },
+      {
+        "minor": false,
+        "model": "anvil",
+        "offset": [
+          2.5999999046325684,
+          0.0
+        ],
+        "scale": 1.0
+      }
+    ],
+    [
+      {
+        "minor": false,
+        "model": "marionette",
+        "offset": [
+          0.0,
+          0.5
+        ],
+        "scale": 1.2999999523162842
+      }
+    ],
+    [
+      {
+        "minor": false,
+        "model": "spine_beast",
+        "offset": [
+          0.0,
+          1.0
+        ],
+        "scale": 1.7000000476837158
+      }
+    ],
+    [
+      {
+        "minor": false,
+        "model": "giant",
+        "offset": [
+          0.0,
+          2.0
+        ],
+        "scale": 1.100000023841858
+      }
+    ]
+  ],
   "enemies": {
     "hound": {
       "bite": {
+        "casts": [],
         "counter": null,
         "hits": [
           [
@@ -303,6 +1555,7 @@
         "total": 44
       },
       "death": {
+        "casts": [],
         "counter": null,
         "hits": [],
         "iframes": null,
@@ -310,6 +1563,7 @@
         "total": 70
       },
       "hit": {
+        "casts": [],
         "counter": null,
         "hits": [],
         "iframes": null,
@@ -323,6 +1577,7 @@
         "total": 22
       },
       "howl": {
+        "casts": [],
         "counter": null,
         "hits": [],
         "iframes": null,
@@ -330,6 +1585,7 @@
         "total": 48
       },
       "lunge": {
+        "casts": [],
         "counter": null,
         "hits": [
           [
@@ -353,6 +1609,7 @@
         "total": 72
       },
       "snap": {
+        "casts": [],
         "counter": null,
         "hits": [
           [
@@ -382,6 +1639,7 @@
     },
     "puppet": {
       "combo": {
+        "casts": [],
         "counter": null,
         "hits": [
           [
@@ -409,6 +1667,7 @@
         "total": 96
       },
       "death": {
+        "casts": [],
         "counter": null,
         "hits": [],
         "iframes": null,
@@ -416,6 +1675,7 @@
         "total": 80
       },
       "hit": {
+        "casts": [],
         "counter": null,
         "hits": [],
         "iframes": null,
@@ -429,6 +1689,7 @@
         "total": 26
       },
       "swing": {
+        "casts": [],
         "counter": null,
         "hits": [
           [
@@ -447,6 +1708,7 @@
         "total": 84
       },
       "thrust": {
+        "casts": [],
         "counter": null,
         "hits": [
           [
@@ -465,6 +1727,7 @@
         "total": 80
       },
       "wake": {
+        "casts": [],
         "counter": null,
         "hits": [],
         "iframes": null,
@@ -865,6 +2128,25 @@
       {
         "arena": false,
         "shape": {
+          "Ellipse": {
+            "center": [
+              21.399999618530273,
+              -66.5999984741211
+            ],
+            "radii": [
+              1.2999999523162842,
+              1.2999999523162842
+            ],
+            "y": -4.0
+          }
+        },
+        "steps": 0,
+        "style": "Paved",
+        "walled": false
+      },
+      {
+        "arena": false,
+        "shape": {
           "Strip": {
             "from": [
               0.5,
@@ -911,7 +2193,7 @@
               -101.0,
               -5.199999809265137
             ],
-            "half_width": 0.6000000238418579,
+            "half_width": 0.4000000059604645,
             "to": [
               -5.5,
               -103.5,
@@ -974,6 +2256,25 @@
             "radii": [
               4.199999809265137,
               4.199999809265137
+            ],
+            "y": -3.4000000953674316
+          }
+        },
+        "steps": 0,
+        "style": "Paved",
+        "walled": false
+      },
+      {
+        "arena": false,
+        "shape": {
+          "Ellipse": {
+            "center": [
+              18.399999618530273,
+              -115.19999694824219
+            ],
+            "radii": [
+              1.600000023841858,
+              1.600000023841858
             ],
             "y": -3.4000000953674316
           }
@@ -1049,8 +2350,8 @@
           ]
         ],
         "pos": [
-          17.600000381469727,
-          -68.4000015258789
+          21.600000381469727,
+          -66.69999694824219
         ]
       },
       {
@@ -1085,8 +2386,8 @@
           ]
         ],
         "pos": [
-          10.800000190734863,
-          -103.80000305175781
+          18.600000381469727,
+          -115.30000305175781
         ]
       },
       {
@@ -1152,26 +2453,10 @@
         "yaw": -90.0
       },
       {
-        "kind": "Horse",
-        "pos": [
-          -6.0,
-          -33.20000076293945
-        ],
-        "yaw": 70.0
-      },
-      {
         "kind": "Fountain",
         "pos": [
           19.0,
           -33.599998474121094
-        ],
-        "yaw": 0.0
-      },
-      {
-        "kind": "Lamp",
-        "pos": [
-          20.200000762939453,
-          -37.20000076293945
         ],
         "yaw": 0.0
       },
@@ -1363,6 +2648,7 @@
   },
   "player": {
     "backstep": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": [
@@ -1379,6 +2665,7 @@
       "total": 22
     },
     "death": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -1386,6 +2673,7 @@
       "total": 90
     },
     "dodge": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": [
@@ -1412,6 +2700,7 @@
       "total": 54
     },
     "greatsword_counter": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1433,6 +2722,7 @@
       "total": 48
     },
     "greatsword_fatal": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1448,6 +2738,7 @@
       "total": 104
     },
     "greatsword_heavy": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1466,6 +2757,7 @@
       "total": 72
     },
     "greatsword_heavy_charged": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1483,7 +2775,21 @@
       ],
       "total": 70
     },
+    "greatsword_jump": {
+      "casts": [],
+      "counter": null,
+      "hits": [
+        [
+          12,
+          19
+        ]
+      ],
+      "iframes": null,
+      "motion": [],
+      "total": 54
+    },
     "greatsword_light1": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1502,6 +2808,7 @@
       "total": 52
     },
     "greatsword_light2": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1520,6 +2827,7 @@
       "total": 52
     },
     "greatsword_light3": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1538,6 +2846,7 @@
       "total": 64
     },
     "greatsword_special": {
+      "casts": [],
       "counter": [
         4,
         36
@@ -1559,6 +2868,7 @@
       "total": 80
     },
     "guard_break": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -1572,6 +2882,7 @@
       "total": 60
     },
     "guard_hit": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -1585,6 +2896,7 @@
       "total": 16
     },
     "heal": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -1592,6 +2904,7 @@
       "total": 42
     },
     "hit_heavy": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": [
@@ -1608,6 +2921,7 @@
       "total": 80
     },
     "hit_light": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -1621,6 +2935,7 @@
       "total": 26
     },
     "perfect_guard": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,
@@ -1633,6 +2948,7 @@
       "total": 36
     },
     "rapier_fatal": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1648,6 +2964,7 @@
       "total": 96
     },
     "rapier_heavy": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1666,6 +2983,7 @@
       "total": 40
     },
     "rapier_heavy_charged": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1683,7 +3001,21 @@
       ],
       "total": 44
     },
+    "rapier_jump": {
+      "casts": [],
+      "counter": null,
+      "hits": [
+        [
+          6,
+          12
+        ]
+      ],
+      "iframes": null,
+      "motion": [],
+      "total": 34
+    },
     "rapier_light1": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1702,6 +3034,7 @@
       "total": 24
     },
     "rapier_light2": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1720,6 +3053,7 @@
       "total": 24
     },
     "rapier_light3": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1738,6 +3072,7 @@
       "total": 26
     },
     "rapier_light4": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1756,6 +3091,7 @@
       "total": 36
     },
     "rapier_special": {
+      "casts": [],
       "counter": null,
       "hits": [
         [
@@ -1791,6 +3127,7 @@
       "total": 62
     },
     "switch": {
+      "casts": [],
       "counter": null,
       "hits": [],
       "iframes": null,

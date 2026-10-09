@@ -1,0 +1,148 @@
+{
+ "back_stabs": {
+  "frames": 112.0,
+  "loop": false,
+  "marks": [
+   0,
+   44,
+   50,
+   68,
+   74,
+   112
+  ]
+ },
+ "bite": {
+  "frames": 92.0,
+  "loop": false,
+  "marks": [
+   0,
+   40,
+   48,
+   92
+  ]
+ },
+ "death": {
+  "frames": 190.0,
+  "loop": false,
+  "marks": [
+   0,
+   190
+  ]
+ },
+ "fatal_received": {
+  "frames": 120.0,
+  "loop": false,
+  "marks": [
+   0,
+   120
+  ]
+ },
+ "frenzy": {
+  "frames": 154.0,
+  "loop": false,
+  "marks": [
+   0,
+   36,
+   42,
+   56,
+   62,
+   76,
+   82,
+   100,
+   108,
+   154
+  ]
+ },
+ "groggy": {
+  "frames": 210.0,
+  "loop": false,
+  "marks": [
+   0,
+   210
+  ]
+ },
+ "howl": {
+  "frames": 140.0,
+  "loop": false,
+  "marks": [
+   0,
+   64,
+   80,
+   140
+  ]
+ },
+ "idle": {
+  "frames": 200.0,
+  "loop": true,
+  "marks": [
+   0,
+   200.0
+  ]
+ },
+ "pivot_L": {
+  "frames": 108.0,
+  "loop": false,
+  "marks": [
+   0,
+   40,
+   64,
+   108
+  ]
+ },
+ "pivot_R": {
+  "frames": 108.0,
+  "loop": false,
+  "marks": [
+   0,
+   40,
+   64,
+   108
+  ]
+ },
+ "pounce": {
+  "frames": 124.0,
+  "loop": false,
+  "marks": [
+   0,
+   56,
+   66,
+   124
+  ]
+ },
+ "rise_crash": {
+  "frames": 140.0,
+  "loop": false,
+  "marks": [
+   0,
+   70,
+   80,
+   140
+  ]
+ },
+ "roar": {
+  "frames": 130.0,
+  "loop": false,
+  "marks": [
+   0,
+   130
+  ]
+ },
+ "tail_whip": {
+  "frames": 112.0,
+  "loop": false,
+  "marks": [
+   0,
+   46,
+   64,
+   112
+  ]
+ },
+ "walk": {
+  "frames": 80.0,
+  "loop": true,
+  "marks": [
+   0,
+   80.0
+  ]
+ }
+}

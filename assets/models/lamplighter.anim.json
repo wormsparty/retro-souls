@@ -1,0 +1,116 @@
+{
+ "blink": {
+  "frames": 62.0,
+  "loop": false,
+  "marks": [
+   0,
+   62
+  ]
+ },
+ "bolt": {
+  "frames": 92.0,
+  "loop": false,
+  "marks": [
+   0,
+   92
+  ]
+ },
+ "death": {
+  "frames": 150.0,
+  "loop": false,
+  "marks": [
+   0,
+   150
+  ]
+ },
+ "fatal_received": {
+  "frames": 120.0,
+  "loop": false,
+  "marks": [
+   0,
+   120
+  ]
+ },
+ "flares": {
+  "frames": 124.0,
+  "loop": false,
+  "marks": [
+   0,
+   124
+  ]
+ },
+ "glide_L": {
+  "frames": 56.0,
+  "loop": false,
+  "marks": [
+   0,
+   56
+  ]
+ },
+ "glide_R": {
+  "frames": 56.0,
+  "loop": false,
+  "marks": [
+   0,
+   56
+  ]
+ },
+ "groggy": {
+  "frames": 190.0,
+  "loop": false,
+  "marks": [
+   0,
+   190
+  ]
+ },
+ "idle": {
+  "frames": 220.0,
+  "loop": true,
+  "marks": [
+   0,
+   220.0
+  ]
+ },
+ "nova": {
+  "frames": 120.0,
+  "loop": false,
+  "marks": [
+   0,
+   120
+  ]
+ },
+ "pole_sweep": {
+  "frames": 92.0,
+  "loop": false,
+  "marks": [
+   0,
+   40,
+   50,
+   92
+  ]
+ },
+ "roar": {
+  "frames": 100.0,
+  "loop": false,
+  "marks": [
+   0,
+   100
+  ]
+ },
+ "volley": {
+  "frames": 124.0,
+  "loop": false,
+  "marks": [
+   0,
+   124
+  ]
+ },
+ "walk": {
+  "frames": 76.0,
+  "loop": true,
+  "marks": [
+   0,
+   76.0
+  ]
+ }
+}

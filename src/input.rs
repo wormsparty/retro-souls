@@ -8,9 +8,11 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
 use crate::menu::MenuState;
+use crate::render::LocalPlayer;
 use crate::render::camera::CameraRig;
 use crate::settings::Settings;
 use crate::sim::input::{PlayerInput, PlayerInputs, btn};
+use crate::sim::player::Player;
 
 /// Boutons pressés depuis le dernier tick de simulation.
 #[derive(Resource, Default)]
@@ -113,7 +115,7 @@ fn gamepad_buttons(g: &Gamepad, pressed: bool) -> u16 {
     if check(GamepadButton::RightThumb) {
         b |= btn::LOCK;
     }
-    if check(GamepadButton::DPadRight) {
+    if check(GamepadButton::DPadUp) {
         b |= btn::SWITCH;
     }
     if check(GamepadButton::West) {
@@ -157,13 +159,33 @@ fn track_device(
     }
 }
 
+/// Changement de cible : un coup de stick droit (ou de souris) dans une des quatre directions.
+#[derive(Default)]
+struct Flick {
+    /// Le stick est revenu au centre depuis le dernier changement.
+    armed: bool,
+    /// Déplacement de la souris accumulé, et temps depuis le dernier changement.
+    mouse: Vec2,
+    cooldown: f32,
+}
+
+/// Seuils : stick poussé, stick revenu au centre, élan de souris (pixels).
+const FLICK_ON: f32 = 0.65;
+const FLICK_OFF: f32 = 0.3;
+const FLICK_MOUSE: f32 = 90.0;
+
+#[allow(clippy::too_many_arguments)]
 fn latch_presses(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    time: Res<Time>,
     gamepads: Query<&Gamepad>,
     mut latch: ResMut<InputLatch>,
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
     menu: Res<MenuState>,
+    players: Query<&Player, With<LocalPlayer>>,
+    mut flick: Local<Flick>,
 ) {
     if menu.open {
         // Les touches du menu ne doivent pas se retrouver dans le jeu à la fermeture.
@@ -175,6 +197,45 @@ fn latch_presses(
     latch.pressed |= keyboard_buttons(&keys, grabbed.then_some(&*mouse), true);
     for g in &gamepads {
         latch.pressed |= gamepad_buttons(g, true);
+    }
+
+    // Verrouillé, le stick droit et la souris ne tournent plus la caméra : ils changent de cible.
+    let locked = players.single().is_ok_and(|p| p.lock.is_some());
+    flick.cooldown = (flick.cooldown - time.delta_secs()).max(0.0);
+    let stick = gamepads.iter().map(|g| g.right_stick()).max_by(|a, b| a.length().total_cmp(&b.length())).unwrap_or(Vec2::ZERO);
+    if stick.length() < FLICK_OFF {
+        flick.armed = true;
+    }
+    if !locked {
+        flick.mouse = Vec2::ZERO;
+        return;
+    }
+    // Direction franche (y = vers le haut) : la plus marquée des deux composantes.
+    let mut dir = Vec2::ZERO;
+    if flick.armed && stick.length() > FLICK_ON {
+        flick.armed = false;
+        dir = stick;
+    }
+    if grabbed {
+        // L'élan de la souris retombe s'il n'est pas assez franc (souris vers le haut : y < 0).
+        let delta = Vec2::new(motion.delta.x, -motion.delta.y);
+        flick.mouse = flick.mouse * (-6.0 * time.delta_secs()).exp() + delta;
+        if flick.mouse.max_element().max(-flick.mouse.min_element()) > FLICK_MOUSE && flick.cooldown <= 0.0 {
+            dir = flick.mouse;
+            flick.mouse = Vec2::ZERO;
+            flick.cooldown = 0.3;
+        }
+    }
+    if dir.x.abs() >= dir.y.abs() {
+        if dir.x < 0.0 {
+            latch.pressed |= btn::TARGET_LEFT;
+        } else if dir.x > 0.0 {
+            latch.pressed |= btn::TARGET_RIGHT;
+        }
+    } else if dir.y > 0.0 {
+        latch.pressed |= btn::TARGET_UP;
+    } else {
+        latch.pressed |= btn::TARGET_DOWN;
     }
 }
 

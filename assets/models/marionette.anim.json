@@ -1,0 +1,128 @@
+{
+ "ascent": {
+  "frames": 196.0,
+  "loop": false,
+  "marks": [
+   0,
+   136,
+   146,
+   196
+  ]
+ },
+ "death": {
+  "frames": 180.0,
+  "loop": false,
+  "marks": [
+   0,
+   180
+  ]
+ },
+ "drop": {
+  "frames": 164.0,
+  "loop": false,
+  "marks": [
+   0,
+   88,
+   98,
+   164
+  ]
+ },
+ "fatal_received": {
+  "frames": 120.0,
+  "loop": false,
+  "marks": [
+   0,
+   120
+  ]
+ },
+ "groggy": {
+  "frames": 210.0,
+  "loop": false,
+  "marks": [
+   0,
+   210
+  ]
+ },
+ "hoist": {
+  "frames": 156.0,
+  "loop": false,
+  "marks": [
+   0,
+   100,
+   110,
+   156
+  ]
+ },
+ "hop": {
+  "frames": 76.0,
+  "loop": false,
+  "marks": [
+   0,
+   76
+  ]
+ },
+ "idle": {
+  "frames": 300.0,
+  "loop": true,
+  "marks": [
+   0,
+   300.0
+  ]
+ },
+ "roar": {
+  "frames": 120.0,
+  "loop": false,
+  "marks": [
+   0,
+   120
+  ]
+ },
+ "slap": {
+  "frames": 104.0,
+  "loop": false,
+  "marks": [
+   0,
+   44,
+   54,
+   104
+  ]
+ },
+ "spin": {
+  "frames": 140.0,
+  "loop": false,
+  "marks": [
+   0,
+   56,
+   84,
+   140
+  ]
+ },
+ "stomp_dance": {
+  "frames": 128.0,
+  "loop": false,
+  "marks": [
+   0,
+   50,
+   56,
+   84,
+   90,
+   128
+  ]
+ },
+ "strings": {
+  "frames": 130.0,
+  "loop": false,
+  "marks": [
+   0,
+   130
+  ]
+ },
+ "walk": {
+  "frames": 90.0,
+  "loop": true,
+  "marks": [
+   0,
+   90.0
+  ]
+ }
+}

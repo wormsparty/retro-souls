@@ -63,7 +63,7 @@ fn tuning(app: &App) -> Tuning {
 fn boss_attack(app: &mut App, name: &str, dist: f32) -> u32 {
     let t = tuning(app);
     let (p, b) = (player(app), boss(app));
-    let idx = t.boss.attacks.iter().position(|a| a.name == name).expect(name);
+    let idx = t.bosses[0].attacks.iter().position(|a| a.name == name).expect(name);
     {
         let mut bb = app.world_mut().get_mut::<Body>(b).unwrap();
         bb.pos = Vec3::ZERO;
@@ -74,9 +74,9 @@ fn boss_attack(app: &mut App, name: &str, dist: f32) -> u32 {
         pb.pos = Vec3::new(0.0, 0.0, dist);
         pb.yaw = std::f32::consts::PI; // face au boss
     }
-    app.world_mut().get_mut::<Action>(b).unwrap().start(MoveRef::BossAttack(idx as u16), dist);
+    app.world_mut().get_mut::<Action>(b).unwrap().start(MoveRef::BossAttack(0, idx as u16), dist);
     app.world_mut().resource_mut::<SimEvents>().0.clear();
-    t.boss.attacks[idx].mv.hits[0].start
+    t.bosses[0].attacks[idx].mv.hits[0].start
 }
 
 fn events(app: &mut App) -> Vec<SimEvent> {
@@ -117,7 +117,7 @@ fn perfect_guard_window_is_tick_exact() {
     }
     // Garde tenue longtemps : garde normale, dégâts réduits convertis en regain.
     let (lost, perfect) = guard_with_lead(40);
-    let full = t.boss.attacks.iter().find(|a| a.name == "ecrasement").unwrap().mv.hits[0].damage;
+    let full = t.bosses[0].attacks.iter().find(|a| a.name == "ecrasement").unwrap().mv.hits[0].damage;
     assert!(!perfect);
     assert!((lost - full * t.player.guard.damage_ratio).abs() < 1e-3, "lost {lost}");
 }
@@ -146,7 +146,7 @@ fn guard_spam_shrinks_window() {
 #[test]
 fn fury_breaks_normal_guard_but_not_perfect() {
     let t = Tuning::builtin();
-    let fury = t.boss.attacks.iter().find(|a| a.name == "furie_estoc").unwrap();
+    let fury = t.bosses[0].attacks.iter().find(|a| a.name == "furie_estoc").unwrap();
     let dmg = fury.mv.hits[0].damage;
 
     // Garde tenue : dégâts complets.
@@ -211,15 +211,15 @@ fn stagger_leads_to_groggy_and_fatal() {
     app.world_mut().get_mut::<Body>(p).unwrap().yaw = 0.0;
     {
         let mut boss = app.world_mut().get_mut::<Boss>(b).unwrap();
-        boss.stagger = t.boss.stagger_max - 1.0;
+        boss.stagger = t.bosses[0].stagger_max - 1.0;
     }
     // Une attaque légère suffit à remplir la jauge.
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
     steps(&mut app, 30, IDLE);
-    assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(BossMove::Groggy)));
+    assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(0, BossMove::Groggy)));
     let boss_hp = hp(&mut app, b);
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
-    assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(BossMove::FatalReceived)));
+    assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(0, BossMove::FatalReceived)));
     steps(&mut app, 120, IDLE);
     assert!(hp(&mut app, b) < boss_hp - 300.0);
 }
@@ -299,7 +299,7 @@ fn simulation_is_deterministic() {
     assert_eq!(a.0, b.0, "la simulation doit être déterministe");
     let t = Tuning::builtin();
     // Il s'est vraiment passé quelque chose.
-    assert!(a.1 < t.player.max_hp || a.2 < t.boss.max_hp, "{a:?}");
+    assert!(a.1 < t.player.max_hp || a.2 < t.bosses[0].max_hp, "{a:?}");
     let _ = math::wrap(0.0);
 }
 
@@ -420,7 +420,7 @@ fn boss_sleeps_until_player_enters_and_fog_closes_corridor() {
         assert!(n < 600, "jamais entré dans l'arène");
     }
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossAwake)));
-    assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(BossMove::Roar)));
+    assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(0, BossMove::Roar)));
     assert!(body(&mut app, p).pos.y.abs() < 1e-3, "en haut de l'escalier");
     // Impossible de ressortir : la brume bloque l'escalier.
     steps(&mut app, 240, PlayerInput { move_y: -127, ..IDLE });
@@ -442,7 +442,7 @@ fn defeating_boss_gives_embers_and_persists_until_revived() {
     steps(&mut app, 40, IDLE);
     let enc = *app.world().resource::<Encounter>();
     assert!(enc.boss_defeated && !enc.active);
-    assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.boss.embers);
+    assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.bosses[0].embers);
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossDefeated { .. })));
 
     // Recréer les combattants (rechargement) : pas de boss, les braises sont gardées.
@@ -450,13 +450,13 @@ fn defeating_boss_gives_embers_and_persists_until_revived() {
     step(&mut app, IDLE);
     assert_eq!(app.world_mut().query::<&Boss>().iter(app.world()).count(), 0);
     let p = player(&mut app);
-    assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.boss.embers);
+    assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.bosses[0].embers);
 
     // Ranimer le boss depuis le checkpoint.
     app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::ReviveBoss);
     step(&mut app, IDLE);
     let b = boss(&mut app);
-    assert_eq!(hp(&mut app, b), t.boss.max_hp);
+    assert_eq!(hp(&mut app, b), t.bosses[0].max_hp);
     assert!(!app.world().resource::<Encounter>().boss_defeated);
 }
 
@@ -489,7 +489,7 @@ fn death_respawns_at_checkpoint_with_items_refilled_and_embers_left_behind() {
     assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t, 0)) < 2.5);
     // Le boss repart de zéro et se rendort.
     let b = boss(&mut app);
-    assert_eq!(hp(&mut app, b), t.boss.max_hp);
+    assert_eq!(hp(&mut app, b), t.bosses[0].max_hp);
     assert!(!app.world().resource::<Encounter>().active);
 }
 
@@ -576,7 +576,7 @@ fn dodge_roll_covers_ground() {
 #[test]
 fn shockwave_ignores_guard_but_can_be_outrun() {
     let t = Tuning::builtin();
-    let dmg = t.boss.attacks.iter().find(|a| a.name == "onde_de_choc").unwrap().mv.hits[0].damage;
+    let dmg = t.bosses[0].attacks.iter().find(|a| a.name == "onde_de_choc").unwrap().mv.hits[0].damage;
 
     // Garde tenue (même parfaite) : dégâts complets.
     let mut app = new_app();
@@ -602,14 +602,17 @@ fn leap_slam_lands_on_the_marked_spot() {
     let t = tuning(&app);
     let hit_start = boss_attack(&mut app, "saut_ecrasant", 8.0);
     let (p, b) = (player(&mut app), boss(&mut app));
+    // Pas de cercle tant que le saut suit sa cible : il ne se pose qu'au décollage.
     steps(&mut app, 10, IDLE);
+    assert!(aoe_telegraph(app.world().get::<Body>(b).unwrap(), app.world().get::<Action>(b).unwrap(), &t).is_none());
+    steps(&mut app, 50, IDLE);
     let (center, r, _) = {
         let w = app.world();
         aoe_telegraph(w.get::<Body>(b).unwrap(), w.get::<Action>(b).unwrap(), &t).expect("alerte au sol")
     };
     assert!(math::flat_len(center - body(&mut app, p).pos) < 0.5, "centre {center}");
     // Rester dans le cercle : touché.
-    steps(&mut app, hit_start + 4 - 10, IDLE);
+    steps(&mut app, hit_start + 4 - 60, IDLE);
     assert!(hp(&mut app, p) < t.player.max_hp);
     assert!(r > 2.0);
 }
@@ -725,9 +728,9 @@ fn hounds_wake_together_bite_and_drop_embers() {
     step(&mut app, IDLE);
     assert!(enemies(&mut app).iter().filter(|(_, e, _)| e.group == 1).all(|(_, e, _)| e.state == EState::Chase));
     assert!(app.world().resource::<Encounter>().hunted);
-    // Ils mordent.
+    // Ils mordent (sans le tuer : un joueur immobile ne tient pas longtemps).
     let before = hp(&mut app, p);
-    steps(&mut app, 240, IDLE);
+    steps(&mut app, 120, IDLE);
     assert!(hp(&mut app, p) < before, "les chiens attaquent");
 
     // Achever un chien (seul, l'autre est écarté) : braises, puis il disparaît.
@@ -1030,4 +1033,450 @@ fn reloading_at_a_brazier_faces_the_way_on() {
         let to_fire = (fire - b.pos).normalize();
         assert!(Vec3::new(to_fire.x, 0.0, to_fire.z).normalize().dot(behind) < 0.5);
     }
+}
+
+/// Partie avec la rencontre `choice` dans l'arène, le joueur entré dans l'arène (combat engagé).
+fn encounter_app(choice: u8) -> App {
+    let mut app = fresh_app();
+    app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::ChooseBoss(choice));
+    step(&mut app, IDLE);
+    let p = player(&mut app);
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -9.0);
+    step(&mut app, IDLE);
+    assert!(app.world().resource::<Encounter>().active);
+    app
+}
+
+fn bosses(app: &mut App) -> Vec<(Entity, u8)> {
+    let mut v: Vec<_> = app.world_mut().query::<(Entity, &Boss)>().iter(app.world()).map(|(e, b)| (e, b.def)).collect();
+    v.sort_by_key(|x| x.1);
+    v
+}
+
+#[test]
+fn every_encounter_spawns_its_members_and_fights() {
+    let t = Tuning::builtin();
+    for (i, enc) in t.encounters.iter().enumerate() {
+        let mut app = encounter_app(i as u8);
+        assert_eq!(bosses(&mut app).len(), enc.members.len(), "{}", enc.name.get());
+        let p = player(&mut app);
+        let mut used = std::collections::HashSet::new();
+        let mut hurt = false;
+        // Le joueur tourne autour de l'arène (il prend des coups, mais ne meurt pas).
+        for tick in 0..4000u32 {
+            let a = tick as f32 * 0.004;
+            let want = Vec3::new(a.cos() * 7.0, 0.0, a.sin() * 7.0);
+            {
+                let mut b = app.world_mut().get_mut::<Body>(p).unwrap();
+                if tick % 400 < 200 {
+                    b.pos = want;
+                }
+            }
+            let mut h = app.world_mut().get_mut::<Health>(p).unwrap();
+            hurt |= h.cur < h.max;
+            h.cur = h.max;
+            step(&mut app, IDLE);
+            for (_, a) in app.world_mut().query::<(&Boss, &Action)>().iter(app.world()) {
+                if let Some(MoveRef::BossAttack(d, k)) = a.mv {
+                    used.insert((d, k));
+                }
+            }
+        }
+        assert!(hurt, "{} : le joueur n'a jamais été touché", enc.name.get());
+        assert!(used.len() >= 3, "{} : trop peu d'attaques utilisées ({used:?})", enc.name.get());
+    }
+}
+
+#[test]
+fn every_boss_attack_runs_and_casts_its_spells() {
+    let t = Tuning::builtin();
+    for (i, enc) in t.encounters.iter().enumerate().skip(1) {
+        let mut app = encounter_app(i as u8);
+        app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+        for (b, def) in bosses(&mut app) {
+            let bd = &t.bosses[def as usize];
+            for (k, a) in bd.attacks.iter().enumerate() {
+                let p = player(&mut app);
+                app.world_mut().get_mut::<Health>(p).unwrap().cur = 1.0e6;
+                app.world_mut().get_mut::<Body>(b).unwrap().pos = Vec3::ZERO;
+                app.world_mut().get_mut::<Body>(b).unwrap().yaw = 0.0;
+                app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, 6.0);
+                app.world_mut().get_mut::<Action>(b).unwrap().start(MoveRef::BossAttack(def, k as u16), 6.0);
+                events(&mut app);
+                let mut casts = 0;
+                for _ in 0..a.mv.total {
+                    step(&mut app, IDLE);
+                    casts += events(&mut app).iter().filter(|e| matches!(e, SimEvent::SpellCast { .. })).count();
+                }
+                assert_eq!(casts, a.mv.casts.len(), "{}/{}/{}", enc.name.get(), bd.key, a.name);
+                // Les sorts finissent par disparaître.
+                steps(&mut app, 400, IDLE);
+                let left = app.world_mut().query::<&giants_flame::sim::spell::Spell>().iter(app.world()).count();
+                assert_eq!(left, 0, "{}/{} : sorts restés en jeu", bd.key, a.name);
+            }
+        }
+    }
+}
+
+#[test]
+fn spells_of_one_attack_hit_only_once() {
+    let t = Tuning::builtin();
+    let giant = t.boss_kind("giant").unwrap();
+    let choice = t.encounters.iter().position(|e| e.members.iter().any(|m| m.boss == "giant")).unwrap() as u8;
+    let mut app = encounter_app(choice);
+    app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+    let (b, p) = (bosses(&mut app)[0].0, player(&mut app));
+    let idx = t.bosses[giant as usize].attacks.iter().position(|a| a.name == "brasier").unwrap();
+    app.world_mut().get_mut::<Body>(b).unwrap().pos = Vec3::ZERO;
+    // Le joueur se tient là où les trois anneaux de flammes se recouvrent.
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, 4.0);
+    app.world_mut().get_mut::<Action>(b).unwrap().start(MoveRef::BossAttack(giant, idx as u16), 4.0);
+    app.world_mut().get::<Health>(p).unwrap();
+    let before = hp(&mut app, p);
+    let mut hits = 0;
+    for _ in 0..200 {
+        app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, 4.0);
+        step(&mut app, IDLE);
+        hits += events(&mut app).iter().filter(|e| matches!(e, SimEvent::Hit { on_player: true, .. })).count();
+    }
+    assert_eq!(hits, 1);
+    assert!(hp(&mut app, p) < before);
+}
+
+#[test]
+fn lock_on_switches_between_parts_and_members() {
+    let t = Tuning::builtin();
+    let choice = t.encounters.iter().position(|e| e.members.iter().any(|m| m.boss == "dragon")).unwrap() as u8;
+    let mut app = encounter_app(choice);
+    app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+    let p = player(&mut app);
+    let b = bosses(&mut app)[0].0;
+    // Face au dragon : verrouiller vise le point le plus proche de l'axe de la caméra.
+    app.world_mut().get_mut::<Body>(b).unwrap().pos = Vec3::new(0.0, 0.0, 6.0);
+    app.world_mut().get_mut::<Body>(b).unwrap().yaw = std::f32::consts::PI;
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -6.0);
+    let cam = PlayerInput::quantize_yaw(0.0);
+    step(&mut app, PlayerInput { buttons: btn::LOCK, cam_yaw: cam, ..IDLE });
+    let first = app.world().get::<Player>(p).unwrap().lock_part;
+    assert_eq!(app.world().get::<Player>(p).unwrap().lock, Some(b));
+    step(&mut app, PlayerInput { cam_yaw: cam, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::TARGET_RIGHT, cam_yaw: cam, ..IDLE });
+    let right = app.world().get::<Player>(p).unwrap().lock_part;
+    assert_ne!(first, right, "changer de cible vers la droite");
+    step(&mut app, PlayerInput { cam_yaw: cam, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::TARGET_LEFT, cam_yaw: cam, ..IDLE });
+    step(&mut app, PlayerInput { cam_yaw: cam, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::TARGET_LEFT, cam_yaw: cam, ..IDLE });
+    let left = app.world().get::<Player>(p).unwrap().lock_part;
+    assert_ne!(left, right);
+
+    // Duo : on passe de l'un à l'autre.
+    let duo = t.encounters.iter().position(|e| e.members.len() == 2).unwrap() as u8;
+    let mut app = encounter_app(duo);
+    app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+    let p = player(&mut app);
+    let pair = bosses(&mut app);
+    app.world_mut().get_mut::<Body>(pair[0].0).unwrap().pos = Vec3::new(-3.0, 0.0, 0.0);
+    app.world_mut().get_mut::<Body>(pair[1].0).unwrap().pos = Vec3::new(3.0, 0.0, 0.0);
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -6.0);
+    step(&mut app, PlayerInput { buttons: btn::LOCK, cam_yaw: cam, ..IDLE });
+    let a = app.world().get::<Player>(p).unwrap().lock;
+    step(&mut app, PlayerInput { cam_yaw: cam, ..IDLE });
+    // Vu depuis le sud, le premier (x = -3) est à droite.
+    let dir = if a == Some(pair[0].0) { btn::TARGET_LEFT } else { btn::TARGET_RIGHT };
+    step(&mut app, PlayerInput { buttons: dir, cam_yaw: cam, ..IDLE });
+    let b2 = app.world().get::<Player>(p).unwrap().lock;
+    assert!(a.is_some() && b2.is_some() && a != b2, "{a:?} → {b2:?}");
+}
+
+#[test]
+fn duo_partner_enrages_and_minions_do_not_block_victory() {
+    let t = Tuning::builtin();
+    let duo = t.encounters.iter().position(|e| e.members.len() == 2).unwrap() as u8;
+    let mut app = encounter_app(duo);
+    let pair = bosses(&mut app);
+    app.world_mut().get_mut::<Health>(pair[0].0).unwrap().cur = 0.0;
+    // (une fois son attaque en cours terminée)
+    steps(&mut app, 240, IDLE);
+    assert_eq!(app.world().get::<Boss>(pair[1].0).unwrap().phase, 2, "le survivant passe en phase 2");
+    app.world_mut().get_mut::<Health>(pair[1].0).unwrap().cur = 0.0;
+    steps(&mut app, 3, IDLE);
+    let enc = *app.world().resource::<Encounter>();
+    assert!(enc.boss_defeated && !enc.active);
+
+    // Le boucher : ses chiens n'empêchent pas la victoire, et tombent avec lui.
+    let butcher = t.encounters.iter().position(|e| e.members.iter().any(|m| m.boss == "butcher")).unwrap() as u8;
+    let mut app = encounter_app(butcher);
+    let all = bosses(&mut app);
+    let main = all.iter().find(|(_, d)| !t.bosses[*d as usize].minor).unwrap().0;
+    app.world_mut().get_mut::<Health>(main).unwrap().cur = 0.0;
+    steps(&mut app, 3, IDLE);
+    assert!(app.world().resource::<Encounter>().boss_defeated);
+    for (e, _) in all {
+        assert!(app.world().get::<Health>(e).unwrap().dead());
+    }
+}
+
+/// Rencontre avec le boss `key` seul, passif, posé au centre face à +z ; le joueur en `at`.
+fn lone_boss(key: &str, at: Vec3) -> (App, Entity, u8, Entity) {
+    let t = Tuning::builtin();
+    let choice = t.encounters.iter().position(|e| e.members.iter().any(|m| m.boss == key)).unwrap() as u8;
+    let mut app = encounter_app(choice);
+    app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+    let (b, def) = bosses(&mut app).into_iter().find(|&(_, d)| t.bosses[d as usize].key == key).unwrap();
+    let p = player(&mut app);
+    {
+        let mut bb = app.world_mut().get_mut::<Body>(b).unwrap();
+        bb.pos = Vec3::ZERO;
+        bb.yaw = 0.0;
+    }
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = at;
+    *app.world_mut().get_mut::<Action>(b).unwrap() = Action::default();
+    (app, b, def, p)
+}
+
+fn start_boss_attack(app: &mut App, b: Entity, def: u8, name: &str, dist: f32) {
+    let t = Tuning::builtin();
+    let idx = t.bosses[def as usize].attacks.iter().position(|a| a.name == name).expect(name);
+    app.world_mut().get_mut::<Action>(b).unwrap().start(MoveRef::BossAttack(def, idx as u16), dist);
+    events(app);
+}
+
+#[test]
+fn dragon_breath_is_one_beam_that_hits_once_and_stops_with_its_attack() {
+    let (mut app, b, def, p) = lone_boss("dragon", Vec3::new(0.0, 0.0, 9.0));
+    start_boss_attack(&mut app, b, def, "souffle", 9.0);
+    let (mut hits, mut casts) = (0, 0);
+    for _ in 0..176 {
+        app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, 9.0);
+        step(&mut app, IDLE);
+        for e in events(&mut app) {
+            hits += matches!(e, SimEvent::Hit { on_player: true, .. }) as u32;
+            casts += matches!(e, SimEvent::SpellCast { .. }) as u32;
+        }
+    }
+    assert_eq!((casts, hits), (1, 1), "un seul jet, qui ne touche qu'une fois");
+
+    // Interrompu (groggy), le jet s'éteint aussitôt.
+    let (mut app, b, def, _) = lone_boss("dragon", Vec3::new(0.0, 0.0, -9.0));
+    start_boss_attack(&mut app, b, def, "souffle", 9.0);
+    steps(&mut app, 70, IDLE);
+    let beams = |app: &mut App| app.world_mut().query::<&giants_flame::sim::spell::Spell>().iter(app.world()).count();
+    assert_eq!(beams(&mut app), 1);
+    app.world_mut().get_mut::<Action>(b).unwrap().start(MoveRef::Boss(def, BossMove::Groggy), 0.0);
+    steps(&mut app, 2, IDLE);
+    assert_eq!(beams(&mut app), 0);
+}
+
+#[test]
+fn big_beast_pivots_a_quarter_turn_to_tail_whip_its_flank() {
+    // La cible sur son flanc gauche (+x est sa gauche quand elle regarde +z).
+    let (mut app, b, def, p) = lone_boss("dragon", Vec3::new(4.5, 0.0, -1.0));
+    start_boss_attack(&mut app, b, def, "pivot_gauche", 4.6);
+    let before = hp(&mut app, p);
+    let total = Tuning::builtin().bosses[def as usize].attacks.iter().find(|a| a.name == "pivot_gauche").unwrap().mv.total;
+    steps(&mut app, total - 1, IDLE);
+    let yaw = body(&mut app, b).yaw;
+    assert!((math::wrap(yaw + std::f32::consts::FRAC_PI_2)).abs() < 0.05, "quart de tour vers la droite : {yaw}");
+    assert!(hp(&mut app, p) < before, "la queue fouette le flanc gauche");
+}
+
+#[test]
+fn big_beast_does_not_track_its_target_exactly() {
+    let (mut app, b, _, p) = lone_boss("dragon", Vec3::new(0.0, 0.0, 12.0));
+    app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+    // La cible louvoie devant elle, dans son cône : elle ne se tourne pas.
+    for tick in 0..240u32 {
+        let x = (tick as f32 * 0.05).sin() * 3.0;
+        app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(x, 0.0, 12.0 + body(&mut app, b).pos.z);
+        step(&mut app, IDLE);
+        assert!(body(&mut app, b).yaw.abs() < 0.01, "tick {tick} : elle a tourné");
+    }
+    // Sortie du cône (à 90° sur sa gauche, loin) : elle se tourne à peu près vers elle.
+    let at = body(&mut app, b).pos + Vec3::new(12.0, 0.0, 0.0);
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = at;
+    steps(&mut app, 180, IDLE);
+    let to = math::yaw_of(at - body(&mut app, b).pos);
+    let err = math::wrap(to - body(&mut app, b).yaw).abs().to_degrees();
+    assert!(err < 35.0, "écart {err}°");
+}
+
+#[test]
+fn attacking_in_the_air_is_a_jump_attack_that_lands() {
+    use giants_flame::sim::data::{MoveRef, WeaponMove};
+    let mut app = fresh_app();
+    let p = player(&mut app);
+    put_player(&mut app, 0.0, -31.5, 0.0);
+    steps(&mut app, 2, IDLE);
+    let y = body(&mut app, p).pos.y;
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    steps(&mut app, 8, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
+    let a = app.world().get::<giants_flame::sim::fighter::Action>(p).unwrap().mv;
+    assert_eq!(a, Some(MoveRef::Weapon(0, WeaponMove::Jump)));
+    steps(&mut app, 60, IDLE);
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert!(!pl.airborne && pl.state == PState::Free);
+    assert!((body(&mut app, p).pos.y - y).abs() < 1e-4);
+}
+
+#[test]
+fn up_and_down_switch_between_high_and_low_lock_points() {
+    let mut app = new_app();
+    let t = tuning(&app);
+    // La wyverne : sa tête est bien plus haut que ses pattes.
+    let dragon = t.boss_kind("dragon").unwrap();
+    let b = boss(&mut app);
+    *app.world_mut().get_mut::<giants_flame::sim::boss::Boss>(b).unwrap() = giants_flame::sim::boss::Boss::new(&t, dragon);
+    {
+        let mut bb = app.world_mut().get_mut::<Body>(b).unwrap();
+        bb.pos = Vec3::ZERO;
+        bb.yaw = 0.0;
+    }
+    let p = player(&mut app);
+    {
+        let mut pb = app.world_mut().get_mut::<Body>(p).unwrap();
+        pb.pos = Vec3::new(0.0, 0.0, 12.0);
+        pb.yaw = std::f32::consts::PI;
+    }
+    let cam_yaw = PlayerInput::quantize_yaw(std::f32::consts::PI);
+    step(&mut app, PlayerInput { buttons: btn::LOCK, cam_yaw, ..IDLE });
+    step(&mut app, PlayerInput { cam_yaw, ..IDLE });
+    let part = |app: &mut App| app.world().get::<Player>(p).unwrap().lock_part;
+    assert!(app.world().get::<Player>(p).unwrap().lock.is_some());
+    step(&mut app, PlayerInput { buttons: btn::TARGET_UP, cam_yaw, ..IDLE });
+    step(&mut app, PlayerInput { cam_yaw, ..IDLE });
+    assert_eq!(part(&mut app), 0, "la tête");
+    step(&mut app, PlayerInput { buttons: btn::TARGET_DOWN, cam_yaw, ..IDLE });
+    assert_ne!(part(&mut app), 0, "une patte");
+}
+
+#[test]
+fn the_brooch_islet_by_the_belvedere_needs_a_running_jump() {
+    let east = Vec3::X;
+    let cam_yaw = PlayerInput::quantize_yaw(math::yaw_of(east));
+    let run = PlayerInput { move_y: 127, cam_yaw, ..IDLE };
+    // En marchant : la chute.
+    let mut app = fresh_app();
+    let p = player(&mut app);
+    put_player(&mut app, 12.0, -115.2, 0.0);
+    walk(&mut app, 120, east);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Fell { .. })));
+    // En courant (sprint), saut au bord : l'îlot, et le talisman à portée.
+    let mut app = fresh_app();
+    let t = tuning(&app);
+    let p2 = player(&mut app);
+    put_player(&mut app, 9.0, -115.2, 0.0);
+    steps(&mut app, 2, IDLE);
+    events(&mut app);
+    step(&mut app, PlayerInput { buttons: btn::SPRINT, ..run });
+    for _ in 0..200 {
+        if body(&mut app, p2).pos.x > 13.7 {
+            break;
+        }
+        step(&mut app, run);
+    }
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..run });
+    steps(&mut app, 40, run);
+    steps(&mut app, 20, IDLE);
+    let ev = events(&mut app);
+    assert!(!ev.iter().any(|e| matches!(e, SimEvent::Fell { .. })), "pas de chute ({:?})", body(&mut app, p2).pos);
+    let brooch = t.level.pickups.iter().find(|k| k.items.iter().any(|(i, _)| *i == Item::IronBrooch)).unwrap().pos;
+    let at = body(&mut app, p2).pos;
+    assert!(math::flat_len(at - Vec3::new(brooch[0], at.y, brooch[1])) < 1.8, "sur l'îlot ({at:?})");
+    let _ = p;
+}
+
+#[test]
+fn dragon_headbutt_turns_toward_a_target_off_its_axis() {
+    // Elle vise mal (heading_slack) : la cible est à 30° de son axe quand elle attaque.
+    let a = 30f32.to_radians();
+    let at = Vec3::new(a.sin(), 0.0, a.cos()) * 6.5;
+    let (mut app, b, def, p) = lone_boss("dragon", at);
+    start_boss_attack(&mut app, b, def, "coup_de_tete", 6.5);
+    let before = hp(&mut app, p);
+    for _ in 0..112 {
+        app.world_mut().get_mut::<Body>(p).unwrap().pos = at;
+        step(&mut app, IDLE);
+    }
+    assert!(hp(&mut app, p) < before, "le coup de tête l'atteint");
+}
+
+#[test]
+fn aoe_circle_shows_early_stays_put_and_marks_the_impact() {
+    use giants_flame::sim::boss::{MIN_WARNING, aoe_telegraph};
+    let (mut app, b, def, p) = lone_boss("butcher", Vec3::new(0.0, 0.0, 3.0));
+    start_boss_attack(&mut app, b, def, "fendoir", 3.0);
+    let t = Tuning::builtin();
+    let mut first: Option<(u32, Vec3)> = None;
+    let mut impact = None;
+    for tick in 0..140u32 {
+        // La cible tourne autour de lui : ni le cercle ni le coup ne la suivent une fois l'alerte affichée.
+        let a = tick as f32 * 0.03;
+        app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(a.sin(), 0.0, a.cos()) * 3.0;
+        step(&mut app, IDLE);
+        let w = app.world();
+        if let Some((pos, ..)) = aoe_telegraph(w.get::<Body>(b).unwrap(), w.get::<Action>(b).unwrap(), &t) {
+            match first {
+                None => first = Some((tick, pos)),
+                Some((_, p0)) => assert!(p0.distance(pos) < 0.05, "tick {tick} : le cercle a bougé"),
+            }
+        }
+        for e in events(&mut app) {
+            if let SimEvent::Shockwave { pos, .. } = e {
+                impact = Some((tick, pos));
+            }
+        }
+    }
+    let ((shown, marked), (hit, pos)) = (first.expect("cercle d'alerte"), impact.expect("onde de choc"));
+    assert!(hit - shown >= MIN_WARNING, "alerte de {} ticks seulement", hit - shown);
+    let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+    assert!(flat(marked).distance(flat(pos)) < 0.1, "l'impact tombe dans le cercle");
+}
+
+#[test]
+fn a_bolt_that_misses_burns_on_the_ground_for_a_moment() {
+    use giants_flame::sim::spell::{SPLASH_LIFE, Spell};
+    let (mut app, b, def, p) = lone_boss("marionette", Vec3::new(0.0, 0.0, 7.0));
+    start_boss_attack(&mut app, b, def, "bond_arriere", 7.0);
+    // Les aiguilles partent de bien au-dessus d'elle.
+    let mut cast_y = None;
+    for _ in 0..40 {
+        step(&mut app, IDLE);
+        for e in events(&mut app) {
+            if let SimEvent::SpellCast { pos, .. } = e {
+                cast_y = Some(pos.y);
+            }
+        }
+    }
+    assert!(cast_y.expect("aiguilles lancées") > 8.0);
+    // Elles restent un instant suspendues, puis partent vers leur cible.
+    let at = |app: &mut App| app.world_mut().query::<&Spell>().iter(app.world()).map(|s| s.pos).collect::<Vec<_>>();
+    let hung = at(&mut app);
+    steps(&mut app, 10, IDLE);
+    assert_eq!(at(&mut app), hung, "suspendues");
+    steps(&mut app, 20, IDLE);
+    assert_ne!(at(&mut app), hung, "parties");
+    // Esquivées (la cible s'est écartée), elles s'écrasent au sol...
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(14.0, 0.0, -10.0);
+    let landed = |app: &mut App| {
+        app.world_mut().query::<&Spell>().iter(app.world()).filter(|s| s.landed.is_some()).map(|s| s.pos).next()
+    };
+    let mut spot = None;
+    for _ in 0..120 {
+        step(&mut app, IDLE);
+        if let Some(s) = landed(&mut app) {
+            spot = Some(s);
+            break;
+        }
+    }
+    let spot = spot.expect("une aiguille au sol");
+    // ...et y brûlent : qui marche dedans est touché, puis la flaque s'éteint.
+    let before = hp(&mut app, p);
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(spot.x, 0.0, spot.z);
+    steps(&mut app, 3, IDLE);
+    assert!(hp(&mut app, p) < before, "la flaque brûle");
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(14.0, 0.0, -10.0);
+    steps(&mut app, SPLASH_LIFE + 120, IDLE);
+    assert!(landed(&mut app).is_none());
 }

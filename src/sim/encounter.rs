@@ -23,6 +23,8 @@ pub struct Encounter {
     pub hunted: bool,
     /// Les ennemis doivent revenir à leur poste (repos au checkpoint).
     pub respawn_enemies: bool,
+    /// Rencontre qui attend dans l'arène (`Tuning::encounters`).
+    pub boss_choice: u8,
 }
 
 /// Délai entre la fin de l'animation de mort et la réapparition.
@@ -69,6 +71,9 @@ pub struct Progress {
     #[serde(alias = "souls")]
     pub embers: u32,
     pub boss_defeated: bool,
+    /// Rencontre choisie au checkpoint (`Tuning::encounters`).
+    #[serde(default)]
+    pub boss_choice: u8,
     pub weapon: u8,
     pub inventory: Inventory,
     /// PV (`None` : pleins).
@@ -121,6 +126,7 @@ impl Progress {
             embers,
             dropped,
             boss_defeated: enc.boss_defeated,
+            boss_choice: enc.boss_choice,
             weapon: p.weapon,
             inventory,
             hp: (!dead).then_some(hp.cur),
@@ -187,13 +193,14 @@ pub fn encounter_tick(
     mut reset: ResMut<ResetFight>,
     mut events: ResMut<SimEvents>,
     mut players: Query<(&mut Player, &Body, &Health), Without<Boss>>,
-    mut bosses: Query<(&mut Action, &Health), With<Boss>>,
+    mut bosses: Query<(&Boss, &mut Action, &mut Health)>,
 ) {
     let t = &*tuning;
     for (mut p, _, _) in &mut players {
         p.dead_ticks = if p.state == PState::Dead { p.dead_ticks + 1 } else { 0 };
     }
-    let boss_alive = bosses.iter().any(|(_, h)| !h.dead());
+    // Les seconds rôles (chiens du boucher) ne comptent pas pour la victoire.
+    let boss_alive = bosses.iter().any(|(b, _, h)| !h.dead() && !b.def(t).minor);
 
     // Entrée dans l'arène : le boss se réveille en rugissant et la brume se referme.
     if !enc.active
@@ -201,9 +208,9 @@ pub fn encounter_tick(
         && players.iter().any(|(_, b, h)| !h.dead() && in_arena(&t.arena, b.pos))
     {
         enc.active = true;
-        for (mut a, h) in &mut bosses {
+        for (b, mut a, h) in &mut bosses {
             if !h.dead() && a.mv.is_none() {
-                a.start(MoveRef::Boss(BossMove::Roar), 0.0);
+                a.start(MoveRef::Boss(b.def, BossMove::Roar), 0.0);
             }
         }
         events.push(SimEvent::BossAwake);
@@ -212,10 +219,18 @@ pub fn encounter_tick(
     if enc.active && !boss_alive {
         enc.active = false;
         enc.boss_defeated = true;
-        for (mut p, ..) in &mut players {
-            p.embers = p.embers.saturating_add(t.boss.embers);
+        // Le maître tombé, ses chiens s'effondrent avec lui.
+        for (b, mut a, mut h) in &mut bosses {
+            if !h.dead() {
+                h.cur = 0.0;
+                a.start(MoveRef::Boss(b.def, BossMove::Death), 0.0);
+            }
         }
-        events.push(SimEvent::BossDefeated { embers: t.boss.embers });
+        let embers = t.encounters.get(enc.boss_choice as usize).map_or(0, |e| e.embers);
+        for (mut p, ..) in &mut players {
+            p.embers = p.embers.saturating_add(embers);
+        }
+        events.push(SimEvent::BossDefeated { embers });
     }
 
     // Tout le monde est mort : retour au checkpoint, le boss repart de zéro.
@@ -236,6 +251,8 @@ pub enum SimCommand {
     EquipTalisman { player: u8, item: Option<Item> },
     /// Fait revenir le boss vaincu (depuis le checkpoint).
     ReviveBoss,
+    /// Choisit le boss qui attend dans l'arène (depuis le checkpoint) : il apparaît neuf.
+    ChooseBoss(u8),
     /// Voyage vers un checkpoint découvert : on y réapparaît reposé, le monde est réinitialisé.
     Travel { player: u8, checkpoint: u8 },
 }
@@ -283,13 +300,24 @@ pub fn apply_commands(
                 reset.requested = true;
                 reset.progress = Some(progress);
             }
+            SimCommand::ChooseBoss(choice) => {
+                if !enc.active && (choice as usize) < tuning.encounters.len() {
+                    enc.boss_choice = choice;
+                    enc.boss_defeated = false;
+                    for e in &bosses {
+                        commands.entity(e).despawn();
+                    }
+                    super::spawn_boss(&mut commands, &tuning, choice);
+                    events.push(SimEvent::BossRevived);
+                }
+            }
             SimCommand::ReviveBoss => {
                 if enc.boss_defeated && !enc.active {
                     enc.boss_defeated = false;
                     for e in &bosses {
                         commands.entity(e).despawn();
                     }
-                    super::spawn_boss(&mut commands, &tuning);
+                    super::spawn_boss(&mut commands, &tuning, enc.boss_choice);
                     events.push(SimEvent::BossRevived);
                 }
             }

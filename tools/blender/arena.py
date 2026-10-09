@@ -280,8 +280,9 @@ def porch_and_landing(mb):
     # Balustrades du palier.
     for sx in (-1, 1):
         mb.slab((sx * (hw + 0.2), (yp1 + y1) / 2, 0.5), (0.4, y1 - yp1, 1.0), STONE, skip=("bottom", "-y"))
-    # Dessous du palier.
-    mb.box((0, (yp1 + y1) / 2, -0.8), (2 * hw + 0.8, y1 - yp1, 1.6), ROCK)
+    # Dessous du palier : son sommet reste juste sous le dallage (à la même hauteur, la roche
+    # le perçait par endroits), et sa tranche, au départ de l'escalier, est en pierre.
+    mb.box((0, (yp1 + y1) / 2, -0.85), (2 * hw + 0.8, y1 - yp1, 1.6), STONE)
 
 
 # ----------------------------------------------------------------------------- chemins et plates-formes
@@ -341,15 +342,19 @@ def strip(mb, f, idx):
     dx, dz = x1 - x0, z1 - z0
     ln = math.hypot(dx, dz)
     ux, uz = dx / ln, dz / ln
-    # Les bouts qui entrent dans une plate-forme sont rognés (on ne superpose pas deux sols)
-    # et posés 2 cm plus bas que la plate-forme.
+    # Les bouts qui entrent dans une plate-forme (ou le sol de l'arène) sont rognés : on ne
+    # superpose pas deux sols (2 cm d'écart scintillent de loin), il ne reste qu'un raccord.
     def inside(t):
-        return inside_ellipse(x0 + ux * t, z0 + uz * t) is not None
+        x, z = x0 + ux * t, z0 + uz * t
+        on_arena = math.hypot(x, z) < RADIUS + 1.5 and abs(y0 + (y1 - y0) * t / ln) < 0.1
+        return on_arena or inside_ellipse(x, z) is not None
     a, b = 0.0, ln
-    while a < ln and inside(a + 0.8):
+    while a < ln and inside(a + 0.3):
         a += 0.1
-    while b > 0 and inside(b - 0.8):
+    while b > 0 and inside(b - 0.3):
         b -= 0.1
+    # Bande tout entière sur une plate-forme : rien à dessiner (sauf ses balustrades).
+    covered = b - a < 0.2 and not steps
     if b - a < 0.2:
         a, b = 0.0, ln
     sx, sz = uz, -ux  # côté (droite en regardant vers `to`)
@@ -377,7 +382,7 @@ def strip(mb, f, idx):
                 j = (i + 1) % 4
                 q = (v_bot[i], v_bot[j], v_top[j], v_top[i])
                 mb._face(q if is_ccw(corners) else tuple(reversed(q)), STONE, uv_scale=(1, 0.3))
-    else:
+    elif not covered:
         # Dalles du tablier en bandes d'environ 1 m (texture affine contenue).
         n = max(1, math.ceil((b - a) / 1.0))
         cols = [-hw + 2 * hw * i / 3 for i in range(4)]
@@ -442,11 +447,12 @@ def strip(mb, f, idx):
                 length = math.hypot(c1[0] - c0[0], c1[1] - c0[1]) + 0.02
                 obj(f"rail_{idx}_{k}_{side}", lambda m, l=length, h=top - bot: m.slab((0, 0, 0), (0.4, l, h), STONE),
                     loc=mid, yaw=math.atan2(-(c1[0] - c0[0]), c1[1] - c0[1]))
-        # Dessous de l'escalier.
-        lo = min(y0, y1)
+        # Dessous de l'escalier : des piles sous les marches (leur sommet reste sous la plus
+        # basse, sinon il percerait le bas de l'escalier).
+        lo = min(y0, y1) - 0.45
         for t in (a + (b - a) * 0.3, a + (b - a) * 0.8):
             c = P(t, 0)
-            mb.box((c[0], c[1], lo - 4.0), (2 * hw + 0.6, 1.4, 8.0 + (c[2] - lo)), ROCK, taper=(0.6, 0.8))
+            mb.box((c[0], c[1], lo - 4.0), (2 * hw + 0.6, 1.4, 8.0), ROCK, taper=(0.6, 0.8))
 
 
 def is_ccw(pts):

@@ -77,6 +77,13 @@ pub struct Motion {
     /// mouvement (et non figée au début de l'action). Sert aux sauts qui retombent sur la cible.
     #[serde(default)]
     pub retarget: bool,
+    /// Rotation sur place pendant le segment (degrés au total, positif = vers la gauche) :
+    /// un grand boss qui pivote en donnant un coup de queue.
+    #[serde(default)]
+    pub turn: f32,
+    /// Vitesse latérale (m/s, positif = vers la droite) : un bond de côté.
+    #[serde(default)]
+    pub side: f32,
 }
 
 /// Définition d'une action (attaque, esquive, réaction…).
@@ -115,6 +122,9 @@ pub struct MoveDef {
     /// Fenêtre pendant laquelle un coup reçu est contré (posture de l'épée longue).
     #[serde(default)]
     pub counter: Option<[u32; 2]>,
+    /// Sorts lancés pendant l'action (boss).
+    #[serde(default)]
+    pub casts: Vec<Cast>,
 }
 
 fn default_track_rate() -> f32 {
@@ -230,6 +240,8 @@ pub struct PlayerDef {
 #[derive(Deserialize, Clone, Debug)]
 pub struct WeaponDef {
     pub name: LText,
+    /// Ce qu'elle fait de mieux (fiche du menu d'équipement).
+    pub description: LText,
     pub light: Vec<MoveDef>,
     pub heavy: MoveDef,
     pub heavy_charged: MoveDef,
@@ -241,11 +253,143 @@ pub struct WeaponDef {
     #[serde(default)]
     pub special_counter: Option<MoveDef>,
     pub fatal: MoveDef,
+    /// Attaque sautée (attaque pendant un saut) : plus de dégâts, peu d'endurance (le saut
+    /// en a déjà coûté).
+    pub jump: MoveDef,
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct WeaponsDef {
     pub weapons: Vec<WeaponDef>,
+}
+
+/// Où partent les sorts d'un lancer.
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CastAim {
+    /// Projectiles vers la cible (en éventail de `spread` degrés s'il y en a plusieurs) ;
+    /// éruptions sous ses pieds, éparpillées dans un rayon de `spread` mètres autour.
+    #[default]
+    Target,
+    /// Droit devant (éventail de `spread` degrés) ; éruptions en ligne, tous les `step` mètres.
+    Forward,
+    /// En cercle autour du lanceur, à `spread` mètres (éruptions) ou dans toutes les directions.
+    Ring,
+}
+
+/// Sort lancé au tick `at` d'une action.
+#[derive(Deserialize, Clone, Debug)]
+pub struct Cast {
+    pub at: u32,
+    /// Nom du sort (`spells` du boss).
+    pub spell: String,
+    /// Point de départ (repère local du lanceur, à son échelle).
+    #[serde(default)]
+    pub from: [f32; 3],
+    #[serde(default)]
+    pub aim: CastAim,
+    #[serde(default = "one_u8")]
+    pub count: u8,
+    #[serde(default)]
+    pub spread: f32,
+    /// Distance entre deux éruptions en ligne (`Forward`), et à la première.
+    #[serde(default = "one")]
+    pub step: f32,
+    /// Délai supplémentaire entre deux éruptions successives (une vague qui avance).
+    #[serde(default)]
+    pub delay_step: u32,
+}
+
+fn one_u8() -> u8 {
+    1
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SpellKind {
+    /// Projectile qui file (et suit un peu sa cible).
+    #[default]
+    Bolt,
+    /// Colonne qui jaillit du sol après une alerte (zone marquée au sol).
+    Eruption,
+    /// Jet continu (souffle) : de la bouche du lanceur jusqu'au sol devant lui, il suit ses
+    /// mouvements pendant `life` ticks et s'arrête si l'attaque est interrompue.
+    Beam,
+}
+
+/// Élément d'un sort (uniquement visuel).
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Element {
+    #[default]
+    Fire,
+    /// Lumière pâle de l'allumeur.
+    Light,
+    /// Fer qui tournoie (couperet lancé).
+    Iron,
+    /// Glace de la bête à l'échine creuse.
+    Ice,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct SpellDef {
+    pub name: String,
+    #[serde(default)]
+    pub kind: SpellKind,
+    #[serde(default)]
+    pub element: Element,
+    pub damage: f32,
+    pub radius: f32,
+    #[serde(default)]
+    pub reaction: Reaction,
+    #[serde(default = "default_hitstop")]
+    pub hitstop: u8,
+    /// Projectile : vitesse (m/s) et virage vers la cible (degrés/s).
+    #[serde(default)]
+    pub speed: f32,
+    #[serde(default)]
+    pub homing: f32,
+    /// Éruption : ticks d'alerte avant de jaillir. Projectile : ticks où il reste suspendu
+    /// là où il apparaît, avant de partir vers sa cible.
+    #[serde(default)]
+    pub delay: u32,
+    /// Durée de vie (projectile) ou durée de la colonne (éruption), en ticks.
+    pub life: u32,
+    /// Ni garde ni parade (les éruptions le sont toujours).
+    #[serde(default)]
+    pub aoe: bool,
+    /// Jet : distance (bornes min, max) entre la bouche et le point où il touche le sol, selon
+    /// la cible au lancer.
+    #[serde(default = "default_reach")]
+    pub reach: [f32; 2],
+}
+
+fn default_reach() -> [f32; 2] {
+    [4.0, 12.0]
+}
+
+/// Partie d'un grand boss : zone touchable en plus du corps, et point qu'on peut verrouiller.
+#[derive(Deserialize, Clone, Debug)]
+pub struct PartDef {
+    /// Centre (repère local, à l'échelle du modèle).
+    pub at: [f32; 3],
+    pub r: f32,
+    /// Verrouillable (sinon simple zone touchable).
+    #[serde(default = "yes")]
+    pub lock: bool,
+    /// Pièce du modèle que suit le réticule (sinon le point fixe `at`).
+    #[serde(default)]
+    pub bone: Option<String>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// Côté de la cible par rapport à l'avant du boss.
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Side {
+    #[default]
+    Any,
+    Left,
+    Right,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -256,14 +400,34 @@ pub struct BossAttack {
     pub max_range: f32,
     /// Angle max entre l'avant du boss et la cible pour lancer l'attaque.
     pub max_angle: f32,
+    /// Angle min (attaques vers l'arrière : coup de queue…).
+    #[serde(default)]
+    pub min_angle: f32,
+    /// Côté où doit se trouver la cible (pivots vers la gauche ou la droite).
+    #[serde(default)]
+    pub side: Side,
     pub weight: f32,
     pub cooldown: u32,
     /// Phases où l'attaque est disponible (1 et/ou 2). Les ennemis n'ont qu'une phase.
     #[serde(default = "default_phases")]
     pub phases: Vec<u8>,
-    /// Enchaînement possible : (nom de l'attaque suivante, probabilité).
+    /// Enchaînements possibles : (nom de l'attaque suivante, probabilité). Un seul tirage :
+    /// les probabilités s'additionnent (≤ 1), le reste du temps il n'enchaîne pas.
     #[serde(default)]
-    pub next: Option<(String, f32)>,
+    pub next: Vec<(String, f32)>,
+}
+
+impl BossAttack {
+    /// Attaque enchaînée (index dans `attacks`) pour un tirage `roll` ∈ [0, 1).
+    pub fn chained(&self, attacks: &[BossAttack], mut roll: f32) -> Option<usize> {
+        for (name, chance) in &self.next {
+            if roll < *chance {
+                return attacks.iter().position(|a| &a.name == name);
+            }
+            roll -= chance;
+        }
+        None
+    }
 }
 
 fn default_phases() -> Vec<u8> {
@@ -272,7 +436,30 @@ fn default_phases() -> Vec<u8> {
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct BossDef {
+    /// Clé (référencée par les rencontres).
+    #[serde(default)]
+    pub key: String,
     pub name: LText,
+    /// Modèle (`assets/models/<model>.glb`) et son échelle.
+    #[serde(default = "default_boss_model")]
+    pub model: String,
+    #[serde(default = "one")]
+    pub scale: f32,
+    /// Teinte permanente du modèle (r, g, b, force).
+    #[serde(default)]
+    pub tint: Option<[f32; 4]>,
+    /// Couleur (sRGB) de ses alertes au sol : zones d'effet et éruptions de ses sorts.
+    #[serde(default = "default_aoe_color")]
+    pub color: [f32; 3],
+    /// Second rôle (les chiens du boucher) : pas de barre de vie en bas de l'écran, et sa mort
+    /// n'est pas nécessaire à la victoire.
+    #[serde(default)]
+    pub minor: bool,
+    #[serde(default = "default_boss_mass")]
+    pub mass: f32,
+    /// Distance en deçà de laquelle il recule (lanceur de sorts) ; 0 = jamais.
+    #[serde(default)]
+    pub keep_away: f32,
     pub max_hp: f32,
     pub phase2_at: f32,
     pub radius: f32,
@@ -280,6 +467,11 @@ pub struct BossDef {
     pub walk_speed: f32,
     pub strafe_speed: f32,
     pub turn_rate: f32,
+    /// Grande bête (degrés) : elle ne se tourne vers sa cible que lorsque celle-ci sort de ce
+    /// cône, et vise à peu près (pas exactement) sa direction. Tout près d'elle, elle ne
+    /// pivote presque plus : ce sont ses attaques de côté qui la font tourner. 0 = suit la cible.
+    #[serde(default)]
+    pub heading_slack: f32,
     /// Distance que le boss cherche à garder avec sa cible.
     pub preferred_range: f32,
     pub stagger_max: f32,
@@ -297,6 +489,53 @@ pub struct BossDef {
     pub roar: MoveDef,
     pub death: MoveDef,
     pub attacks: Vec<BossAttack>,
+    /// Zones touchables et points de verrouillage des grands boss (tête, pattes…).
+    #[serde(default)]
+    pub parts: Vec<PartDef>,
+    #[serde(default)]
+    pub spells: Vec<SpellDef>,
+}
+
+fn default_aoe_color() -> [f32; 3] {
+    [1.0, 0.3, 0.08]
+}
+
+fn default_boss_model() -> String {
+    "boss".into()
+}
+
+fn default_boss_mass() -> f32 {
+    8.0
+}
+
+impl BossDef {
+    pub fn spell(&self, name: &str) -> Option<u8> {
+        self.spells.iter().position(|s| s.name == name).map(|i| i as u8)
+    }
+}
+
+/// Un membre d'une rencontre de boss.
+#[derive(Deserialize, Clone, Debug)]
+pub struct MemberDef {
+    pub boss: String,
+    /// Décalage (x, z) par rapport au point d'apparition du boss.
+    #[serde(default)]
+    pub offset: [f32; 2],
+}
+
+/// Ce qui attend dans l'arène : un boss, un duo, un boss et ses chiens…
+#[derive(Deserialize, Clone, Debug)]
+pub struct EncounterDef {
+    pub name: LText,
+    pub members: Vec<MemberDef>,
+    /// Braises gagnées à la victoire.
+    pub embers: u32,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct BossesDef {
+    pub bosses: Vec<BossDef>,
+    pub encounters: Vec<EncounterDef>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -369,7 +608,7 @@ pub enum Prop {
     /// Fontaine sèche.
     Fountain,
     Bench,
-    /// Statue de cheval de manège renversée.
+    /// Statue de cheval renversée.
     Horse,
     /// Guichet de foire (cabane de bois).
     Booth,
@@ -492,7 +731,10 @@ pub struct EnemiesDef {
 pub struct Tuning {
     pub player: PlayerDef,
     pub weapons: Vec<WeaponDef>,
-    pub boss: BossDef,
+    /// Le premier est l'Automate (`boss.ron`), puis ceux de `bosses.ron`.
+    pub bosses: Vec<BossDef>,
+    /// Rencontres proposées au checkpoint (la première : l'Automate seul).
+    pub encounters: Vec<EncounterDef>,
     pub arena: ArenaDef,
     pub level: LevelDef,
     pub enemies: Vec<EnemyDef>,
@@ -501,6 +743,7 @@ pub struct Tuning {
 pub const PLAYER_RON: &str = include_str!("../../assets/config/player.ron");
 pub const WEAPONS_RON: &str = include_str!("../../assets/config/weapons.ron");
 pub const BOSS_RON: &str = include_str!("../../assets/config/boss.ron");
+pub const BOSSES_RON: &str = include_str!("../../assets/config/bosses.ron");
 pub const ARENA_RON: &str = include_str!("../../assets/config/arena.ron");
 pub const LEVEL_RON: &str = include_str!("../../assets/config/level.ron");
 pub const ENEMIES_RON: &str = include_str!("../../assets/config/enemies.ron");
@@ -510,6 +753,7 @@ pub struct TuningSources<'a> {
     pub player: &'a str,
     pub weapons: &'a str,
     pub boss: &'a str,
+    pub bosses: &'a str,
     pub arena: &'a str,
     pub level: &'a str,
     pub enemies: &'a str,
@@ -520,13 +764,25 @@ impl Tuning {
         let opts = ron::Options::default()
             .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME);
         let p = |name: &str, e: ron::error::SpannedError| format!("{name}: {e}");
+        let mut automaton: BossDef = opts.from_str(src.boss).map_err(|e| p("boss.ron", e))?;
+        if automaton.key.is_empty() {
+            automaton.key = "automaton".into();
+        }
+        let more: BossesDef = opts.from_str(src.bosses).map_err(|e| p("bosses.ron", e))?;
+        let mut encounters = vec![EncounterDef {
+            name: automaton.name.clone(),
+            members: vec![MemberDef { boss: automaton.key.clone(), offset: [0.0, 0.0] }],
+            embers: automaton.embers,
+        }];
+        encounters.extend(more.encounters);
         let t = Self {
             player: opts.from_str(src.player).map_err(|e| p("player.ron", e))?,
             weapons: opts
                 .from_str::<WeaponsDef>(src.weapons)
                 .map_err(|e| p("weapons.ron", e))?
                 .weapons,
-            boss: opts.from_str(src.boss).map_err(|e| p("boss.ron", e))?,
+            bosses: std::iter::once(automaton).chain(more.bosses).collect(),
+            encounters,
             arena: opts.from_str(src.arena).map_err(|e| p("arena.ron", e))?,
             level: opts.from_str(src.level).map_err(|e| p("level.ron", e))?,
             enemies: opts.from_str::<EnemiesDef>(src.enemies).map_err(|e| p("enemies.ron", e))?.kinds,
@@ -539,6 +795,34 @@ impl Tuning {
         if t.level.checkpoints.is_empty() {
             return Err("level.ron: il faut au moins un checkpoint".into());
         }
+        for e in &t.encounters {
+            for m in &e.members {
+                if t.boss_kind(&m.boss).is_none() {
+                    return Err(format!("bosses.ron: boss inconnu « {} »", m.boss));
+                }
+            }
+        }
+        for b in &t.bosses {
+            for a in &b.attacks {
+                for c in &a.mv.casts {
+                    if b.spell(&c.spell).is_none() {
+                        return Err(format!("{}/{}: sort inconnu « {} »", b.key, a.name, c.spell));
+                    }
+                }
+            }
+        }
+        // Dès que le cercle d'une zone d'effet s'affiche, le boss cesse de suivre sa cible : le
+        // coup tombe là où le cercle l'annonçait.
+        let mut t = t;
+        for b in &mut t.bosses {
+            for a in &mut b.attacks {
+                let mv = &a.mv;
+                let lock = mv.hits.iter().filter(|h| h.aoe).map(|h| super::boss::aoe_lock_tick(mv, h)).min();
+                if let Some(lock) = lock {
+                    a.mv.track_until = a.mv.track_until.min(lock);
+                }
+            }
+        }
         Ok(t)
     }
 
@@ -548,11 +832,17 @@ impl Tuning {
             player: PLAYER_RON,
             weapons: WEAPONS_RON,
             boss: BOSS_RON,
+            bosses: BOSSES_RON,
             arena: ARENA_RON,
             level: LEVEL_RON,
             enemies: ENEMIES_RON,
         })
         .expect("tuning intégré invalide")
+    }
+
+    /// Index du boss `key`.
+    pub fn boss_kind(&self, key: &str) -> Option<u8> {
+        self.bosses.iter().position(|b| b.key == key).map(|i| i as u8)
     }
 
     /// Index du type d'ennemi `key`.
@@ -588,15 +878,19 @@ impl Tuning {
                         w.special_counter.as_ref().unwrap_or(&w.special)
                     }
                     WeaponMove::Fatal => &w.fatal,
+                    WeaponMove::Jump => &w.jump,
                 }
             }
-            MoveRef::BossAttack(i) => &self.boss.attacks[i as usize].mv,
-            MoveRef::Boss(m) => match m {
-                BossMove::Groggy => &self.boss.groggy,
-                BossMove::FatalReceived => &self.boss.fatal_received,
-                BossMove::Roar => &self.boss.roar,
-                BossMove::Death => &self.boss.death,
-            },
+            MoveRef::BossAttack(b, i) => &self.bosses[b as usize].attacks[i as usize].mv,
+            MoveRef::Boss(b, m) => {
+                let b = &self.bosses[b as usize];
+                match m {
+                    BossMove::Groggy => &b.groggy,
+                    BossMove::FatalReceived => &b.fatal_received,
+                    BossMove::Roar => &b.roar,
+                    BossMove::Death => &b.death,
+                }
+            }
             MoveRef::Enemy(k, m) => {
                 let e = &self.enemies[k as usize];
                 match m {
@@ -615,8 +909,10 @@ impl Tuning {
 pub enum MoveRef {
     Player(PlayerMove),
     Weapon(u8, WeaponMove),
-    BossAttack(u16),
-    Boss(BossMove),
+    /// Attaque d'un boss : (boss, attaque).
+    BossAttack(u8, u16),
+    /// Action commune d'un boss : (boss, action).
+    Boss(u8, BossMove),
     /// Action d'un ennemi : (type, action).
     Enemy(u8, EnemyMove),
 }
@@ -643,6 +939,7 @@ pub enum WeaponMove {
     Special,
     SpecialCounter,
     Fatal,
+    Jump,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -669,14 +966,19 @@ mod tests {
     fn builtin_tuning_parses() {
         let t = Tuning::builtin();
         assert_eq!(t.weapons.len(), 2);
-        assert!(!t.boss.attacks.is_empty());
-        // Les enchaînements du boss pointent vers des attaques existantes.
-        for a in &t.boss.attacks {
-            if let Some((n, _)) = &a.next {
-                assert!(t.boss.attacks.iter().any(|b| &b.name == n), "next inconnu: {n}");
-            }
-            for h in &a.mv.hits {
-                assert!(h.start < h.end && h.end <= a.mv.total, "{}: fenêtre invalide", a.name);
+        assert!(!t.bosses[0].attacks.is_empty());
+        // Les enchaînements des boss pointent vers des attaques existantes.
+        for b in &t.bosses {
+            for a in &b.attacks {
+                for (n, _) in &a.next {
+                    assert!(b.attacks.iter().any(|x| &x.name == n), "{}: next inconnu: {n}", b.key);
+                }
+                for h in &a.mv.hits {
+                    assert!(h.start < h.end && h.end <= a.mv.total, "{}/{}: fenêtre invalide", b.key, a.name);
+                }
+                for c in &a.mv.casts {
+                    assert!(c.at < a.mv.total, "{}/{}: sort lancé après la fin", b.key, a.name);
+                }
             }
         }
         for k in &t.enemies {
@@ -684,7 +986,7 @@ mod tests {
                 for h in &a.mv.hits {
                     assert!(h.start < h.end && h.end <= a.mv.total, "{}/{}: fenêtre invalide", k.key, a.name);
                 }
-                if let Some((n, _)) = &a.next {
+                for (n, _) in &a.next {
                     assert!(k.attacks.iter().any(|b| &b.name == n), "{}: next inconnu: {n}", k.key);
                 }
             }

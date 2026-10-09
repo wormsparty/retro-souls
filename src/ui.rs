@@ -98,6 +98,8 @@ pub enum Glyph {
     /// Flèches ‹ › des valeurs du menu.
     ValueLeft,
     ValueRight,
+    /// Logo de GitHub (le chat dans un disque).
+    GitHub,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -467,6 +469,33 @@ fn draw(g: Glyph) -> Canvas {
                 c.rect(4, y, 7, 1, PAD_TEXT);
             }
             c.outline();
+            c
+        }
+        Glyph::GitHub => {
+            // Disque clair, chat découpé en sombre : tête et oreilles, cou, queue.
+            let (light, dark) = (PAD_TEXT, rgb(24, 22, 28));
+            let mut c = Canvas::new(16, 16);
+            c.disc(8.0, 8.0, 7.7, light);
+            for y in 0..16 {
+                for x in 0..16 {
+                    let (dx, dy) = ((x as f32 + 0.5 - 8.0) / 4.4, (y as f32 + 0.5 - 7.4) / 3.6);
+                    if dx * dx + dy * dy <= 1.0 {
+                        c.set(x, y, dark);
+                    }
+                }
+            }
+            for (x, y) in [(4, 2), (4, 3), (5, 3), (11, 2), (11, 3), (10, 3), (3, 11), (4, 12), (5, 12)] {
+                c.set(x, y, dark);
+            }
+            c.rect(6, 10, 4, 6, dark);
+            for y in 0..16 {
+                for x in 0..16 {
+                    let (dx, dy) = (x as f32 + 0.5 - 8.0, y as f32 + 0.5 - 8.0);
+                    if dx * dx + dy * dy > 7.7 * 7.7 {
+                        c.set(x, y, CLEAR);
+                    }
+                }
+            }
             c
         }
         Glyph::ValueLeft | Glyph::ValueRight => {

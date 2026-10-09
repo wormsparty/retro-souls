@@ -109,7 +109,7 @@ fn overlay(
             def.map(|d| d.total).unwrap_or(0),
             next_hit,
             b.stagger,
-            tuning.boss.stagger_max,
+            b.def(&tuning).stagger_max,
             b.idle,
         );
     }
@@ -212,6 +212,13 @@ impl Plugin for AutoShotPlugin {
                             p.dropped = Some(crate::sim::encounter::Dropped { at: [x, y, z], embers: n as u32 });
                         }
                     }
+                    // Boss à l'essai dans l'arène : SOULS_BOSS=n (index dans `roster::ROSTER`).
+                    if let (Some(n), Some(p)) = (
+                        std::env::var("SOULS_BOSS").ok().and_then(|h| h.parse().ok()),
+                        w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
+                    ) {
+                        p.boss_choice = n;
+                    }
                     // PV de départ optionnels : SOULS_HP=1 (vérifier la mort et la réapparition).
                     if let (Some(hp), Some(p)) = (
                         std::env::var("SOULS_HP").ok().and_then(|h| h.parse().ok()),
@@ -233,6 +240,27 @@ impl Plugin for AutoShotPlugin {
                     }
                 })
                 .after(crate::input::collect_local_input)
+                .before(crate::sim::run_sim_tick)
+                .run_if(in_state(AppState::Playing)),
+            );
+        }
+        // `SOULS_ATTACK=nom` : le boss qui la connaît enchaîne cette attaque dès qu'il est libre.
+        if let Ok(name) = std::env::var("SOULS_ATTACK") {
+            app.add_systems(
+                FixedUpdate,
+                (move |tuning: Res<Tuning>,
+                       encounter: Res<crate::sim::encounter::Encounter>,
+                       mut bosses: Query<(&Boss, &Body, &mut Action)>,
+                       players: Query<&Body, (With<Player>, Without<Boss>)>| {
+                    let Some(target) = players.iter().next().map(|b| b.pos) else { return };
+                    for (boss, body, mut action) in &mut bosses {
+                        let idx = boss.def(&tuning).attacks.iter().position(|a| a.name == name);
+                        if let (Some(i), None, true) = (idx, action.mv, encounter.active) {
+                            let dist = crate::sim::math::flat_len(target - body.pos);
+                            action.start(crate::sim::data::MoveRef::BossAttack(boss.def, i as u16), dist);
+                        }
+                    }
+                })
                 .before(crate::sim::run_sim_tick)
                 .run_if(in_state(AppState::Playing)),
             );
@@ -300,9 +328,12 @@ fn autoshot(
         menu.open(match page.as_str() {
             "help" => Page::Help,
             "equip" => Page::Equipment,
+            "choose" => Page::Choose,
             "options" => Page::Options,
+            "system" => Page::System,
             "checkpoint" => Page::Checkpoint,
             "travel" => Page::Travel,
+            "bosses" => Page::Bosses,
             "language" => Page::Language,
             "style" => Page::Style,
             _ => Page::Pause,
@@ -327,7 +358,7 @@ fn autopilot(
     bosses: Query<&Body, With<Boss>>,
 ) {
     use crate::sim::input::{PlayerInput, btn};
-    let (Ok((p, pb)), Ok(bb)) = (players.single(), bosses.single()) else { return };
+    let (Ok((p, pb)), Some(bb)) = (players.single(), bosses.iter().next()) else { return };
     let t = tick.0;
     let mut i = PlayerInput { cam_yaw: PlayerInput::quantize_yaw(rig.yaw), ..default() };
     if t == 30 {

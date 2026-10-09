@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 
 use super::boss::Boss;
-use super::data::{EnemyMove, HitWindow, MoveDef, MoveRef, PlayerMove, Reaction, Tuning, WeaponMove};
+use super::data::{BossMove, EnemyMove, HitWindow, MoveDef, MoveRef, PartDef, PlayerMove, Reaction, Tuning, WeaponMove};
 use super::encounter::{CHECKPOINT_RADIUS, Encounter};
 use super::enemy::Enemy;
 use super::fighter::{Action, Body, Foe, Health, Hitstop, PrevBody};
@@ -142,7 +142,8 @@ pub fn hit_capsule(body: &Body, h: &HitWindow, tick: f32) -> (Vec3, Vec3, f32) {
 ///
 /// `reach_down` : la frappe s'abaisse jusqu'aux adversaires plus petits qu'elle (un chien
 /// sous un estoc porté à hauteur de poitrine), comme le ferait l'animation.
-pub fn hit_test(attacker: &Body, h: &HitWindow, tick: u32, victim: &Body, reach_down: bool) -> bool {
+/// `parts` : zones touchables en plus du corps (tête, queue d'un grand boss).
+pub fn hit_test(attacker: &Body, h: &HitWindow, tick: u32, victim: &Body, reach_down: bool, parts: &[PartDef]) -> bool {
     let h1 = victim.pos + Vec3::Y * victim.radius;
     let h2 = victim.pos + Vec3::Y * (victim.height - victim.radius).max(victim.radius);
     let top = victim.pos.y + victim.height;
@@ -155,6 +156,10 @@ pub fn hit_test(attacker: &Body, h: &HitWindow, tick: u32, victim: &Body, reach_
             b.y = b.y.min(top);
         }
         math::segment_distance(a, b, h1, h2) <= r + victim.radius
+            || parts.iter().any(|p| {
+                let c = math::local_to_world(victim.pos, victim.yaw, p.at);
+                math::segment_distance(a, b, c, c) <= r + p.r
+            })
     })
 }
 
@@ -181,7 +186,7 @@ fn impact_point(attacker: &Body, victim: &Body) -> Vec3 {
 
 /// Coup encaissé par un adversaire (boss ou ennemi) qui ne le tue pas : stagger du boss,
 /// interruption de l'ennemi. Vrai si le boss devient groggy.
-fn foe_stagger(boss: Option<&mut Boss>, enemy: Option<&mut Enemy>, attacker: Entity, amount: f32, poise: f32, action: &mut Action, t: &Tuning) -> bool {
+pub fn foe_stagger(boss: Option<&mut Boss>, enemy: Option<&mut Enemy>, attacker: Entity, amount: f32, poise: f32, action: &mut Action, t: &Tuning) -> bool {
     if let Some(b) = boss {
         return b.add_stagger(amount, action, t);
     }
@@ -217,8 +222,10 @@ pub fn resolve_hits(
             continue;
         }
         for (wi, h) in active_hits(t.get(mv), pact.tick) {
-            for (fe, _, _, fbody, fhealth, _, _) in &foes {
-                if !fhealth.dead() && !pact.hits.contains(&(wi, fe)) && hit_test(pbody, h, pact.tick, fbody, true) {
+            for (fe, fboss, _, fbody, fhealth, fact, _) in &foes {
+                let parts = fboss.map_or(&[][..], |b| &b.def(t).parts[..]);
+                // Hors d'atteinte (la marionnette hissée dans les airs, l'allumeur qui s'éclipse).
+                if !fhealth.dead() && !fact.iframes(t) && !pact.hits.contains(&(wi, fe)) && hit_test(pbody, h, pact.tick, fbody, true, parts) {
                     pending.push(Pending { attacker: pe, victim: fe, mv, window: wi });
                 }
             }
@@ -231,7 +238,7 @@ pub fn resolve_hits(
         }
         for (wi, h) in active_hits(t.get(mv), fact.tick) {
             for (pe, p, pbody, phealth, _, _) in &players {
-                if targetable(p, phealth) && !fact.hits.contains(&(wi, pe)) && hit_test(fbody, h, fact.tick, pbody, false) {
+                if targetable(p, phealth) && !fact.hits.contains(&(wi, pe)) && hit_test(fbody, h, fact.tick, pbody, false, &[]) {
                     pending.push(Pending { attacker: fe, victim: pe, mv, window: wi });
                 }
             }
@@ -268,11 +275,11 @@ pub fn resolve_hits(
             pstop.0 = pstop.0.max(h.hitstop);
             fstop.0 = fstop.0.max(h.hitstop);
             let pos = impact_point(pbody, fbody);
-            let heavy = matches!(hit.mv, MoveRef::Weapon(_, WeaponMove::HeavyCharged | WeaponMove::Fatal));
+            let heavy = matches!(hit.mv, MoveRef::Weapon(_, WeaponMove::HeavyCharged | WeaponMove::Fatal | WeaponMove::Jump));
             events.push(SimEvent::Hit { pos, heavy, on_player: false });
             if fhp.dead() {
-                if boss.is_some() {
-                    fact.start(MoveRef::Boss(super::data::BossMove::Death), 0.0);
+                if let Some(b) = boss.as_ref() {
+                    fact.start(MoveRef::Boss(b.def, BossMove::Death), 0.0);
                     fact.executed = false;
                     events.push(SimEvent::BossDied);
                 } else if let Some(e) = enemy.as_mut() {
@@ -293,92 +300,137 @@ pub fn resolve_hits(
             let Ok((pe, mut p, pbody, mut php, mut pact, mut pstop)) = players.get_mut(hit.victim) else {
                 continue;
             };
-            if php.dead() || pact.iframes(t) {
+            let pos = impact_point(fbody, pbody);
+            let g = &t.player.guard;
+            match strike_player(t, now, fbody.pos, &Blow::of(h), &mut p, &mut pact, &mut php, &mut pstop, pbody, pos, &mut events) {
                 // Les i-frames ne consomment pas le coup : il peut toucher plus tard dans la fenêtre.
-                continue;
+                Struck::Dodged => continue,
+                Struck::Parried => {
+                    // Garde parfaite ou contre : stagger du boss ; un ennemi est interrompu (sauf
+                    // s'il a assez d'équilibre : il en perd beaucoup).
+                    fstop.0 = g.perfect_hitstop;
+                    if foe_stagger(boss.as_deref_mut(), enemy.as_deref_mut(), pe, g.perfect_stagger, g.perfect_stagger * 5.0, &mut fact, t) {
+                        events.push(SimEvent::Groggy { entity: fe });
+                    }
+                }
+                Struck::Guarded | Struck::Hit => fstop.0 = h.hitstop,
             }
             fact.hits.push((hit.window, hit.victim));
-            let pos = impact_point(fbody, pbody);
-            let to_attacker = math::yaw_of(fbody.pos - pbody.pos);
-            let facing = math::wrap(to_attacker - pbody.yaw).abs() <= t.player.guard.arc.to_radians();
-            let g = &t.player.guard;
-            let damage = h.damage * p.defense_mult();
-            // Garde parfaite ou contre : stagger du boss ; un ennemi est interrompu (sauf s'il
-            // a assez d'équilibre : il en perd beaucoup).
-            let parry = g.perfect_stagger;
-            let parry_poise = g.perfect_stagger * 5.0;
-
-            // Contre de la posture (spéciale de l'épée longue). Une onde de choc ne se contre pas.
-            if let (Some(MoveRef::Weapon(w, WeaponMove::Special)), false) = (pact.mv, h.aoe) {
-                let def = t.get(MoveRef::Weapon(w, WeaponMove::Special));
-                if facing && MoveDef::in_window(def.counter, pact.tick) && t.weapons[w as usize].special_counter.is_some() {
-                    force_move(&mut p, &mut pact, MoveRef::Weapon(w, WeaponMove::SpecialCounter));
-                    pstop.0 = g.perfect_hitstop;
-                    fstop.0 = g.perfect_hitstop;
-                    events.push(SimEvent::Counter { pos });
-                    if foe_stagger(boss.as_deref_mut(), enemy.as_deref_mut(), pe, parry, parry_poise, &mut fact, t) {
-                        events.push(SimEvent::Groggy { entity: fe });
-                    }
-                    continue;
-                }
-            }
-
-            let in_guard = p.state == PState::Guard
-                || pact.is(MoveRef::Player(PlayerMove::GuardHit))
-                || pact.is(MoveRef::Player(PlayerMove::PerfectGuard));
-            if p.guard_held && facing && in_guard && !h.aoe {
-                if now.saturating_sub(p.guard_start) <= p.perfect_window(t) {
-                    // Garde parfaite : aucun dégât, stagger pour l'attaquant.
-                    force_move(&mut p, &mut pact, MoveRef::Player(PlayerMove::PerfectGuard));
-                    p.special += g.perfect_special;
-                    pstop.0 = g.perfect_hitstop;
-                    fstop.0 = g.perfect_hitstop;
-                    events.push(SimEvent::PerfectGuard { pos });
-                    if foe_stagger(boss.as_deref_mut(), enemy.as_deref_mut(), pe, parry, parry_poise, &mut fact, t) {
-                        events.push(SimEvent::Groggy { entity: fe });
-                    }
-                    continue;
-                }
-                if !h.fury {
-                    // Garde normale : dégâts réduits, convertis en regain.
-                    let dmg = damage * g.damage_ratio;
-                    php.cur = (php.cur - dmg).max(0.0);
-                    p.regain += dmg;
-                    p.regain_timer = t.player.regain_ticks;
-                    p.spend_stamina(h.damage * g.stamina_ratio, t);
-                    pstop.0 = h.hitstop;
-                    fstop.0 = h.hitstop;
-                    if php.dead() {
-                        force_move(&mut p, &mut pact, MoveRef::Player(PlayerMove::Death));
-                        events.push(SimEvent::PlayerDied);
-                    } else if p.stamina <= 0.0 {
-                        force_move(&mut p, &mut pact, MoveRef::Player(PlayerMove::GuardBreak));
-                        events.push(SimEvent::GuardBreak { pos });
-                    } else {
-                        force_move(&mut p, &mut pact, MoveRef::Player(PlayerMove::GuardHit));
-                        events.push(SimEvent::Guard { pos });
-                    }
-                    continue;
-                }
-            }
-
-            // Coup encaissé.
-            php.cur = (php.cur - damage).max(0.0);
-            p.regain = 0.0;
-            p.regain_timer = 0;
-            pstop.0 = h.hitstop;
-            fstop.0 = h.hitstop;
-            events.push(SimEvent::Hit { pos, heavy: h.reaction == Reaction::Heavy, on_player: true });
-            if php.dead() {
-                force_move(&mut p, &mut pact, MoveRef::Player(PlayerMove::Death));
-                events.push(SimEvent::PlayerDied);
-            } else if !pact.hyperarmor(t) {
-                let mv = match h.reaction {
-                    Reaction::Light => PlayerMove::HitLight,
-                    Reaction::Heavy => PlayerMove::HitHeavy,
-                };
-                force_move(&mut p, &mut pact, MoveRef::Player(mv));
-            }
         }
     }
+}
+
+/// Ce qui frappe un joueur : un coup (fenêtre d'attaque) ou un sort.
+#[derive(Clone, Copy, Debug)]
+pub struct Blow {
+    pub damage: f32,
+    pub reaction: Reaction,
+    pub fury: bool,
+    pub aoe: bool,
+    pub hitstop: u8,
+}
+
+impl Blow {
+    pub fn of(h: &HitWindow) -> Self {
+        Self { damage: h.damage, reaction: h.reaction, fury: h.fury, aoe: h.aoe, hitstop: h.hitstop }
+    }
+}
+
+/// Issue d'un coup porté à un joueur.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Struck {
+    /// I-frames : le coup passe au travers.
+    Dodged,
+    /// Garde parfaite ou contre de la posture.
+    Parried,
+    Guarded,
+    Hit,
+}
+
+/// Applique un coup venu de `from` au joueur : contre, garde parfaite, garde, ou dégâts et
+/// réaction. Ne touche pas à l'attaquant (stagger, hitstop), laissé à l'appelant.
+#[allow(clippy::too_many_arguments)]
+pub fn strike_player(
+    t: &Tuning,
+    now: u32,
+    from: Vec3,
+    blow: &Blow,
+    p: &mut Player,
+    pact: &mut Action,
+    php: &mut Health,
+    pstop: &mut Hitstop,
+    pbody: &Body,
+    pos: Vec3,
+    events: &mut SimEvents,
+) -> Struck {
+    if php.dead() || pact.iframes(t) {
+        return Struck::Dodged;
+    }
+    let to_attacker = math::yaw_of(from - pbody.pos);
+    let facing = math::wrap(to_attacker - pbody.yaw).abs() <= t.player.guard.arc.to_radians();
+    let g = &t.player.guard;
+    let damage = blow.damage * p.defense_mult();
+
+    // Contre de la posture (spéciale de l'épée longue). Une onde de choc ne se contre pas.
+    if let (Some(MoveRef::Weapon(w, WeaponMove::Special)), false) = (pact.mv, blow.aoe) {
+        let def = t.get(MoveRef::Weapon(w, WeaponMove::Special));
+        if facing && MoveDef::in_window(def.counter, pact.tick) && t.weapons[w as usize].special_counter.is_some() {
+            force_move(p, pact, MoveRef::Weapon(w, WeaponMove::SpecialCounter));
+            pstop.0 = g.perfect_hitstop;
+            events.push(SimEvent::Counter { pos });
+            return Struck::Parried;
+        }
+    }
+
+    let in_guard = p.state == PState::Guard
+        || pact.is(MoveRef::Player(PlayerMove::GuardHit))
+        || pact.is(MoveRef::Player(PlayerMove::PerfectGuard));
+    if p.guard_held && facing && in_guard && !blow.aoe {
+        if now.saturating_sub(p.guard_start) <= p.perfect_window(t) {
+            // Garde parfaite : aucun dégât, stagger pour l'attaquant.
+            force_move(p, pact, MoveRef::Player(PlayerMove::PerfectGuard));
+            p.special += g.perfect_special;
+            pstop.0 = g.perfect_hitstop;
+            events.push(SimEvent::PerfectGuard { pos });
+            return Struck::Parried;
+        }
+        if !blow.fury {
+            // Garde normale : dégâts réduits, convertis en regain.
+            let dmg = damage * g.damage_ratio;
+            php.cur = (php.cur - dmg).max(0.0);
+            p.regain += dmg;
+            p.regain_timer = t.player.regain_ticks;
+            p.spend_stamina(blow.damage * g.stamina_ratio, t);
+            pstop.0 = blow.hitstop;
+            if php.dead() {
+                force_move(p, pact, MoveRef::Player(PlayerMove::Death));
+                events.push(SimEvent::PlayerDied);
+            } else if p.stamina <= 0.0 {
+                force_move(p, pact, MoveRef::Player(PlayerMove::GuardBreak));
+                events.push(SimEvent::GuardBreak { pos });
+            } else {
+                force_move(p, pact, MoveRef::Player(PlayerMove::GuardHit));
+                events.push(SimEvent::Guard { pos });
+            }
+            return Struck::Guarded;
+        }
+    }
+
+    // Coup encaissé.
+    php.cur = (php.cur - damage).max(0.0);
+    p.regain = 0.0;
+    p.regain_timer = 0;
+    pstop.0 = blow.hitstop;
+    events.push(SimEvent::Hit { pos, heavy: blow.reaction == Reaction::Heavy, on_player: true });
+    if php.dead() {
+        force_move(p, pact, MoveRef::Player(PlayerMove::Death));
+        events.push(SimEvent::PlayerDied);
+    } else if !pact.hyperarmor(t) {
+        let mv = match blow.reaction {
+            Reaction::Light => PlayerMove::HitLight,
+            Reaction::Heavy => PlayerMove::HitHeavy,
+        };
+        force_move(p, pact, MoveRef::Player(mv));
+    }
+    Struck::Hit
 }

@@ -10,6 +10,7 @@ use crate::fx::FxState;
 use crate::input::Device;
 use crate::lang::{Localized, tr};
 use crate::menu::MenuState;
+use crate::render::camera::{LockFoes, PartBones, lock_target};
 use crate::render::ps1::{LowResTarget, WorldCamera};
 use crate::render::{AppState, Interp, LocalPlayer};
 use std::collections::{HashMap, VecDeque};
@@ -18,8 +19,7 @@ use crate::sim::SimEvent;
 use crate::sim::boss::Boss;
 use crate::sim::data::Tuning;
 use crate::sim::encounter::{Encounter, RESPAWN_TICKS, near_checkpoint, near_dropped, near_pickup};
-use crate::sim::enemy::Enemy;
-use crate::sim::fighter::{Body, Health};
+use crate::sim::fighter::{Body, Foe, Health};
 use crate::sim::items::{Item, Kind, QUICK_SLOTS};
 use crate::sim::player::{PState, Player};
 use crate::ui::{Glyph, Hint, PixelSize, UiFont, hint_node, i, image_bundle, set_hint, t};
@@ -41,9 +41,18 @@ enum Bar {
     StaminaFrame,
     Special,
     SpecialFrame,
-    BossHp,
-    BossStagger,
+    /// Barres du boss affiché à cet emplacement (deux pour un duo).
+    BossHp(u8),
+    BossStagger(u8),
 }
+
+/// Emplacement de boss du panneau du bas (son nom et ses barres).
+#[derive(Component)]
+struct BossSlot(u8);
+#[derive(Component)]
+struct BossName(u8);
+/// Emplacements de boss : un duo en a deux.
+const BOSS_SLOTS: u8 = 2;
 
 #[derive(Component)]
 struct HudRoot;
@@ -107,19 +116,32 @@ struct FoeBar(Entity);
 #[derive(Component)]
 struct FoeBarFill;
 
-/// Icônes des objets (pixel art généré au démarrage).
+/// Icônes des objets (pixel art généré au démarrage), aussi utilisées par le menu d'équipement.
 #[derive(Resource)]
-struct ItemIcons(HashMap<Item, Handle<Image>>);
+pub struct ItemIcons(HashMap<Item, Handle<Image>>);
 
 impl ItemIcons {
-    fn get(&self, item: Item) -> Handle<Image> {
+    pub fn get(&self, item: Item) -> Handle<Image> {
         self.0.get(&item).cloned().unwrap_or_default()
     }
 }
 
 /// Icônes des armes, dans l'ordre de `weapons.ron`.
 #[derive(Resource)]
-struct WeaponIcons(Vec<Handle<Image>>);
+pub struct WeaponIcons(Vec<Handle<Image>>);
+
+impl WeaponIcons {
+    pub fn get(&self, i: usize) -> Handle<Image> {
+        self.0.get(i).cloned().unwrap_or_default()
+    }
+}
+
+/// Icônes du menu pause : équipement (heaume) et système (roue crantée).
+#[derive(Resource)]
+pub struct MenuIcons {
+    pub equipment: Handle<Image>,
+    pub system: Handle<Image>,
+}
 
 /// Objets ramassés à annoncer, l'un après l'autre.
 #[derive(Resource, Default)]
@@ -202,7 +224,7 @@ fn bar(width: f32, height: f32, color: Color, kind: Bar) -> impl Bundle {
 }
 
 /// Taille des icônes d'objets, en pixels (= points).
-const ITEM_ICON: usize = 24;
+pub const ITEM_ICON: usize = 24;
 
 /// Icône façon PS1 de `n`×`n` pixels : `shade(x, y)` donne la couleur de chaque pixel (centre
 /// du pixel, en pixels depuis le coin haut gauche) ou `None` s'il est transparent. Les couleurs
@@ -379,7 +401,7 @@ fn brooch_icon() -> Image {
     })
 }
 
-/// Plume de manège : plume en diagonale, rayée rouge et blanc comme les chapiteaux.
+/// Plume de cimier : plume en diagonale, rayée rouge et blanc.
 fn feather_icon() -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
         // Axe de la plume : du coin bas gauche vers le haut droit.
@@ -458,6 +480,51 @@ fn weapon_icon(index: usize) -> Image {
     })
 }
 
+/// Roue crantée (système) : huit dents, moyeu percé, acier éclairé d'en haut à gauche.
+fn gear_icon() -> Image {
+    ps1_icon(ITEM_ICON, true, |fx, fy| {
+        let (dx, dy) = (fx - 12.0, fy - 12.0);
+        let r = (dx * dx + dy * dy).sqrt();
+        let a = dy.atan2(dx);
+        // Dents : créneaux sur le pourtour (un peu plus étroits au sommet).
+        let tooth = ((a * 8.0 / std::f32::consts::TAU + 0.25).rem_euclid(1.0) - 0.5).abs() < 0.22;
+        let outer = if tooth { 10.5 } else { 8.0 };
+        if r > outer || r < 3.2 {
+            return None;
+        }
+        let light = (0.55 - 0.45 * (dx - dy) / 17.0).clamp(0.0, 1.0);
+        let base = Vec3::new(0.42, 0.42, 0.46).lerp(Vec3::new(0.86, 0.86, 0.9), light);
+        // Rainure entre la couronne et le moyeu.
+        Some(if (r - 5.6).abs() < 0.7 { base * 0.55 } else { base })
+    })
+}
+
+/// Heaume (équipement) : casque de fer à fente de visière et crête rouge.
+fn helm_icon() -> Image {
+    ps1_icon(ITEM_ICON, true, |fx, fy| {
+        let (dx, dy) = ((fx - 12.0) / 8.0, (fy - 13.0) / 9.0);
+        // Crête au sommet.
+        if (fx - 12.0).abs() < 1.3 && (1.0..5.0).contains(&fy) {
+            return Some(Vec3::new(0.72, 0.14, 0.1) * (1.1 - (fy - 1.0) * 0.08));
+        }
+        // Dôme en haut, joues droites en bas.
+        let inside = if dy < 0.0 { dx * dx + dy * dy <= 1.0 } else { dx.abs() <= 1.0 - dy * 0.15 && dy <= 1.0 };
+        if !inside {
+            return None;
+        }
+        let light = (0.6 - 0.5 * dx - 0.3 * dy).clamp(0.0, 1.0);
+        let iron = Vec3::new(0.32, 0.32, 0.36).lerp(Vec3::new(0.82, 0.82, 0.86), light);
+        // Fente de la visière, et rivets de part et d'autre.
+        if (12.5..14.0).contains(&fy) && (6.0..18.0).contains(&fx) {
+            return Some(Vec3::splat(0.05));
+        }
+        if (fy - 18.0).abs() < 0.8 && ((fx - 8.0).abs() < 0.8 || (fx - 16.0).abs() < 0.8) {
+            return Some(iron * 0.5);
+        }
+        Some(iron)
+    })
+}
+
 /// Taille de l'icône des braises, en pixels (= points) : dessinée à sa taille d'affichage.
 const EMBER_ICON: usize = 16;
 
@@ -518,7 +585,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
                     Item::EmberResin => resin_icon(),
                     Item::FlaskShard => shard_icon(),
                     Item::IronBrooch => brooch_icon(),
-                    Item::CarouselFeather => feather_icon(),
+                    Item::CrestPlume => feather_icon(),
                 };
                 (it, images.add(img))
             })
@@ -702,6 +769,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
         });
     commands.insert_resource(icons);
     commands.insert_resource(weapon_icons);
+    commands.insert_resource(MenuIcons { equipment: images.add(helm_icon()), system: images.add(gear_icon()) });
 
     // Braises, en bas à droite.
     commands
@@ -780,18 +848,23 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
             Visibility::Hidden,
         ))
         .with_children(|c| {
-            c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(4), width: px(620), ..default() })
-                .with_children(|c| {
-                    c.spawn((font.text("", 1, Color::srgb(0.92, 0.88, 0.8)), Localized(tuning.boss.name.clone())));
-                    c.spawn((Node { width: px(620), height: px(12), padding: UiRect::all(px(2)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7))))
+            c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(10), width: px(620), ..default() }).with_children(|c| {
+                for slot in 0..BOSS_SLOTS {
+                    c.spawn((Node { flex_direction: FlexDirection::Column, row_gap: px(4), width: px(620), ..default() }, BossSlot(slot)))
                         .with_children(|c| {
-                            c.spawn((Node { width: percent(100), height: px(8), ..default() }, BackgroundColor(Color::srgb(0.68, 0.08, 0.06)), Bar::BossHp));
+                            c.spawn((font.text("", 1, Color::srgb(0.92, 0.88, 0.8)), BossName(slot)));
+                            c.spawn((Node { width: px(620), height: px(12), padding: UiRect::all(px(2)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7))))
+                                .with_children(|c| {
+                                    c.spawn((Node { width: percent(100), height: px(8), ..default() }, BackgroundColor(Color::srgb(0.68, 0.08, 0.06)), Bar::BossHp(slot)));
+                                });
+                            // Jauge de stagger : suivie mais cachée (on la devine à la réaction du boss).
+                            c.spawn((Node { width: px(620), height: px(6), padding: UiRect::all(px(1)), display: Display::None, ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6))))
+                                .with_children(|c| {
+                                    c.spawn((Node { width: percent(0), height: px(4), ..default() }, BackgroundColor(Color::srgb(0.95, 0.9, 0.75)), Bar::BossStagger(slot)));
+                                });
                         });
-                    c.spawn((Node { width: px(620), height: px(6), padding: UiRect::all(px(1)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6))))
-                        .with_children(|c| {
-                            c.spawn((Node { width: percent(0), height: px(4), ..default() }, BackgroundColor(Color::srgb(0.95, 0.9, 0.75)), Bar::BossStagger));
-                        });
-                });
+                }
+            });
         });
 
     // Flash plein écran (garde parfaite / furie), puis fondu au noir.
@@ -1061,7 +1134,7 @@ fn update_weapon(
     for mut t in &mut name {
         set_text(&mut t, tuning.weapons[w].name.get());
     }
-    let key = if *device == Device::Gamepad { Glyph::DpadRight } else { Glyph::Key("R") };
+    let key = if *device == Device::Gamepad { Glyph::DpadUp } else { Glyph::Key("R") };
     for mut h in &mut hint {
         set_hint(&mut h, if tuning.weapons.len() > 1 { vec![i(key), t(tr("switch", "changer"))] } else { vec![] });
     }
@@ -1073,22 +1146,51 @@ fn update_weapon(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn update_boss(
     enc: Res<Encounter>,
-    bosses: Query<(&Boss, &Health)>,
+    bosses: Query<(Entity, &Boss, &Health)>,
     tuning: Res<Tuning>,
-    mut panel: Query<&mut Visibility, With<BossPanel>>,
-    mut bars: Query<(&Bar, &mut Node)>,
+    mut panel: Query<&mut Visibility, (With<BossPanel>, Without<BossSlot>)>,
+    mut slots: Query<(&BossSlot, &mut Visibility, &mut Node), Without<Bar>>,
+    mut names: Query<(&BossName, &mut Text)>,
+    mut bars: Query<(&Bar, &mut Node), Without<BossSlot>>,
 ) {
     // Le panneau n'apparaît que pendant le combat.
     for mut v in &mut panel {
         *v = if enc.active { Visibility::Inherited } else { Visibility::Hidden };
     }
-    let Ok((boss, hp)) = bosses.single() else { return };
+    // Les premiers rôles, dans l'ordre de création (celui de la rencontre).
+    let mut main: Vec<_> = bosses.iter().filter(|(_, b, _)| !b.def(&tuning).minor).collect();
+    main.sort_by_key(|(_, b, _)| b.def);
+    for (slot, mut v, mut n) in &mut slots {
+        let on = (slot.0 as usize) < main.len();
+        let want = if on { Visibility::Inherited } else { Visibility::Hidden };
+        if *v != want {
+            *v = want;
+        }
+        let d = if on { Display::Flex } else { Display::None };
+        if n.display != d {
+            n.display = d;
+        }
+    }
+    for (name, mut t) in &mut names {
+        if let Some((_, b, _)) = main.get(name.0 as usize) {
+            set_text(&mut t, b.def(&tuning).name.get());
+        }
+    }
     for (b, mut n) in &mut bars {
-        match b {
-            Bar::BossHp => n.width = percent(hp.cur / hp.max * 100.0),
-            Bar::BossStagger => n.width = percent(boss.stagger / tuning.boss.stagger_max * 100.0),
+        match *b {
+            Bar::BossHp(i) => {
+                if let Some((_, _, hp)) = main.get(i as usize) {
+                    n.width = percent(hp.cur / hp.max * 100.0);
+                }
+            }
+            Bar::BossStagger(i) => {
+                if let Some((_, boss, _)) = main.get(i as usize) {
+                    n.width = percent(boss.stagger / boss.def(&tuning).stagger_max * 100.0);
+                }
+            }
             _ => {}
         }
     }
@@ -1180,9 +1282,12 @@ fn overlay(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reticle(
     players: Query<&Player, With<LocalPlayer>>,
-    bosses: Query<(&Interp, &Body)>,
+    tuning: Res<Tuning>,
+    foes: LockFoes,
+    bones: PartBones,
     camera: Single<(&Camera, &GlobalTransform), With<WorldCamera>>,
     target: Res<LowResTarget>,
     window: Single<&Window, With<PrimaryWindow>>,
@@ -1190,13 +1295,16 @@ fn reticle(
     mut q: Query<(&mut Node, &mut Visibility), With<Reticle>>,
 ) {
     let Ok((mut node, mut vis)) = q.single_mut() else { return };
-    let lock = players.single().ok().and_then(|p| p.lock).and_then(|e| bosses.get(e).ok());
-    let Some((i, b)) = lock else {
+    let point = players
+        .single()
+        .ok()
+        .and_then(|p| Some((p.lock?, p.lock_part)))
+        .and_then(|(e, part)| lock_target(&tuning, e, part, &foes, &bones));
+    let Some(world) = point else {
         *vis = Visibility::Hidden;
         return;
     };
     let (cam, gt) = *camera;
-    let world = i.pos + Vec3::Y * b.height * 0.6;
     let Ok(vp) = cam.world_to_viewport(gt, world) else {
         *vis = Visibility::Hidden;
         return;
@@ -1297,7 +1405,8 @@ fn foe_bars(
     mut commands: Commands,
     root: Single<Entity, With<HudRoot>>,
     players: Query<(&Player, &Interp), With<LocalPlayer>>,
-    enemies: Query<(Entity, &Interp, &Body, &Health), With<Enemy>>,
+    enemies: Query<(Entity, &Interp, &Body, &Health, Option<&Boss>), With<Foe>>,
+    tuning: Res<Tuning>,
     camera: Single<(&Camera, &GlobalTransform), With<WorldCamera>>,
     target: Res<LowResTarget>,
     window: Single<&Window, With<PrimaryWindow>>,
@@ -1313,7 +1422,7 @@ fn foe_bars(
     let sy = window.height() / target.size.y as f32;
     let mut has_bar: Vec<Entity> = Vec::new();
     for (e, bar, mut node, mut vis, children) in &mut bars {
-        let Ok((_, i, b, h)) = enemies.get(bar.0) else {
+        let Ok((_, i, b, h, _)) = enemies.get(bar.0) else {
             commands.entity(e).despawn();
             continue;
         };
@@ -1334,8 +1443,9 @@ fn foe_bars(
             }
         }
     }
-    for (e, ..) in &enemies {
-        if !has_bar.contains(&e) {
+    // Ennemis du chemin et seconds rôles d'un boss (les premiers rôles ont leur barre en bas).
+    for (e, .., boss) in &enemies {
+        if !has_bar.contains(&e) && boss.is_none_or(|b| b.def(&tuning).minor) {
             commands
                 .spawn((
                     ChildOf(*root),

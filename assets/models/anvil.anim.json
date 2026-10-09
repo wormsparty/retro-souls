@@ -1,0 +1,90 @@
+{
+ "death": {
+  "frames": 160.0,
+  "loop": false,
+  "marks": [
+   0,
+   160
+  ]
+ },
+ "fatal_received": {
+  "frames": 120.0,
+  "loop": false,
+  "marks": [
+   0,
+   120
+  ]
+ },
+ "groggy": {
+  "frames": 200.0,
+  "loop": false,
+  "marks": [
+   0,
+   200
+  ]
+ },
+ "hammer_slam": {
+  "frames": 126.0,
+  "loop": false,
+  "marks": [
+   0,
+   58,
+   64,
+   126
+  ]
+ },
+ "idle": {
+  "frames": 200.0,
+  "loop": true,
+  "marks": [
+   0,
+   200.0
+  ]
+ },
+ "quake": {
+  "frames": 150.0,
+  "loop": false,
+  "marks": [
+   0,
+   80,
+   96,
+   150
+  ]
+ },
+ "roar": {
+  "frames": 110.0,
+  "loop": false,
+  "marks": [
+   0,
+   110
+  ]
+ },
+ "shoulder_charge": {
+  "frames": 112.0,
+  "loop": false,
+  "marks": [
+   0,
+   38,
+   66,
+   112
+  ]
+ },
+ "sweep": {
+  "frames": 112.0,
+  "loop": false,
+  "marks": [
+   0,
+   48,
+   60,
+   112
+  ]
+ },
+ "walk": {
+  "frames": 90.0,
+  "loop": true,
+  "marks": [
+   0,
+   90.0
+  ]
+ }
+}

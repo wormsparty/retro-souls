@@ -185,7 +185,13 @@ def srgb_to_linear(c):
 # ----------------------------------------------------------------------------- géométrie
 
 class MeshBuilder:
-    """Accumule des primitives low-poly dans un seul maillage (faces plates, UV par face)."""
+    """Accumule des primitives low-poly dans un seul maillage (faces plates, UV par face).
+
+    `MeshBuilder.cell` (mètres) : si défini, les faces des boîtes et segments sont découpées en
+    cases d'au plus cette taille, la texture répétée sur chacune : sur un grand modèle, une seule
+    texture étirée sur une face de plusieurs mètres se déforme (mapping affine de la PS1)."""
+
+    cell = None
 
     def __init__(self):
         self.bm = bmesh.new()
@@ -208,6 +214,25 @@ class MeshBuilder:
             loop[self.uv].uv = (u * uv_scale[0], v * uv_scale[1])
         return f
 
+    def _quad(self, verts, mat, uv_scale=(1, 1)):
+        """Face à quatre sommets, découpée selon `cell` (voir la classe)."""
+        if not self.cell or len(verts) != 4:
+            return self._face(verts, mat, uv_scale=uv_scale)
+        p0, p1, p2, p3 = (v.co.copy() for v in verts)
+        lu, lv = max((p1 - p0).length, (p2 - p3).length), max((p3 - p0).length, (p2 - p1).length)
+        nu, nv = max(1, math.ceil(lu / self.cell - 1e-6)), max(1, math.ceil(lv / self.cell - 1e-6))
+        if nu == 1 and nv == 1:
+            return self._face(verts, mat, uv_scale=uv_scale)
+        at = lambda u, v: (p0.lerp(p1, u)).lerp(p3.lerp(p2, u), v)
+        grid = [[self.bm.verts.new(at(i / nu, j / nv)) for j in range(nv + 1)] for i in range(nu + 1)]
+        # Une répétition de texture par case (à peu près carrée), raccordée d'une case à l'autre.
+        ku, kv = lu / nu / self.cell, lv / nv / self.cell
+        for i in range(nu):
+            for j in range(nv):
+                q = (grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1])
+                uvs = [(i * ku, j * kv), ((i + 1) * ku, j * kv), ((i + 1) * ku, (j + 1) * kv), (i * ku, (j + 1) * kv)]
+                self._face(q, mat, uvs=uvs, uv_scale=uv_scale)
+
     def box(self, center, size, mat, taper=(1.0, 1.0), shift_top=(0.0, 0.0), uv_scale=(1, 1)):
         """Boîte centrée ; `taper` met à l'échelle la face du haut (x, y), `shift_top` la décale."""
         cx, cy, cz = center
@@ -228,7 +253,7 @@ class MeshBuilder:
             (v[3], v[0], v[4], v[7]),
         ]
         for f in faces:
-            self._face(f, mat, uv_scale=uv_scale)
+            self._quad(f, mat, uv_scale=uv_scale)
 
     def panel(self, origin, du, dv, mat, cell=1.0, tile=2.0):
         """Quadrilatère (origin, origin+du, origin+du+dv, origin+dv) découpé en cases d'au plus
@@ -294,11 +319,11 @@ class MeshBuilder:
         ]
         r0 = ring(va, 1.0)
         r1 = ring(va + axis * length, taper)
-        self._face((r0[3], r0[2], r0[1], r0[0]), mat)
-        self._face((r1[0], r1[1], r1[2], r1[3]), mat)
+        self._quad((r0[3], r0[2], r0[1], r0[0]), mat)
+        self._quad((r1[0], r1[1], r1[2], r1[3]), mat)
         for i in range(4):
             j = (i + 1) % 4
-            self._face((r0[i], r0[j], r1[j], r1[i]), mat)
+            self._quad((r0[i], r0[j], r1[j], r1[i]), mat)
 
     def cylinder(self, center, radius, height, mat, sides=8, radius_top=None, uv_scale=(1, 1),
                  caps=True, axis="Z"):
@@ -332,6 +357,10 @@ class MeshBuilder:
                     self._face(list(reversed(top)), mat)
 
     def finish(self, name):
+        # Sommets des faces découpées remplacés par leur grille.
+        loose = [v for v in self.bm.verts if not v.link_faces]
+        if loose:
+            bmesh.ops.delete(self.bm, geom=loose, context="VERTS")
         me = bpy.data.meshes.new(name)
         self.bm.normal_update()
         self.bm.to_mesh(me)
@@ -381,11 +410,12 @@ class Rig:
 
 # ----------------------------------------------------------------------------- animation
 
-_TIME_RE = re.compile(r"^(T|h\d+e?|\d+)([+-]\d+)?$")
+_TIME_RE = re.compile(r"^(T|h\d+e?|c\d+|\d+)([+-]\d+)?$")
 
 
 def resolve_time(spec, info):
-    """Temps symbolique : entier, "T" (durée), "h0" (début du coup 0), "h0e" (fin), avec ±n."""
+    """Temps symbolique : entier, "T" (durée), "h0" (début du coup 0), "h0e" (fin), "c0" (tick du
+    sort 0), avec ±n."""
     if isinstance(spec, (int, float)):
         return float(spec)
     m = _TIME_RE.match(spec.replace(" ", ""))
@@ -397,6 +427,8 @@ def resolve_time(spec, info):
     elif base.startswith("h"):
         idx = int(base[1:].rstrip("e"))
         v = info["hits"][idx][1 if base.endswith("e") else 0]
+    elif base.startswith("c"):
+        v = info["casts"][int(base[1:])]
     else:
         v = int(base)
     return float(v + off)

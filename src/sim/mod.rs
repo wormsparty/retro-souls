@@ -16,6 +16,7 @@ pub mod items;
 pub mod math;
 pub mod player;
 pub mod rng;
+pub mod spell;
 pub mod world;
 
 use bevy::ecs::schedule::ScheduleLabel;
@@ -57,8 +58,16 @@ pub enum SimEvent {
     Swing { entity: Entity, heavy: bool },
     Dodge { entity: Entity },
     FuryWarn { entity: Entity },
-    /// Impact d'une attaque de zone (`aoe`) : centre au sol et rayon.
-    Shockwave { pos: Vec3, radius: f32 },
+    /// Impact d'une attaque de zone (`aoe`) : centre au sol et rayon. `boss` : définition du
+    /// boss (sa couleur).
+    Shockwave { pos: Vec3, radius: f32, boss: u8 },
+    /// Sort lancé (point de départ), projectile qui s'éteint, éruption qui jaillit, projectile
+    /// qui s'écrase au sol (il y brûle un moment). `boss` : définition du lanceur (sa couleur).
+    /// `volley` : l'attaque qui l'a lancé (un seul bruit par attaque).
+    SpellCast { pos: Vec3, element: data::Element, boss: u8, volley: u32 },
+    SpellFizzle { pos: Vec3, element: data::Element, boss: u8 },
+    Eruption { pos: Vec3, radius: f32, element: data::Element, boss: u8, volley: u32 },
+    SpellSplash { pos: Vec3, radius: f32, element: data::Element, boss: u8 },
     Groggy { entity: Entity },
     Fatal { pos: Vec3 },
     BossPhase2,
@@ -160,7 +169,7 @@ impl Plugin for SimPlugin {
             (reset_fight, encounter::apply_commands, begin_tick).chain().in_set(SimSet::Begin),
             (player::player_act, boss::boss_act, enemy::enemy_act).chain().in_set(SimSet::Act),
             combat::separate_bodies.in_set(SimSet::Physics),
-            combat::resolve_hits.in_set(SimSet::Combat),
+            (combat::resolve_hits, spell::spell_tick).chain().in_set(SimSet::Combat),
             (
                 player::player_end_tick,
                 boss::boss_end_tick,
@@ -208,7 +217,7 @@ fn reset_fight(
     }
     events.0.clear();
     *rng = rng::SimRng::default();
-    *enc = Encounter { boss_defeated: progress.boss_defeated, ..default() };
+    *enc = Encounter { boss_defeated: progress.boss_defeated, boss_choice: progress.boss_choice, ..default() };
     spawn_fight(&mut commands, &tuning, reset.players, &progress);
     events.push(SimEvent::Respawned);
 }
@@ -260,27 +269,33 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
         ));
     }
     if !progress.boss_defeated {
-        spawn_boss(commands, t);
+        spawn_boss(commands, t, progress.boss_choice);
     }
     enemy::spawn_all(commands, t, progress.slain);
 }
 
-/// Boss endormi à son point d'apparition, tourné vers l'ouverture de l'arène.
-pub fn spawn_boss(commands: &mut Commands, t: &Tuning) {
+/// Boss de la rencontre `choice` (`Tuning::encounters`), endormis à leur point d'apparition,
+/// tournés vers l'ouverture de l'arène.
+pub fn spawn_boss(commands: &mut Commands, t: &Tuning, choice: u8) {
+    let enc = t.encounters.get(choice as usize).unwrap_or(&t.encounters[0]);
     let [bx, bz] = t.arena.boss_spawn;
-    let pos = Vec3::new(bx, 0.0, bz);
-    let yaw = math::yaw_of(world::fog_gate(&t.arena) - pos);
-    commands.spawn((
-        SimEntity,
-        Team::Enemies,
-        Foe,
-        Body { pos, yaw, radius: t.boss.radius, height: t.boss.height, mass: 8.0 },
-        PrevBody { pos, yaw },
-        Health::new(t.boss.max_hp),
-        Hitstop::default(),
-        Action::default(),
-        boss::Boss::new(t),
-    ));
+    for m in &enc.members {
+        let Some(def) = t.boss_kind(&m.boss) else { continue };
+        let bd = &t.bosses[def as usize];
+        let pos = Vec3::new(bx + m.offset[0], 0.0, bz + m.offset[1]);
+        let yaw = math::yaw_of(world::fog_gate(&t.arena) - pos);
+        commands.spawn((
+            SimEntity,
+            Team::Enemies,
+            Foe,
+            Body { pos, yaw, radius: bd.radius, height: bd.height, mass: bd.mass },
+            PrevBody { pos, yaw },
+            Health::new(bd.max_hp),
+            Hitstop::default(),
+            Action::default(),
+            boss::Boss::new(t, def),
+        ));
+    }
 }
 
 fn begin_tick(mut q: Query<(&Body, &mut PrevBody, &mut Action)>) {
@@ -335,6 +350,13 @@ pub fn state_hash(world: &mut World) -> u64 {
     for b in qb.iter(world) {
         b.stagger.to_bits().hash(&mut h);
         b.phase.hash(&mut h);
+    }
+    let mut qs = world.query::<&spell::Spell>();
+    for s in qs.iter(world) {
+        for f in [s.pos.x, s.pos.y, s.pos.z] {
+            f.to_bits().hash(&mut h);
+        }
+        s.age.hash(&mut h);
     }
     let mut qe = world.query::<&enemy::Enemy>();
     for e in qe.iter(world) {

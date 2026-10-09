@@ -237,9 +237,8 @@ pub fn enemy_act(
             action.stop();
             match mv {
                 MoveRef::Enemy(_, EnemyMove::Attack(i)) => {
-                    let chained = d.attacks[i as usize].next.as_ref().and_then(|(name, chance)| {
-                        (rng.next_f32() < *chance).then(|| d.attacks.iter().position(|a| &a.name == name)).flatten()
-                    });
+                    let a = &d.attacks[i as usize];
+                    let chained = (!a.next.is_empty()).then(|| a.chained(&d.attacks, rng.next_f32())).flatten();
                     if let (Some(j), Some(tp)) = (chained, target_pos) {
                         start_attack(&mut e, &mut body, &mut action, j, tp, t, now);
                         continue;

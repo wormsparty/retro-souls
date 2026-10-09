@@ -10,46 +10,46 @@
 (
     kinds: [
         (
-            key: "hound", model: "hound",
+            key: "hound", model: "hound", scale: 1.3,
             name: (en: "Stray Hound", fr: "Chien errant"),
-            max_hp: 120, radius: 0.42, height: 0.9, mass: 0.8,
+            max_hp: 120, radius: 0.55, height: 1.17, mass: 0.9,
             walk_speed: 1.8, run_speed: 6.0, turn_rate: 480,
-            sight: 11, leash: 24, preferred_range: 2.0, idle_ticks: (14, 46),
+            sight: 11, leash: 24, preferred_range: 2.3, idle_ticks: (14, 46),
             poise: 0, embers: 40,
             alert: (anim: "howl", total: 48),
             hit: (anim: "hit", total: 22, motion: [(start: 0, end: 8, speed: -2.5)]),
             death: (anim: "death", total: 70),
             attacks: [
                 (
-                    name: "morsure", min_range: 0, max_range: 1.9, max_angle: 40, weight: 3, cooldown: 30,
+                    name: "morsure", min_range: 0, max_range: 2.4, max_angle: 40, weight: 3, cooldown: 30,
                     mv: (
                         anim: "bite", total: 44, track_until: 12, track_rate: 420,
                         motion: [(start: 10, end: 18, speed: 3.0)],
                         hits: [(start: 15, end: 20, damage: 45, hitstop: 3,
-                                capsule: (a: (0.0, 0.45, 0.3), b: (0.0, 0.45, 1.05), r: 0.35))],
+                                capsule: (a: (0.0, 0.58, 0.39), b: (0.0, 0.58, 1.37), r: 0.45))],
                     ),
                 ),
                 (
-                    name: "claquements", min_range: 0, max_range: 1.9, max_angle: 40, weight: 2, cooldown: 90,
+                    name: "claquements", min_range: 0, max_range: 2.4, max_angle: 40, weight: 2, cooldown: 90,
                     mv: (
                         anim: "snap", total: 60, track_until: 26, track_rate: 360,
                         motion: [(start: 10, end: 16, speed: 2.5), (start: 26, end: 32, speed: 2.5)],
                         hits: [
                             (start: 14, end: 18, damage: 30, hitstop: 2,
-                             capsule: (a: (0.0, 0.45, 0.3), b: (0.0, 0.45, 1.0), r: 0.35)),
+                             capsule: (a: (0.0, 0.58, 0.39), b: (0.0, 0.58, 1.3), r: 0.45)),
                             (start: 30, end: 34, damage: 30, hitstop: 2,
-                             capsule: (a: (0.0, 0.45, 0.3), b: (0.0, 0.45, 1.0), r: 0.35)),
+                             capsule: (a: (0.0, 0.58, 0.39), b: (0.0, 0.58, 1.3), r: 0.45)),
                         ],
                     ),
                 ),
                 (
-                    name: "bond", min_range: 2.6, max_range: 7.0, max_angle: 25, weight: 2, cooldown: 150,
+                    name: "bond", min_range: 3.0, max_range: 7.5, max_angle: 25, weight: 2, cooldown: 150,
                     mv: (
                         anim: "lunge", total: 72, track_until: 18, track_rate: 300,
-                        motion: [(start: 20, end: 32, speed: 10.0, to_target: true, stop_dist: 0.6),
+                        motion: [(start: 20, end: 32, speed: 10.0, to_target: true, stop_dist: 0.75),
                                  (start: 32, end: 40, speed: 2.0)],
                         hits: [(start: 24, end: 33, damage: 70, hitstop: 4, reaction: Heavy,
-                                capsule: (a: (0.0, 0.5, 0.2), b: (0.0, 0.5, 1.0), r: 0.4))],
+                                capsule: (a: (0.0, 0.65, 0.26), b: (0.0, 0.65, 1.3), r: 0.52))],
                     ),
                 ),
             ],
@@ -118,7 +118,7 @@
                         hits: [(start: 52, end: 58, damage: 170, hitstop: 7, reaction: Heavy,
                                 capsule: (a: (0.0, 1.7, 0.6), b: (0.0, 0.5, 2.8), r: 0.4))],
                     ),
-                    next: ("estoc", 0.25),
+                    next: [("estoc", 0.25)],
                 ),
                 (
                     name: "revers", min_range: 0, max_range: 3.4, max_angle: 60, weight: 2, cooldown: 130,

@@ -384,6 +384,18 @@ anim("greatsword_fatal", [
     ("h0e+34", merge(STANCE_G, {"chest": (20, 0, 0)})), ("T", STANCE_G),
 ])
 
+# ----------------------------------------------------------------------------- attaques sautées
+# En l'air : jambes repliées, l'arme levée, puis abattue en retombant.
+AIR_LEGS = legs(-60, 80, -35, 70, 0.0)
+anim("rapier_jump", [
+    (0, merge(HIGH_R, AIR_LEGS)), ("h0-3", merge(HIGH_R, AIR_LEGS, {"chest": (-14, 0, 20)})),
+    ("h0", merge(STAB_DOWN, legs(-40, 50, -10, 40, -0.1))), ("h0e+8", STAB_DOWN), ("T", STANCE_R),
+])
+anim("greatsword_jump", [
+    (0, merge(OVERHEAD, AIR_LEGS)), ("h0-4", merge(OVERHEAD, AIR_LEGS, {"chest": (-20, 0, 0)})),
+    ("h0", merge(CHOP, {"chest": (34, 0, 0)})), ("h0e", CHOP_LOW), ("h0e+16", CHOP_LOW), ("T", STANCE_G),
+])
+
 missing = sorted(set(T) - set(markers))
 if missing:
     raise SystemExit(f"animations manquantes : {missing}")

@@ -7,6 +7,8 @@
         // ------------------------------------------------------------------ Rapière
         (
             name: (en: "Rapier", fr: "Rapière"),
+            description: (en: "Quick, precise thrusts: best against a single target.",
+                          fr: "Estocades rapides et précises : idéale contre une cible unique."),
             light: [
                 (
                     anim: "rapier_light1", total: 24,
@@ -86,11 +88,20 @@
                 hits: [(start: 46, end: 48, damage: 340, hitstop: 10,
                         capsule: (a: (0.0, 1.2, 0.3), b: (0.0, 1.4, 2.2), r: 0.35))],
             ),
+            // Attaque sautée : un estoc plongeant. Le saut a déjà coûté son endurance.
+            jump: (
+                anim: "rapier_jump", total: 34, stamina: 6,
+                chain_from: 24, cancel_from: 22,
+                hits: [(start: 6, end: 12, damage: 60, stagger: 12, hitstop: 5,
+                        capsule: (a: (0.1, 1.4, 0.4), b: (0.0, 0.5, 1.7), r: 0.18))],
+            ),
         ),
         // ------------------------------------------------------------------ Greatsword
         // Lente et lourde : grande allonge, hyperarmure pendant les coups, gros stagger.
         (
             name: (en: "Greatsword", fr: "Espadon"),
+            description: (en: "Slow, wide sweeping blows: best against groups of enemies.",
+                          fr: "Coups lents et larges qui balaient : idéal contre un groupe d'ennemis."),
             light: [
                 (
                     anim: "greatsword_light1", total: 52,
@@ -170,6 +181,14 @@
                 iframes: (0, 104),
                 hits: [(start: 52, end: 54, damage: 460, hitstop: 12,
                         capsule: (a: (0.0, 1.2, 0.3), b: (0.0, 1.4, 2.8), r: 0.45))],
+            ),
+            // Attaque sautée : l'épée abattue de tout son poids en retombant.
+            jump: (
+                anim: "greatsword_jump", total: 54, stamina: 14,
+                chain_from: 40, cancel_from: 38,
+                hyperarmor: (0, 22),
+                hits: [(start: 12, end: 19, damage: 160, stagger: 34, hitstop: 8,
+                        capsule: (a: (0.0, 1.5, 0.6), b: (0.0, 0.3, 3.0), r: 0.3))],
             ),
         ),
     ],

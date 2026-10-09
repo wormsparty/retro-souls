@@ -38,7 +38,9 @@ Blender 5.x et Python 3 ne servent qu'à régénérer les assets.
 | Esquive (maintenir = sprint) | B / ○ | Espace |
 | Sprint (un clic, tant que le stick est poussé) | L3 | — |
 | Verrouillage | R3 | Tab ou clic molette |
-| Changer d'arme | croix → | R |
+| Changer de cible (verrouillé) : point suivant à gauche / droite, plus haut / plus bas (la tête d'un grand boss) | stick droit ← → ↑ ↓ | souris ← → ↑ ↓ |
+| Changer d'arme | croix ↑ | R |
+| Attaque sautée (plus de dégâts, l'endurance du saut suffit presque) | RB / RT en l'air | clic en l'air |
 | Utiliser l'objet sélectionné | X / □ | F |
 | Objet suivant (emplacements rapides) | croix ↓ | C |
 | Interagir (ramasser, se reposer) ; sinon sauter | A / ✕ | G |
@@ -53,15 +55,61 @@ pause rappelle les contrôles du dernier périphérique utilisé (manette, ou cl
 
 ### Menus
 
-- **Écran titre** : Nouvelle partie (demande confirmation si une sauvegarde existe), Charger,
-  Options, Quitter.
-- **Pause** (Échap / Start) : Reprendre, Équipement, Options, Aide, Retour à l'écran titre, Quitter.
+- **Écran titre** : le titre centré, sur un fond où montent des braises et des cendres
+  au-dessus d'une lueur de brasier. Nouvelle partie (demande confirmation si une sauvegarde
+  existe), Charger, Options, *Fork me* (ouvre la page du projet sur GitHub), Quitter.
+- **Pause** (Échap / Start) : deux icônes, Équipement (heaume) et Système (roue crantée :
+  Options, Aide, *Fork me*, Retour à l'écran titre, Quitter). Échap / (B) referme le menu. En
+  pause, les personnages et les sorts sont figés ; les particules continuent.
 - **Checkpoint** (en s'y reposant) : Partir (sélectionné par défaut), Voyager (vers une autre
-  brasier déjà ranimé, avec une vue du lieu), Monter de niveau (grisé, à venir), Équipement,
-  Ranimer l'Automate (s'il a été vaincu).
-- **Équipement** : 4 emplacements rapides où équiper les consommables (en jeu, croix ↓ / C passe
-  à l'emplacement équipé suivant), et un emplacement de talisman (le premier talisman ramassé
-  est porté d'office ; on en change ici, depuis le menu pause ou un brasier).
+  brasier déjà ranimé, avec une vue du lieu), Choisir le boss, Monter de niveau (grisé, à venir),
+  Équipement, Ranimer le boss (s'il a été vaincu).
+- **Choisir le boss** : qui attend dans l'arène (il y apparaît aussitôt, en pleine forme), en
+  grille de portraits (`assets/ui/boss_<n>.png`, rendus par `tools/blender/boss_icons.py`). Les
+  rencontres sont dans `assets/config/bosses.ron` (en debug : `SOULS_BOSS=n`). Chaque boss a sa
+  couleur (`color`), celle de ses cercles au sol :
+  - l'Automate du Carrousel (`boss.ron`) ;
+  - la Wyverne de Cendre : immense, on verrouille sa tête (stick droit ↑), ses pattes ou sa
+    queue. Elle ne vise pas : elle avance à peu près vers sa proie, et finit par lui faire face.
+    Devant elle, coup de tête jusqu'au sol ou plaquage (elle se laisse tomber) ; sur son flanc,
+    elle pivote d'un quart de tour en fouettant de la queue ; derrière, la queue balaie ; de
+    loin, un jet de feu jusqu'au sol ; elle s'envole et retombe sur sa cible, ou s'élève hors
+    d'atteinte et crache trois boules de feu ; pluie de cendre en phase 2 ;
+  - le Boucher Cornu et ses deux chiens : couperets en diagonale (gauche puis droite),
+    tourbillon penché à hauteur d'homme, charge tête baissée, fendoir (onde de choc), couperet
+    lancé ; il bondit loin en arrière puis charge ou lance un couperet ; frénésie en phase 2.
+    Les chiens n'ont qu'une petite barre de vie et s'effondrent avec leur maître ;
+  - l'Allumeur et l'Enclume : l'allumeur est un magicien qui garde ses distances et ne reste
+    pas en place : il file régulièrement de côté (glissade), puis tire souvent de là (lueurs
+    qui suivent leur cible, salve de trois lueurs l'une après l'autre, fusées qui jaillissent
+    du sol, bond en arrière) ; le forgeron frappe lourd (marteau, revers, charge, séisme). Quand
+    l'un tombe, l'autre passe en phase 2 (anneaux de lumière, pluie de fusées ; traînée de braises) ;
+  - la Grande Marionnette (violette) : elle se sait vulnérable et bouge sans cesse : bonds de
+    côté ou en arrière, en jetant deux aiguilles (bras levés au-dessus d'elle : elles partent
+    de très haut, on les voit venir) ; gifle, chute sur sa cible,
+    pirouette, danse ; hissée à la verticale, elle retombe sur place (grande onde de choc) ;
+    envolée : hors d'atteinte, elle jette trois aiguilles puis se laisse tomber sur sa cible ;
+    fils qui s'abattent en phase 2 ;
+  - la Bête à l'Échine Creuse (le lézard, ventre à terre) : on verrouille sa tête ou son
+    arrière-train ; morsure, bras dorsaux, pivot et coup de queue, bond ; elle se dresse et
+    retombe : la glace jaillit devant elle ; frénésie et hurlement (cercles de glace) en phase 2 ;
+  - le Géant Porte-Flamme : colonne qui fend le sol en lançant une traînée de feu, piliers de
+    feu sous sa cible (qui ne tombent pas les uns sur les autres), trois boules de feu l'une
+    après l'autre, anneaux de flammes dont le premier à ses pieds ; collé à lui, on prend un
+    coup de pied qui fend le sol tout autour, ou la colonne qui fauche à hauteur de genou ;
+    trop près, il bondit aussi en arrière pour tirer de loin ; brasier, météores et vague de
+    feu en phase 2.
+
+  Modèles et animations : `tools/blender/trial_bosses.py`. Les sorts (projectiles et éruptions
+  annoncées au sol) d'une même attaque ne touchent qu'une fois. Un projectile qui s'écrase au
+  sol y brûle encore un moment (petite zone, moitié des dégâts, ni garde ni parade). Sorts,
+  ondes de choc et cercles sont tous à la couleur du boss (sauf le couperet, en fer).
+- **Équipement** (façon Dark Souls) : en haut les armes (montrées, on en change en jeu) et le
+  talisman, en dessous les cases des consommables, avec l'icône de l'objet équipé — 4
+  emplacements rapides pour les consommables (en jeu, croix ↓ / C passe à l'emplacement équipé
+  suivant) et un emplacement de talisman (le premier talisman ramassé est porté d'office).
+  Choisir une case ouvre la liste de ce qu'on possède (avec icônes et quantités) ; depuis le
+  menu pause ou un brasier.
 
 Échap / (B) revient à la page précédente. Le jeu démarre en plein écran.
 
@@ -108,14 +156,21 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
 - **Garde normale** : 60 % des dégâts, convertis en **regain** (barre grise) qu'on récupère en
   frappant le boss dans les 6 secondes. Plus d'endurance → garde brisée.
 - **Attaques furie** (le boss rougeoie) : la garde normale ne sert à rien, il faut une garde
-  parfaite ou une esquive.
-- **Attaques de zone** (cercle rouge au sol, qui se remplit jusqu'à l'impact) : ni garde ni
-  garde parfaite. L'*onde de choc* dure plus longtemps que les i-frames d'une roulade : il faut
+  parfaite ou une esquive. Le boss rougeoie aussi avant un coup imparable qu'aucun cercle
+  n'annonce (le jet de feu de la wyverne) : il faut fuir.
+- **Attaques de zone** (cercle au sol, à la couleur du boss, qui se remplit jusqu'à l'impact) :
+  ni garde ni garde parfaite. Le cercle apparaît au moins 40 ticks (⅔ s) avant l'impact et ne
+  bouge plus : dès qu'il s'affiche, le boss cesse de suivre sa cible (un saut qui retombe sur
+  elle la suit jusqu'au décollage, son vol sert d'alerte). L'*onde de choc* dure plus longtemps que les i-frames d'une roulade : il faut
   sortir du cercle. Le *bond arrière* est souvent suivi du *saut écrasant*, qui retombe là où se
   trouvait le joueur au décollage.
 - **Roulade** : ~3,5 m (pas en arrière : ~1,7 m).
 - **Groggy** : jauge de stagger du boss pleine (gardes parfaites, attaques lourdes chargées) →
-  il tombe à genoux ; attaque légère de face pour le **coup fatal**.
+  il tombe à genoux ; attaque légère de face pour le **coup fatal**. La jauge n'est pas
+  affichée (F1 la montre).
+- **Attaque sautée** : attaquer (légère ou lourde) pendant un saut : estoc plongeant (rapière)
+  ou taille abattue (épée longue), plus de dégâts et de stagger qu'une attaque normale pour
+  très peu d'endurance (le saut l'a déjà payée) ; en l'air, on atteint aussi plus haut.
 - **Rapière** : combo de 4 estocs rapides ; lourde chargée en fente ; spéciale *Fente éclair*
   (dash + rafale).
 - **Greatsword** : lente et lourde, grande allonge, hyperarmure pendant les coups ; 3 tailles
@@ -130,7 +185,7 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
 - **Jauge spéciale** (barre dorée sous l'endurance) : se remplit en frappant et en garde
   parfaite ; chaque attaque spéciale en consomme un tiers. Les coups de la spéciale ne rechargent pas la jauge,
   et son coût d'endurance est fixe (pas proportionnel à ses gros dégâts).
-- **HUD** : en bas à gauche, l'arme équipée (icône ; croix → / R pour changer) au-dessus de
+- **HUD** : en bas à gauche, l'arme équipée (icône ; croix ↑ / R pour changer) au-dessus de
   l'objet rapide sélectionné.
 - **Boss** : 9 attaques en phase 1 (dont une furie et deux attaques de zone), 2 de plus en
   phase 2 (sous 50 % de PV).
@@ -144,11 +199,12 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
                    │ pont
           kiosque à musique : 2 chiens endormis
                    │ rampe
-   guichets : 2 pantins, 1 chien ── passerelle étroite ── corniche : chien, éclat de fiole
+   guichets : 2 pantins, 1 chien ── passerelle étroite ── corniche : chien ⤳ saut : éclat de fiole
                    │ long pont : un pantin en travers
-   piste du colosse (unique) ── planche ── corniche : talisman
+   piste du colosse (unique) ── planche étroite ── corniche : plume de cimier
                    │ escalier
         belvédère brisé ◆ checkpoint ── pont effondré…
+                   ⤳ saut en courant : rocher isolé, broche de fer
 ```
 
 - **Saut** (A / G quand il n'y a rien à ramasser ni de brasier à portée) : ~0,8 m de haut,
@@ -185,7 +241,7 @@ l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
   - consommables (emplacements rapides, ne se rechargent pas) : *braise ternie* / *braise vive*
     (à écraser pour gagner des braises), *mousse dorée* (régénère des PV), *résine ardente*
     (+20 % de dégâts pendant une minute, la lame rougeoie) ;
-  - talismans : *broche de fer* (dégâts subis −15 %), *plume de manège* (esquives −30 %
+  - talismans : *broche de fer* (dégâts subis −15 %), *plume de cimier* (esquives −30 %
     d'endurance) ;
   - *éclat de fiole* : une charge de soin de plus, définitivement.
 
@@ -215,6 +271,8 @@ Toutes les valeurs de gameplay sont dans `assets/config/` et exprimées en **tic
 - `player.ron` : PV, endurance, vitesses, esquive (i-frames), garde parfaite, regain…
 - `weapons.ron` : chaque attaque (startup/actif/récupération, hitbox, dégâts, stagger, root motion)
 - `boss.ron` : PV, phases, stagger, pauses entre les attaques, chaque attaque et ses portées
+- `bosses.ron` : les autres boss (même format, plus modèle et échelle, parties verrouillables,
+  sorts) et les rencontres proposées au checkpoint
 - `arena.ron` : taille de l'arène, piliers, ouverture, apparition du boss
 - `level.ron` : le reste du niveau — sols (place, ponts, rampes, escaliers ; bords murés ou
   ouverts sur le vide), checkpoints (nom, vue du menu de voyage), décor, ennemis, objets
@@ -232,7 +290,9 @@ src/sim/      simulation déterministe à 60 Hz (aucune dépendance au rendu)
   data.rs       types du tuning (frame data)
   input.rs      PlayerInput : 7 octets par joueur et par tick (ce qui transitera sur le réseau)
   player.rs     machine à états du joueur (combos, charge, garde, esquive, sprint…)
-  boss.rs       IA du boss (aggro multi-joueurs, choix pondéré, cooldowns, phases)
+  boss.rs       IA des boss (aggro multi-joueurs, choix pondéré, cooldowns, phases, duos,
+                points verrouillables des grands boss)
+  spell.rs      sorts des boss : projectiles, éruptions annoncées au sol
   enemy.rs      IA des ennemis du chemin (poste, alerte de groupe, poursuite, abandon)
   world.rs      sols praticables et hauteurs, bords murés ou ouverts (chute), obstacles
   combat.rs     collisions, hitbox (capsules, balayages en arc), garde / parfaite / regain

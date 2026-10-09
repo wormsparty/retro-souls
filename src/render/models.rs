@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use super::ps1::{Ps1Lighting, Ps1Material, PointLightPs1, TintMeshes, set_tint};
 use super::{AppState, Interp, LocalPlayer};
-use crate::sim::boss::{Boss, fury_pending};
+use crate::sim::boss::{Boss, unblockable_pending};
 use crate::sim::data::{BossMove, MoveDef, MoveRef, Tuning};
 use crate::sim::enemy::{EState, Enemy};
 use crate::sim::fighter::{Action, Body, Health, Hitstop, PrevBody};
@@ -26,6 +26,18 @@ pub const WEAPON_MODELS: [&str; 2] = ["rapier", "greatsword"];
 pub const ENEMY_MODELS: [(&str, &str); 2] = [
     ("hound", include_str!("../../assets/models/hound.anim.json")),
     ("puppet", include_str!("../../assets/models/puppet.anim.json")),
+];
+
+/// Modèles des autres boss (`bosses.ron`), en plus de l'Automate (`boss`) et des modèles
+/// d'ennemis (qu'un boss peut réutiliser : les chiens du boucher).
+pub const BOSS_MODELS: [(&str, &str); 7] = [
+    ("dragon", include_str!("../../assets/models/dragon.anim.json")),
+    ("horned_butcher", include_str!("../../assets/models/horned_butcher.anim.json")),
+    ("lamplighter", include_str!("../../assets/models/lamplighter.anim.json")),
+    ("anvil", include_str!("../../assets/models/anvil.anim.json")),
+    ("spine_beast", include_str!("../../assets/models/spine_beast.anim.json")),
+    ("marionette", include_str!("../../assets/models/marionette.anim.json")),
+    ("giant", include_str!("../../assets/models/giant.anim.json")),
 ];
 
 #[derive(Deserialize, Clone, Debug)]
@@ -43,6 +55,17 @@ pub struct GameAssets {
     pub arena: Handle<Gltf>,
     pub weapons: Vec<Handle<Gltf>>,
     pub enemies: HashMap<String, Handle<Gltf>>,
+    pub bosses: HashMap<String, Handle<Gltf>>,
+}
+
+impl GameAssets {
+    /// Modèle d'un boss (l'Automate, un modèle propre, ou un modèle d'ennemi réutilisé).
+    fn boss_model(&self, model: &str) -> Option<&Handle<Gltf>> {
+        if model == "boss" {
+            return Some(&self.boss);
+        }
+        self.bosses.get(model).or_else(|| self.enemies.get(model))
+    }
 }
 
 /// Graphe d'animation d'un modèle + correspondance nom de clip → nœud.
@@ -57,6 +80,16 @@ pub struct Models {
     pub player: ModelAnims,
     pub boss: ModelAnims,
     pub enemies: HashMap<String, ModelAnims>,
+    pub bosses: HashMap<String, ModelAnims>,
+}
+
+impl Models {
+    pub fn boss_anims(&self, model: &str) -> Option<&ModelAnims> {
+        if model == "boss" {
+            return Some(&self.boss);
+        }
+        self.bosses.get(model).or_else(|| self.enemies.get(model))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,6 +197,7 @@ fn load_assets(mut commands: Commands, server: Res<AssetServer>) {
         arena: server.load("models/arena.glb"),
         weapons: WEAPON_MODELS.iter().map(|w| server.load(format!("models/{w}.glb"))).collect(),
         enemies: ENEMY_MODELS.iter().map(|(m, _)| (m.to_string(), server.load(format!("models/{m}.glb")))).collect(),
+        bosses: BOSS_MODELS.iter().map(|(m, _)| (m.to_string(), server.load(format!("models/{m}.glb")))).collect(),
     });
 }
 
@@ -187,7 +221,8 @@ fn wait_for_assets(
     let all = [&assets.player, &assets.boss, &assets.arena]
         .into_iter()
         .chain(assets.weapons.iter())
-        .chain(assets.enemies.values());
+        .chain(assets.enemies.values())
+        .chain(assets.bosses.values());
     for h in all {
         if !server.is_loaded_with_dependencies(h) {
             return;
@@ -199,10 +234,16 @@ fn wait_for_assets(
         let Some(g) = gltfs.get(&assets.enemies[m]) else { return };
         enemies.insert(m.to_string(), build_anims(g, markers, &mut graphs));
     }
+    let mut bosses = HashMap::new();
+    for (m, markers) in BOSS_MODELS {
+        let Some(g) = gltfs.get(&assets.bosses[m]) else { return };
+        bosses.insert(m.to_string(), build_anims(g, markers, &mut graphs));
+    }
     commands.insert_resource(Models {
         player: build_anims(p, include_str!("../../assets/models/player.anim.json"), &mut graphs),
         boss: build_anims(b, include_str!("../../assets/models/boss.anim.json"), &mut graphs),
         enemies,
+        bosses,
     });
     next.set(AppState::Title);
 }
@@ -227,11 +268,13 @@ fn attach_visuals(
     assets: Res<GameAssets>,
     tuning: Res<Tuning>,
     gltfs: Res<Assets<Gltf>>,
-    new: Query<(Entity, &Body, Option<&Player>, Has<Boss>, Option<&Enemy>), (With<SimEntity>, Without<Interp>)>,
+    new: Query<(Entity, &Body, Option<&Player>, Option<&Boss>, Option<&Enemy>), (With<SimEntity>, Without<Interp>)>,
 ) {
-    for (e, body, player, is_boss, enemy) in &new {
-        let (kind, handle, scale) = if is_boss {
-            (VisualKind::Boss, &assets.boss, 1.0)
+    for (e, body, player, boss, enemy) in &new {
+        let (kind, handle, scale) = if let Some(b) = boss {
+            let def = b.def(&tuning);
+            let Some(h) = assets.boss_model(&def.model) else { continue };
+            (VisualKind::Boss, h, def.scale)
         } else if let Some(en) = enemy {
             let def = &tuning.enemies[en.kind as usize];
             let Some(h) = assets.enemies.get(&def.model) else { continue };
@@ -246,7 +289,7 @@ fn attach_visuals(
             Visibility::default(),
             AnimDriver::default(),
         ));
-        if is_boss || enemy.is_some() {
+        if boss.is_some() || enemy.is_some() {
             ec.insert(TintFlash::default());
         }
         if player.is_some_and(|p| p.id == 0) {
@@ -276,6 +319,7 @@ fn on_scene_ready(
     gltfs: Res<Assets<Gltf>>,
     tuning: Res<Tuning>,
     enemies: Query<&Enemy>,
+    bosses: Query<&Boss>,
     mut lights: ResMut<SceneLights>,
 ) {
     let root = ready.entity;
@@ -289,7 +333,10 @@ fn on_scene_ready(
         if anim_players.contains(d) {
             let graph = match vs.kind {
                 VisualKind::Player | VisualKind::Corpse => models.player.graph.clone(),
-                VisualKind::Boss => models.boss.graph.clone(),
+                VisualKind::Boss => {
+                    let Some(m) = bosses.get(vs.owner).ok().and_then(|b| models.boss_anims(&b.def(&tuning).model)) else { continue };
+                    m.graph.clone()
+                }
                 VisualKind::Enemy => {
                     let Ok(en) = enemies.get(vs.owner) else { continue };
                     let Some(m) = models.enemies.get(&tuning.enemies[en.kind as usize].model) else { continue };
@@ -304,6 +351,13 @@ fn on_scene_ready(
             }
         }
         let Ok(name) = names.get(d) else { continue };
+        // Points verrouillables d'un grand boss qui suivent l'animation (tête, pattes…).
+        if vs.kind == VisualKind::Boss
+            && let Ok(b) = bosses.get(vs.owner)
+            && let Some(i) = b.def(&tuning).parts.iter().filter(|p| p.lock).position(|p| p.bone.as_deref() == Some(name.as_str()))
+        {
+            commands.entity(d).insert(super::camera::PartBone { owner: vs.owner, part: i as u8 });
+        }
         if vs.kind == VisualKind::Arena
             && let Some(i) = name.as_str().strip_prefix("checkpoint_").and_then(|r| r.strip_suffix("_coals"))
         {
@@ -396,8 +450,7 @@ fn loop_time(drv: &mut AnimDriver, anims: &ModelAnims, name: &str, dt: f32, rate
 
 #[allow(clippy::type_complexity)]
 fn drive_player_anims(
-    time: Res<Time>,
-    fixed: Res<Time<Fixed>>,
+    clock: Res<super::AnimClock>,
     tuning: Res<Tuning>,
     models: Res<Models>,
     mut q: Query<(&Player, &Action, &Body, &PrevBody, &Hitstop, &mut AnimDriver)>,
@@ -405,10 +458,10 @@ fn drive_player_anims(
 ) {
     let t = &*tuning;
     let anims = &models.player;
-    let dt = time.delta_secs();
+    let dt = clock.dt;
     for (p, action, body, prev, hitstop, mut drv) in &mut q {
         let weapon = WEAPON_MODELS[p.weapon as usize % WEAPON_MODELS.len()];
-        let over = if hitstop.0 > 0 { 0.0 } else { fixed.overstep_fraction() };
+        let over = if hitstop.0 > 0 { 0.0 } else { clock.over };
         let speed = math::flat_len(body.pos - prev.pos) * 60.0;
         let (name, tm): (String, f32) = match p.state {
             // Chute : bras écartés, figé au début de la réaction aux gros coups.
@@ -461,26 +514,40 @@ fn drive_player_anims(
 }
 
 fn drive_boss_anims(
-    time: Res<Time>,
-    fixed: Res<Time<Fixed>>,
+    clock: Res<super::AnimClock>,
     tuning: Res<Tuning>,
     models: Res<Models>,
-    mut q: Query<(&Action, &Body, &PrevBody, &Hitstop, &mut AnimDriver), With<Boss>>,
+    mut q: Query<(&Boss, &Action, &Body, &PrevBody, &Hitstop, &mut AnimDriver)>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
     let t = &*tuning;
-    let anims = &models.boss;
-    let dt = time.delta_secs();
-    for (action, body, prev, hitstop, mut drv) in &mut q {
-        let over = if hitstop.0 > 0 { 0.0 } else { fixed.overstep_fraction() };
+    let dt = clock.dt;
+    for (boss, action, body, prev, hitstop, mut drv) in &mut q {
+        let bd = boss.def(t);
+        let Some(anims) = models.boss_anims(&bd.model) else { continue };
+        let over = if hitstop.0 > 0 { 0.0 } else { clock.over };
         let (name, tm) = if let Some(def) = action.def(t) {
             let tick = (action.tick as f32 + over - 1.0).max(0.0);
             let m = anims.markers.get(&def.anim);
             (def.anim.clone(), m.map(|m| action_time(def, tick, m)).unwrap_or(tick / 60.0))
         } else {
-            let speed = math::flat_len(body.pos - prev.pos) * 60.0;
-            if speed > 0.2 {
-                ("walk".to_string(), loop_time(&mut drv, anims, "walk", dt, speed / 1.4))
+            // Vitesse ramenée à l'échelle du modèle (les pas sont animés à l'échelle 1).
+            let speed = math::flat_len(body.pos - prev.pos) * 60.0 / bd.scale;
+            let walk = bd.walk_speed / bd.scale;
+            // Pivot sur place (radians/s) : il piétine en se tournant.
+            let turn = math::wrap(body.yaw - prev.yaw).abs() * 60.0;
+            if speed > 2.5 && anims.nodes.contains_key("run") {
+                // Au galop (les chiens) : le cycle de course est animé pour ~4,5 m/s.
+                ("run".to_string(), loop_time(&mut drv, anims, "run", dt, speed / 4.5))
+            } else if speed > 0.2 || turn > 0.5 {
+                // Les pas reculés (lanceur de sorts) jouent la marche à l'envers ; de côté (ou en
+                // pivotant sur place), à l'endroit : sinon le sens bascule d'une frame à l'autre.
+                let step = body.pos - prev.pos;
+                let back = math::forward(body.yaw).dot(step) < -0.7 * math::flat_len(step);
+                let rate = (speed / walk.max(0.1)).max(turn * 0.6);
+                let tm = loop_time(&mut drv, anims, "walk", dt, rate);
+                let dur = anims.markers.get("walk").map_or(1.0, |m| m.frames / 60.0);
+                ("walk".to_string(), if back { dur - tm } else { tm })
             } else {
                 ("idle".to_string(), loop_time(&mut drv, anims, "idle", dt, 1.0))
             }
@@ -491,19 +558,18 @@ fn drive_boss_anims(
 
 #[allow(clippy::type_complexity)]
 fn drive_enemy_anims(
-    time: Res<Time>,
-    fixed: Res<Time<Fixed>>,
+    clock: Res<super::AnimClock>,
     tuning: Res<Tuning>,
     models: Res<Models>,
     mut q: Query<(&Enemy, &Action, &Body, &PrevBody, &Hitstop, &mut AnimDriver)>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
     let t = &*tuning;
-    let dt = time.delta_secs();
+    let dt = clock.dt;
     for (e, action, body, prev, hitstop, mut drv) in &mut q {
         let def = &t.enemies[e.kind as usize];
         let Some(anims) = models.enemies.get(&def.model) else { continue };
-        let over = if hitstop.0 > 0 { 0.0 } else { fixed.overstep_fraction() };
+        let over = if hitstop.0 > 0 { 0.0 } else { clock.over };
         let (name, tm) = if let Some(mv) = action.def(t) {
             let tick = (action.tick as f32 + over - 1.0).max(0.0);
             let m = anims.markers.get(&mv.anim);
@@ -535,27 +601,29 @@ fn weapon_visibility(owners: Query<&Player>, mut q: Query<(&WeaponVisual, &mut V
     }
 }
 
-/// Teinte des adversaires : lueur rouge du boss pendant l'anticipation d'une attaque furie,
-/// teinte propre à certains ennemis, flash blanc à l'impact.
+/// Teinte des adversaires : lueur rouge pendant l'anticipation d'un coup imparable qu'aucun
+/// cercle n'annonce (attaque furie, jet de feu), teinte propre à certains ennemis, flash blanc
+/// à l'impact.
 #[allow(clippy::type_complexity)]
 fn foe_tint(
     mut commands: Commands,
     time: Res<Time>,
     tuning: Res<Tuning>,
-    mut foes: Query<(Entity, &Action, &Health, &mut TintFlash, Option<&Enemy>)>,
+    mut foes: Query<(Entity, &Action, &Health, &mut TintFlash, Option<&Enemy>, Option<&Boss>)>,
     children: Query<&Children>,
     mut meshes: TintMeshes,
     mut materials: ResMut<Assets<Ps1Material>>,
 ) {
     let t = time.elapsed_secs();
-    for (e, action, health, mut flash, enemy) in &mut foes {
+    for (e, action, health, mut flash, enemy, boss) in &mut foes {
         flash.white = (flash.white - time.delta_secs() * 6.0).max(0.0);
-        let mut tint = enemy.and_then(|en| tuning.enemies[en.kind as usize].tint).map_or(Vec4::ZERO, Vec4::from);
-        if fury_pending(action, &tuning) {
+        let own = enemy.and_then(|en| tuning.enemies[en.kind as usize].tint).or(boss.and_then(|b| b.def(&tuning).tint));
+        let mut tint = own.map_or(Vec4::ZERO, Vec4::from);
+        if unblockable_pending(action, &tuning, boss.map(|b| b.def(&tuning))) {
             let k = 0.35 + 0.25 * (t * 18.0).sin();
             tint = Vec4::new(1.0, 0.05, 0.02, k);
         }
-        if action.is(MoveRef::Boss(BossMove::Groggy)) {
+        if matches!(action.mv, Some(MoveRef::Boss(_, BossMove::Groggy))) {
             tint = Vec4::new(1.0, 0.85, 0.4, 0.12 + 0.08 * (t * 6.0).sin());
         }
         if health.dead() {

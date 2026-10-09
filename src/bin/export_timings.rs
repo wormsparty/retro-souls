@@ -14,6 +14,7 @@ fn mv(d: &MoveDef) -> Value {
         "motion": d.motion.iter().map(|m| json!({"start": m.start, "end": m.end, "speed": m.speed})).collect::<Vec<_>>(),
         "iframes": d.iframes,
         "counter": d.counter,
+        "casts": d.casts.iter().map(|c| c.at).collect::<Vec<_>>(),
     })
 }
 
@@ -26,7 +27,7 @@ fn main() {
     }
     for w in &t.weapons {
         let mut all: Vec<&MoveDef> = w.light.iter().collect();
-        all.extend([&w.heavy, &w.heavy_charged, &w.special, &w.fatal]);
+        all.extend([&w.heavy, &w.heavy_charged, &w.special, &w.fatal, &w.jump]);
         all.extend(w.special_counter.iter());
         for d in all {
             player.insert(d.anim.clone(), mv(d));
@@ -34,12 +35,21 @@ fn main() {
         player.insert(w.charge_anim.clone(), json!({"total": w.charge_ticks, "hits": [], "motion": []}));
     }
     let mut boss = Map::new();
-    let b = &t.boss;
+    let b = &t.bosses[0];
     for d in [&b.groggy, &b.fatal_received, &b.roar, &b.death] {
         boss.insert(d.anim.clone(), mv(d));
     }
     for a in &b.attacks {
         boss.insert(a.mv.anim.clone(), mv(&a.mv));
+    }
+    // Autres boss : par modèle (sauf ceux qui réutilisent un modèle d'ennemi), le premier qui
+    // utilise une animation en donne les timings.
+    let mut bosses = Map::new();
+    for b in t.bosses.iter().skip(1).filter(|b| !t.enemies.iter().any(|k| k.model == b.model)) {
+        let Value::Object(m) = bosses.entry(b.model.clone()).or_insert_with(|| json!({})) else { continue };
+        for d in [&b.groggy, &b.fatal_received, &b.roar, &b.death].into_iter().chain(b.attacks.iter().map(|a| &a.mv)) {
+            m.entry(d.anim.clone()).or_insert_with(|| mv(d));
+        }
     }
     // Ennemis : par modèle, le premier type qui l'utilise donne les timings des animations
     // (les autres s'y recalent à l'exécution).
@@ -50,9 +60,26 @@ fn main() {
             m.entry(d.anim.clone()).or_insert_with(|| mv(d));
         }
     }
+    // Rencontres (portraits du menu) : modèle, échelle et décalage de chaque membre.
+    let encounters: Vec<Value> = t
+        .encounters
+        .iter()
+        .map(|e| {
+            Value::Array(
+                e.members
+                    .iter()
+                    .filter_map(|m| t.bosses.iter().find(|b| b.key == m.boss))
+                    .zip(&e.members)
+                    .map(|(b, m)| json!({"model": b.model, "scale": b.scale, "offset": m.offset, "minor": b.minor}))
+                    .collect(),
+            )
+        })
+        .collect();
     let out = json!({
+        "encounters": encounters,
         "player": player,
         "boss": boss,
+        "bosses": bosses,
         "enemies": enemies,
         "switch_at": p.switch_at,
         "heal_at": p.heal_at,

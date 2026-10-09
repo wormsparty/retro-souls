@@ -9,7 +9,8 @@ use crate::render::camera::CameraRig;
 use crate::render::models::TintFlash;
 use crate::render::ps1::Ps1Material;
 use crate::sim::boss::{Boss, aoe_telegraph};
-use crate::sim::data::Tuning;
+use crate::sim::data::{Element, SpellKind, Tuning};
+use crate::sim::spell::{SPLASH_LIFE, Spell, splash_radius, telegraph};
 use crate::sim::enemy::Enemy;
 use crate::sim::fighter::{Action, Body};
 use crate::sim::items::Item;
@@ -39,6 +40,49 @@ pub struct SparkAssets {
     wisp: Handle<Ps1Material>,
     /// Anneau de rayon 1 couché au sol (onde de choc).
     ring: Handle<Mesh>,
+    /// Disque de rayon 1 couché au sol (alerte des éruptions).
+    disc: Handle<Mesh>,
+    /// Projectile (sphère de rayon 1), colonne d'éruption (cylindre de rayon 1, haut de 1).
+    orb: Handle<Mesh>,
+    column: Handle<Mesh>,
+    /// Matériaux des sorts, par élément : cœur lumineux, étincelles, alerte au sol.
+    spell: std::collections::HashMap<Element, SpellMats>,
+    /// Les mêmes à la couleur de chaque boss (index de sa définition) : ses sorts, ses ondes
+    /// de choc et ses alertes sont tous de sa couleur.
+    boss: Vec<SpellMats>,
+}
+
+impl SparkAssets {
+    /// Matériaux d'un sort : la couleur de son lanceur, sauf le fer (couperet) qui reste du fer.
+    fn spell_mats(&self, element: Element, boss: u8) -> Option<&SpellMats> {
+        if element == Element::Iron {
+            return self.spell.get(&element);
+        }
+        self.boss.get(boss as usize).or_else(|| self.spell.get(&element))
+    }
+}
+
+#[derive(Clone)]
+struct SpellMats {
+    /// Cœur éclatant, halo translucide autour.
+    core: Handle<Ps1Material>,
+    halo: Handle<Ps1Material>,
+    spark: Handle<Ps1Material>,
+    /// Onde de choc (anneau opaque).
+    shock: Handle<Ps1Material>,
+}
+
+/// Rendu d'un sort (posé sur l'entité de simulation).
+#[derive(Component)]
+struct SpellVisual {
+    /// Éruption : contour et disque d'alerte, colonne (halo, cœur). Projectile : sphère (cœur),
+    /// halo ou lame (colonne), et la flaque qui brûle où il s'écrase (disque).
+    ring: Option<Entity>,
+    fill: Option<Entity>,
+    column: Option<Entity>,
+    inner: Option<Entity>,
+    /// Étincelles émises (projectiles) : reliquat entre deux frames.
+    trail: f32,
 }
 
 /// Alerte au sol d'une attaque de zone : contour du cercle (`fill: false`) et disque qui
@@ -96,7 +140,7 @@ impl Plugin for FxPlugin {
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
-                (consume_events, update_particles, aoe_markers, update_shocks, ambient).run_if(in_state(AppState::Playing)),
+                (consume_events, update_particles, aoe_markers, update_shocks, ambient, spell_visuals).run_if(in_state(AppState::Playing)),
             );
     }
 }
@@ -111,6 +155,7 @@ const SOUNDS: [&str; 19] = [
 fn setup(
     mut commands: Commands,
     server: Res<AssetServer>,
+    tuning: Res<Tuning>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut mats: ResMut<Assets<Ps1Material>>,
 ) {
@@ -148,6 +193,28 @@ fn setup(
             m
         }),
         ring: ring.clone(),
+        disc: disc.clone(),
+        orb: meshes.add(Sphere::new(1.0).mesh().ico(1).unwrap()),
+        column: meshes.add(Cylinder::new(1.0, 1.0).mesh().resolution(10)),
+        spell: [
+            (Element::Fire, (1.0, 0.82, 0.4), (1.0, 0.35, 0.05), Color::srgba(1.0, 0.3, 0.05, 0.55)),
+            (Element::Light, (1.0, 0.97, 0.85), (0.8, 0.75, 0.45), Color::srgba(0.95, 0.85, 0.5, 0.45)),
+            (Element::Iron, (0.45, 0.42, 0.4), (0.0, 0.0, 0.0), Color::srgba(0.3, 0.28, 0.27, 0.0)),
+            (Element::Ice, (0.85, 0.96, 1.0), (0.3, 0.62, 0.95), Color::srgba(0.55, 0.82, 1.0, 0.5)),
+        ]
+        .into_iter()
+        .map(|(el, c, glow, halo)| (el, spell_mats(&mut mats, c, glow, halo)))
+        .collect(),
+        // Cœur pâli vers le blanc, halo et lueur de la couleur du boss.
+        boss: tuning
+            .bosses
+            .iter()
+            .map(|b| {
+                let [r, g, bl] = b.color;
+                let pale = |x: f32| x + (1.0 - x) * 0.55;
+                spell_mats(&mut mats, (pale(r), pale(g), pale(bl)), (r, g, bl), Color::srgba(r, g, bl, 0.5))
+            })
+            .collect(),
     });
     let blend = |c: Color| {
         let mut m = Ps1Material::unlit(c);
@@ -166,6 +233,32 @@ fn setup(
             AoeMarker { fill },
         ));
     }
+}
+
+/// Matériaux d'un sort : cœur `c` qui luit de `glow`, halo translucide, étincelles, onde de choc.
+fn spell_mats(mats: &mut Assets<Ps1Material>, c: (f32, f32, f32), glow: (f32, f32, f32), halo: Color) -> SpellMats {
+    let core = mats.add({
+        let mut m = Ps1Material::unlit(Color::srgb(c.0, c.1, c.2));
+        m.params.emissive = Vec4::new(glow.0, glow.1, glow.2, 0.0);
+        m
+    });
+    let halo = mats.add({
+        let mut m = Ps1Material::unlit(halo);
+        m.alpha_mode = AlphaMode::Blend;
+        m.params.emissive = Vec4::new(glow.0 * 0.5, glow.1 * 0.5, glow.2 * 0.5, 0.0);
+        m
+    });
+    let spark = mats.add({
+        let mut m = Ps1Material::unlit(Color::srgb(c.0, c.1 * 0.8, c.2 * 0.6));
+        m.params.emissive = Vec4::new(glow.0 * 0.7, glow.1 * 0.7, glow.2 * 0.7, 0.0);
+        m
+    });
+    let shock = mats.add({
+        let mut m = Ps1Material::unlit(Color::srgb(glow.0, glow.1, glow.2));
+        m.params.emissive = Vec4::new(glow.0 * 0.6, glow.1 * 0.6, glow.2 * 0.6, 0.0);
+        m
+    });
+    SpellMats { core, halo, spark, shock }
 }
 
 pub fn play(commands: &mut Commands, sounds: &Sounds, name: &str, volume: f32) {
@@ -221,8 +314,20 @@ pub fn consume_events(
     enemies: Query<&Enemy>,
     tuning: Res<Tuning>,
     time: Res<Time>,
+    mut heard: Local<Vec<u32>>,
 ) {
     let floor = |p: Vec3| world::floor_at(&tuning, p.x, p.z, p.y - 1.0).unwrap_or(-1000.0);
+    // Un seul bruit par attaque, quel que soit son nombre de sorts.
+    let mut first = |key: u32| {
+        let new = !heard.contains(&key);
+        if new {
+            heard.push(key);
+            if heard.len() > 16 {
+                heard.remove(0);
+            }
+        }
+        new
+    };
     sounds.1 = settings.effects_volume;
     let dt = time.delta_secs();
     fx.perfect_flash = (fx.perfect_flash - dt * 4.0).max(0.0);
@@ -354,12 +459,15 @@ pub fn consume_events(
                     burst(&mut commands, &sparks, &sparks.heal, t.translation() + Vec3::Y * 1.0, 24, 2.0, seed, floor(t.translation() + Vec3::Y * 1.0));
                 }
             }
-            SimEvent::Shockwave { pos, radius } => {
+            SimEvent::Shockwave { pos, radius, boss } => {
                 play(&mut commands, &sounds, "slam", 1.0);
                 rig.shake = rig.shake.max(1.0);
+                // À la couleur du boss, comme son cercle d'alerte.
+                let m = sparks.boss.get(boss as usize);
+                let (ring, debris) = m.map_or((&sparks.fury, &sparks.guard), |m| (&m.shock, &m.spark));
                 commands.spawn((
                     Mesh3d(sparks.ring.clone()),
-                    MeshMaterial3d(sparks.fury.clone()),
+                    MeshMaterial3d(ring.clone()),
                     Transform::from_translation(pos + Vec3::Y * 0.08)
                         .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
                         .with_scale(Vec3::splat(0.3)),
@@ -370,7 +478,38 @@ pub fn consume_events(
                 for i in 0..n {
                     let a = i as f32 / n as f32 * std::f32::consts::TAU;
                     let p = pos + Vec3::new(a.cos(), 0.1, a.sin()) * radius * 0.85;
-                    burst(&mut commands, &sparks, &sparks.guard, p, 2, 3.0, seed.wrapping_add(i as u32 * 31), floor(p));
+                    burst(&mut commands, &sparks, debris, p, 2, 3.0, seed.wrapping_add(i as u32 * 31), floor(p));
+                }
+            }
+            SimEvent::SpellCast { pos, element, boss, volley } => {
+                if first(volley) {
+                    play(&mut commands, &sounds, if element == Element::Iron { "swing_heavy" } else { "kindle" }, 0.6);
+                }
+                if let Some(m) = sparks.spell_mats(element, boss) {
+                    spray(&mut commands, &sparks, &m.spark, pos, 10, 2.0, seed, floor(pos), true);
+                }
+            }
+            SimEvent::SpellFizzle { pos, element, boss } => {
+                if let Some(m) = sparks.spell_mats(element, boss) {
+                    burst(&mut commands, &sparks, &m.spark, pos, 12, 3.5, seed, floor(pos));
+                }
+            }
+            SimEvent::SpellSplash { pos, radius, element, boss } => {
+                play(&mut commands, &sounds, if element == Element::Iron { "guard" } else { "slam" }, 0.35);
+                if let Some(m) = sparks.spell_mats(element, boss) {
+                    let n = (radius * 8.0) as usize + 6;
+                    burst(&mut commands, &sparks, &m.spark, pos + Vec3::Y * 0.15, n, 4.0, seed, floor(pos + Vec3::Y));
+                }
+            }
+            SimEvent::Eruption { pos, radius, element, boss, volley } => {
+                if first(volley ^ 0x8000_0000) {
+                    play(&mut commands, &sounds, "slam", 0.55);
+                }
+                rig.shake = rig.shake.max(0.35);
+                if let Some(m) = sparks.spell_mats(element, boss) {
+                    let n = (radius * 6.0) as usize + 4;
+                    spray(&mut commands, &sparks, &m.spark, pos + Vec3::Y * 0.3, n, 3.0, seed, floor(pos), true);
+                    burst(&mut commands, &sparks, &m.spark, pos + Vec3::Y * 0.2, n, 5.0, seed ^ 0x5bd1, floor(pos));
                 }
             }
             // Nouveaux combattants : la caméra se recale derrière le joueur.
@@ -384,24 +523,41 @@ pub fn consume_events(
 fn aoe_markers(
     tuning: Res<Tuning>,
     time: Res<Time>,
-    bosses: Query<(&Body, &Action), With<Boss>>,
+    bosses: Query<(Entity, &Boss, &Body, &Action)>,
     mut markers: Query<(&AoeMarker, &mut Transform, &mut Visibility, &MeshMaterial3d<Ps1Material>)>,
     mut mats: ResMut<Assets<Ps1Material>>,
+    mut locked: Local<Option<(Entity, u32, Vec3)>>,
 ) {
-    let tele = bosses.iter().find_map(|(b, a)| aoe_telegraph(b, a, &tuning));
+    let tele = bosses.iter().find_map(|(e, boss, b, a)| aoe_telegraph(b, a, &tuning).map(|t| (e, a.seq, boss.def(&tuning).color, t)));
+    // L'endroit est figé dès qu'il s'affiche : le cercle ne bouge plus jusqu'à l'impact.
+    let tele = tele.map(|(e, seq, color, (pos, r, k))| {
+        let pos = match *locked {
+            Some((le, ls, lp)) if le == e && ls == seq => lp,
+            _ => {
+                *locked = Some((e, seq, pos));
+                pos
+            }
+        };
+        (pos, r, k, color)
+    });
+    if tele.is_none() {
+        *locked = None;
+    }
     for (m, mut tf, mut vis, mat) in &mut markers {
         let want = if tele.is_some() { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
             *vis = want;
         }
-        let Some((pos, r, k)) = tele else { continue };
+        let Some((pos, r, k, color)) = tele else { continue };
         tf.translation.x = pos.x;
         tf.translation.z = pos.z;
         let s = if m.fill { r * k } else { r };
         tf.scale = Vec3::new(s, s, 1.0);
         if let Some(mut mat) = mats.get_mut(&mat.0) {
             let blink = if k > 0.7 { 0.5 + 0.5 * (time.elapsed_secs() * 18.0).sin() } else { 1.0 };
-            mat.params.base_color.w = if m.fill { 0.2 + 0.25 * k } else { 0.5 + 0.45 * blink };
+            let shade = if m.fill { 0.75 } else { 1.0 };
+            let c = Color::srgb(color[0] * shade, color[1] * shade, color[2] * shade).to_linear();
+            mat.params.base_color = Vec4::new(c.red, c.green, c.blue, if m.fill { 0.2 + 0.25 * k } else { 0.5 + 0.45 * blink });
         }
     }
 }
@@ -576,6 +732,231 @@ fn ambient(
                 Transform::from_translation(start).with_scale(Vec3::splat(scale)),
                 p,
             ));
+        }
+    }
+}
+
+/// Hauteur d'une colonne d'éruption, selon son rayon.
+const COLUMN_HEIGHT: f32 = 3.2;
+
+/// Sorts : projectiles lumineux et leur traînée ; éruptions annoncées par un cercle au sol qui
+/// se remplit, puis une colonne qui jaillit et retombe.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn spell_visuals(
+    mut commands: Commands,
+    tuning: Res<Tuning>,
+    time: Res<Time>,
+    clock: Res<crate::render::AnimClock>,
+    sparks: Res<SparkAssets>,
+    mut mats: ResMut<Assets<Ps1Material>>,
+    mut spells: Query<(Entity, &Spell, Option<&mut SpellVisual>)>,
+    mut parts: Query<(&mut Transform, &mut Visibility, Option<&MeshMaterial3d<Ps1Material>>), Without<Spell>>,
+    mut roots: Query<&mut Transform, With<Spell>>,
+) {
+    let t = &*tuning;
+    // Les sorts s'arrêtent en pause (leurs étincelles, non).
+    let over = clock.over;
+    let dt = time.delta_secs();
+    let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    for (e, s, vis) in &mut spells {
+        let sd = s.def(t);
+        let Some(m) = sparks.spell_mats(sd.element, s.boss) else { continue };
+        let pos = s.prev.lerp(s.pos, over);
+        let Some(mut vis) = vis else {
+            // Nouveau sort : son rendu.
+            let mut ec = commands.entity(e);
+            ec.insert((Transform::from_translation(pos), Visibility::default()));
+            let mut v = SpellVisual { ring: None, fill: None, column: None, inner: None, trail: 0.0 };
+            match sd.kind {
+                SpellKind::Bolt => {
+                    let core = commands
+                        .spawn((Mesh3d(sparks.orb.clone()), MeshMaterial3d(m.core.clone()), Transform::from_scale(Vec3::splat(sd.radius * 0.55)), ChildOf(e)))
+                        .id();
+                    let outer = if sd.element != Element::Iron {
+                        commands
+                            .spawn((Mesh3d(sparks.orb.clone()), MeshMaterial3d(m.halo.clone()), Transform::from_scale(Vec3::splat(sd.radius * 1.05)), ChildOf(e)))
+                            .id()
+                    } else {
+                        // Le couperet : une lame plate qui tournoie.
+                        commands
+                            .spawn((
+                                Mesh3d(sparks.mesh.clone()),
+                                MeshMaterial3d(m.core.clone()),
+                                Transform::from_scale(Vec3::new(sd.radius * 30.0, 2.0, sd.radius * 14.0)),
+                                ChildOf(e),
+                            ))
+                            .id()
+                    };
+                    // La flaque qui brûle là où il s'écrase (cachée en vol).
+                    let pool = commands
+                        .spawn((
+                            Mesh3d(sparks.disc.clone()),
+                            MeshMaterial3d(m.halo.clone()),
+                            Transform::from_translation(Vec3::Y * 0.05).with_rotation(flat).with_scale(Vec3::new(0.01, 0.01, 1.0)),
+                            Visibility::Hidden,
+                            ChildOf(e),
+                        ))
+                        .id();
+                    (v.inner, v.column, v.fill) = (Some(core), Some(outer), Some(pool));
+                }
+                SpellKind::Beam => {
+                    let mut col = |mat: &Handle<Ps1Material>| commands.spawn((Mesh3d(sparks.column.clone()), MeshMaterial3d(mat.clone()), Transform::from_scale(Vec3::ZERO), ChildOf(e))).id();
+                    (v.column, v.inner) = (Some(col(&m.halo)), Some(col(&m.core)));
+                }
+                SpellKind::Eruption => {
+                    // L'alerte au sol prend la couleur du boss lanceur (comme la colonne).
+                    let [r, g, b] = t.bosses[s.boss as usize].color;
+                    let warn = Color::srgba(r, g, b, 0.9);
+                    let blend = |c: Color| {
+                        let mut mat = Ps1Material::unlit(c);
+                        mat.alpha_mode = AlphaMode::Blend;
+                        mat
+                    };
+                    let ring = commands
+                        .spawn((
+                            Mesh3d(sparks.ring.clone()),
+                            MeshMaterial3d(mats.add(blend(warn))),
+                            Transform::from_translation(Vec3::Y * 0.06).with_rotation(flat).with_scale(Vec3::new(sd.radius, sd.radius, 1.0)),
+                            ChildOf(e),
+                        ))
+                        .id();
+                    let fill = commands
+                        .spawn((
+                            Mesh3d(sparks.disc.clone()),
+                            MeshMaterial3d(mats.add(blend(warn.with_alpha(0.3)))),
+                            Transform::from_translation(Vec3::Y * 0.05).with_rotation(flat).with_scale(Vec3::new(0.01, 0.01, 1.0)),
+                            ChildOf(e),
+                        ))
+                        .id();
+                    let mut col = |mat: &Handle<Ps1Material>| {
+                        commands
+                            .spawn((
+                                Mesh3d(sparks.column.clone()),
+                                MeshMaterial3d(mat.clone()),
+                                Transform::from_scale(Vec3::ZERO),
+                                Visibility::Hidden,
+                                ChildOf(e),
+                            ))
+                            .id()
+                    };
+                    let (column, inner) = (col(&m.halo), col(&m.core));
+                    (v.ring, v.fill, v.column, v.inner) = (Some(ring), Some(fill), Some(column), Some(inner));
+                }
+            }
+            commands.entity(e).insert(v);
+            continue;
+        };
+        if let Ok(mut tf) = roots.get_mut(e) {
+            tf.translation = pos;
+            if sd.kind == SpellKind::Bolt && sd.delay > 0 {
+                // Projectile suspendu avant de partir : il grossit sur place.
+                let grow = ((s.age as f32 + over) / (sd.delay as f32 * 0.6)).clamp(0.05, 1.0);
+                tf.scale = Vec3::splat(grow);
+            }
+            if sd.kind == SpellKind::Bolt && s.landed.is_none() {
+                // Le couperet tournoie, les boules de feu roulent.
+                tf.rotate_y(clock.dt * if sd.element == Element::Iron { 22.0 } else { 6.0 });
+            }
+        }
+        match sd.kind {
+            SpellKind::Bolt if s.landed.is_some() => {
+                // Écrasé au sol : le projectile disparaît, une flaque brûle puis s'éteint.
+                for id in [vis.inner, vis.column].into_iter().flatten() {
+                    if let Ok((_, mut v, _)) = parts.get_mut(id) {
+                        *v = Visibility::Hidden;
+                    }
+                }
+                let since = s.age as f32 + over - s.landed.unwrap_or(0) as f32;
+                let k = (since / SPLASH_LIFE as f32).clamp(0.0, 1.0);
+                if let Some(Ok((mut tf, mut v, _))) = vis.fill.map(|id| parts.get_mut(id)) {
+                    *v = Visibility::Inherited;
+                    let flicker = 1.0 + 0.06 * (time.elapsed_secs() * 23.0 + e.index_u32() as f32).sin();
+                    let r = splash_radius(sd) * (since / 4.0).min(1.0) * (1.0 - 0.35 * k * k) * flicker;
+                    tf.scale = Vec3::new(r.max(0.01), r.max(0.01), 1.0);
+                }
+                vis.trail += dt * 30.0 * (1.0 - k);
+                let n = vis.trail as usize;
+                vis.trail -= n as f32;
+                let seed = (time.elapsed_secs() * 977.0) as u32 ^ e.index_u32();
+                let r = splash_radius(sd);
+                for i in 0..n {
+                    let h = |j: u32| ((seed.wrapping_mul(2654435761).wrapping_add(i as u32 * 40503 + j * 7919) >> 8) % 1000) as f32 / 1000.0;
+                    let a = h(1) * std::f32::consts::TAU;
+                    let at = pos + Vec3::new(a.cos(), 0.1, a.sin()) * r * h(2).sqrt();
+                    spray(&mut commands, &sparks, &m.spark, at, 1, 1.2, seed.wrapping_add(i as u32 * 31), -1000.0, true);
+                }
+            }
+            SpellKind::Bolt => {
+                vis.trail += dt * 40.0;
+                let n = vis.trail as usize;
+                vis.trail -= n as f32;
+                let seed = (time.elapsed_secs() * 977.0) as u32 ^ e.index_u32();
+                if n > 0 && sd.element != Element::Iron {
+                    spray(&mut commands, &sparks, &m.spark, pos, n, 0.6, seed, -1000.0, true);
+                }
+            }
+            SpellKind::Beam => {
+                // Un flot épais de la bouche jusqu'au sol, qui s'y étale en gerbes.
+                let d = s.end - pos;
+                let len = d.length().max(0.01);
+                let rot = Quat::from_rotation_arc(Vec3::Y, d / len);
+                let grow = ((s.age as f32 + over) / 6.0).min(1.0);
+                let fade = ((sd.life as f32 - s.age as f32) / 8.0).clamp(0.0, 1.0);
+                let flicker = 1.0 + 0.12 * (time.elapsed_secs() * 31.0 + e.index_u32() as f32).sin();
+                for (id, k) in [(vis.column, 1.0), (vis.inner, 0.45)] {
+                    let Some(Ok((mut tf, ..))) = id.map(|c| parts.get_mut(c)) else { continue };
+                    let r = sd.radius * k * flicker * grow * fade;
+                    let l = len * grow;
+                    *tf = Transform { translation: d / len * l * 0.5, rotation: rot, scale: Vec3::new(r, l, r) };
+                }
+                vis.trail += dt * 90.0;
+                let n = vis.trail as usize;
+                vis.trail -= n as f32;
+                let seed = (time.elapsed_secs() * 977.0) as u32 ^ e.index_u32();
+                for i in 0..n {
+                    let k = 0.35 + 0.65 * ((seed.wrapping_mul(2654435761).wrapping_add(i as u32 * 40503) >> 8) % 1000) as f32 / 1000.0;
+                    let at = pos + d * k * grow;
+                    spray(&mut commands, &sparks, &m.spark, at, 1, 2.5, seed.wrapping_add(i as u32 * 7919), -1000.0, true);
+                }
+            }
+            SpellKind::Eruption => {
+                let warn = telegraph(s, t);
+                let k = warn.map_or(1.0, |w| (w.2 + over / s.burst_at(t).max(1) as f32).min(1.0));
+                let blink = if k > 0.75 { 0.5 + 0.5 * (time.elapsed_secs() * 20.0).sin() } else { 1.0 };
+                for (id, fill) in [(vis.ring, false), (vis.fill, true)] {
+                    let Some(id) = id else { continue };
+                    let Ok((mut tf, mut v, mat)) = parts.get_mut(id) else { continue };
+                    let want = if warn.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+                    if *v != want {
+                        *v = want;
+                    }
+                    if fill {
+                        let r = sd.radius * k;
+                        tf.scale = Vec3::new(r.max(0.01), r.max(0.01), 1.0);
+                    }
+                    if let Some(mut mm) = mat.and_then(|h| mats.get_mut(&h.0)) {
+                        mm.params.base_color.w = if fill { 0.15 + 0.25 * k } else { 0.45 + 0.5 * blink };
+                    }
+                }
+                let since = s.age as f32 + over - s.burst_at(t) as f32;
+                if since < 0.0 {
+                    continue;
+                }
+                // Jaillit d'un coup, puis s'amincit et retombe ; le cœur, plus fin, monte plus haut.
+                let life = sd.life.max(1) as f32;
+                let f = (since / life).clamp(0.0, 1.0);
+                let h = COLUMN_HEIGHT * (sd.radius * 0.6 + 0.5) * (1.0 - f * f) * (since / 3.0).min(1.0);
+                let r = sd.radius * 0.8 * (1.0 - 0.6 * f);
+                for (id, k) in [(vis.column, 1.0), (vis.inner, 0.45)] {
+                    let Some(Ok((mut tf, mut v, _))) = id.map(|c| parts.get_mut(c)) else { continue };
+                    if *v != Visibility::Inherited {
+                        *v = Visibility::Inherited;
+                    }
+                    let hh = h * (1.0 + (1.0 - k) * 0.4);
+                    tf.scale = Vec3::new(r * k, hh.max(0.01), r * k);
+                    tf.translation = Vec3::Y * hh * 0.5;
+                }
+            }
         }
     }
 }
