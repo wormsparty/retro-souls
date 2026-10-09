@@ -108,7 +108,7 @@
             door: (pos: (225, 241.8), look: (225, 260)),
             boss_spawn: (225, 266),
         ),
-        // The Dead-Hearth Giant: the hearth of a burnt-out city, vast, a ditch of ash-grey lava
+        // The Dead-Hearth Giant: the hearth of a burnt-out city, vast, a ditch of dead lava, dark ash,
         // between its low parapet and the wall. Corridor east of the parvis, next to the final door.
         (
             name: (en: "Giant's Hearth", fr: "Foyer du Géant"),

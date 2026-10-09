@@ -167,9 +167,9 @@ def dragon():
     BELLY = material("d_belly", tex=tex_noise((0.36, 0.28, 0.22), 0.45, seed=103))
     MEMBRANE = material("d_membrane", tex=tex_noise((0.34, 0.12, 0.08), 0.45, seed=104))
     HORN = material("d_horn", (0.74, 0.68, 0.58))
-    EYES = material("d_eyes", (1.0, 0.35, 0.2), emissive=(1.0, 0.22, 0.1))
-    # Red, like its fire and its torch (assets/config/bosses.ron).
-    EMBER = material("d_ember", (1.0, 0.3, 0.1), emissive=(1.0, 0.18, 0.06))
+    EYES = material("d_eyes", (1.0, 0.6, 0.2), emissive=(1.0, 0.5, 0.1))
+    # Orange, like its fire and its torch (assets/config/bosses.ron).
+    EMBER = material("d_ember", (1.0, 0.48, 0.1), emissive=(1.0, 0.4, 0.05))
 
     def body(mb):
         mb.box((0, -0.2, 2.05), (1.8, 3.4, 1.5), SCALE, taper=(0.8, 0.85))
@@ -444,7 +444,8 @@ def horned_butcher():
     BLADE = material("c_blade", tex=tex_noise((0.42, 0.38, 0.35), 0.55, seed=126))
     BLOOD = material("c_blood", (0.33, 0.04, 0.03))
     WOOD = material("c_wood", tex=tex_planks((0.3, 0.2, 0.12), seed=127))
-    EYES = material("c_eyes", (1.0, 0.3, 0.65), emissive=(0.95, 0.2, 0.6))
+    # Bright red, like his torch and his warnings (assets/config/bosses.ron).
+    EYES = material("c_eyes", (1.0, 0.2, 0.15), emissive=(1.0, 0.08, 0.06))
     MOUTH = material("c_mouth", (0.12, 0.04, 0.04))
 
     def hips(mb):
@@ -916,11 +917,13 @@ def spine_beast():
         mb.box((0, -2.5, 1.26), (0.5, 1.0, 0.44), BONE, taper=(0.8, 0.75))
         mb.box((0, -2.25, 1.5), (0.3, 0.5, 0.18), BONE_DARK, taper=(0.5, 0.7))
         for sd in (R, L):
-            mb.box((sd * 0.2, -2.3, 1.36), (0.03, 0.32, 0.05), GLOW)
+            # Eyes standing out of the cheek (in its plane, they flickered over the bone).
+            mb.box((sd * 0.225, -2.42, 1.35), (0.06, 0.16, 0.07), GLOW)
             mb.seg(mx((0.15, -2.1, 1.5), sd), mx((0.32, -1.55, 1.8), sd), 0.08, 0.08, BONE, taper=0.15)
             for y in (-2.55, -2.75, -2.95):
                 mb.box((sd * 0.16, y, 1.03), (0.04, 0.04, 0.12), BONE)
-        mb.box((0, -2.6, 1.06), (0.32, 0.8, 0.03), MOUTH)
+        # The mouth's slit, a little out of the snout's faces (flush, it flickered).
+        mb.box((0, -2.63, 1.03), (0.32, 0.8, 0.05), MOUTH)
 
     def jaw(mb):
         mb.box((0, -2.6, 0.95), (0.4, 0.95, 0.15), BONE_DARK, taper=(0.8, 0.85))

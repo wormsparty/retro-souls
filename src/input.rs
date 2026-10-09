@@ -115,7 +115,7 @@ fn gamepad_buttons(g: &Gamepad, pressed: bool) -> u16 {
     if check(GamepadButton::RightThumb) {
         b |= btn::LOCK;
     }
-    if check(GamepadButton::DPadUp) {
+    if check(GamepadButton::DPadRight) {
         b |= btn::SWITCH;
     }
     if check(GamepadButton::West) {

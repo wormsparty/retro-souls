@@ -13,14 +13,15 @@ from common import *  # noqa: E402,F403
 reset_scene()
 T = load_timings()["boss"]
 
-RED = material("b_red", tex=tex_stripes((0.62, 0.12, 0.1), (0.85, 0.75, 0.55), n=6, seed=31))
-CANOPY = material("b_canopy", tex=tex_stripes((0.7, 0.14, 0.12), (0.9, 0.85, 0.7), n=8, seed=32))
+# Its livery is teal, like its eyes, its shockwaves and its torch (assets/config/boss.ron):
+# teal and pale stripes, pewter trims.
+LIVERY = material("b_livery", tex=tex_stripes((0.06, 0.42, 0.38), (0.72, 0.8, 0.74), n=6, seed=31))
+CANOPY = material("b_canopy", tex=tex_stripes((0.07, 0.5, 0.45), (0.78, 0.86, 0.8), n=8, seed=32))
 WOOD = material("b_wood", tex=tex_planks((0.45, 0.3, 0.18), seed=33))
 PORCELAIN = material("b_mask", (0.92, 0.88, 0.8))
-GOLD = material("b_gold", (0.82, 0.62, 0.25))
+PEWTER = material("b_pewter", (0.6, 0.64, 0.63))
 IRON = material("b_iron", tex=tex_noise((0.32, 0.31, 0.33), 0.4, seed=34))
 DARK = material("b_dark", (0.08, 0.06, 0.06))
-# Teal, like its shockwaves and its torch (assets/config/boss.ron).
 EYES = material("b_eyes", (0.4, 1.0, 0.85), emissive=(0.15, 0.95, 0.8))
 STEEL = material("b_steel", (0.7, 0.72, 0.76))
 
@@ -31,15 +32,15 @@ R, L = -1, 1
 def hips_geo(mb):
     mb.box((0, 0, 1.66), (0.5, 0.36, 0.26), WOOD)
     # Skirt of carousel slats.
-    mb.box((0, 0, 1.35), (0.8, 0.62, 0.5), RED, taper=(0.66, 0.62))
-    mb.box((0, 0, 1.62), (0.56, 0.42, 0.06), GOLD)
+    mb.box((0, 0, 1.35), (0.8, 0.62, 0.5), LIVERY, taper=(0.66, 0.62))
+    mb.box((0, 0, 1.62), (0.56, 0.42, 0.06), PEWTER)
 
 
 def chest_geo(mb):
-    mb.box((0, 0, 2.2), (0.58, 0.4, 0.72), RED, taper=(1.35, 1.1))
-    mb.box((0, -0.2, 2.2), (0.3, 0.04, 0.5), GOLD, taper=(1.3, 1))
+    mb.box((0, 0, 2.2), (0.58, 0.4, 0.72), LIVERY, taper=(1.35, 1.1))
+    mb.box((0, -0.2, 2.2), (0.3, 0.04, 0.5), PEWTER, taper=(1.3, 1))
     mb.cylinder((0, -0.235, 2.25), 0.09, 0.03, IRON, sides=8, axis="Y")
-    mb.box((0, 0, 2.62), (0.84, 0.46, 0.12), GOLD)
+    mb.box((0, 0, 2.62), (0.84, 0.46, 0.12), PEWTER)
     mb.box((0, 0, 1.92), (0.42, 0.32, 0.16), IRON)
 
 
@@ -50,25 +51,25 @@ def head_geo(mb):
     mb.box((0.07, -0.162, 2.98), (0.06, 0.016, 0.035), EYES)
     mb.box((0, -0.165, 2.86), (0.12, 0.016, 0.02), DARK)
     # Carousel big-top hat.
-    mb.cylinder((0, 0, 3.16), 0.42, 0.08, GOLD, sides=10)
+    mb.cylinder((0, 0, 3.16), 0.42, 0.08, PEWTER, sides=10)
     mb.cylinder((0, 0, 3.36), 0.4, 0.34, CANOPY, sides=10, radius_top=0.0, caps=True)
-    mb.box((0, 0, 3.57), (0.05, 0.05, 0.12), GOLD)
+    mb.box((0, 0, 3.57), (0.05, 0.05, 0.12), PEWTER)
     for i in range(10):
         a = 2 * math.pi * (i + 0.5) / 10
-        mb.box((math.cos(a) * 0.43, math.sin(a) * 0.43, 3.1), (0.07, 0.07, 0.07), RED)
+        mb.box((math.cos(a) * 0.43, math.sin(a) * 0.43, 3.1), (0.07, 0.07, 0.07), LIVERY)
 
 
 def arm_geo(side):
     x = 0.42 * side
 
     def upper(mb):
-        mb.cylinder((x, 0, 2.6), 0.14, 0.18, GOLD, sides=8)
+        mb.cylinder((x, 0, 2.6), 0.14, 0.18, PEWTER, sides=8)
         mb.box((x, 0, 2.35), (0.15, 0.16, 0.48), WOOD, taper=(1.15, 1.15))
 
     def fore(mb):
         mb.cylinder((x, 0, 2.1), 0.09, 0.1, IRON, sides=6)
         mb.box((x, 0, 1.88), (0.13, 0.14, 0.42), WOOD, taper=(1.1, 1.1))
-        mb.box((x, 0, 1.72), (0.17, 0.18, 0.06), RED)
+        mb.box((x, 0, 1.72), (0.17, 0.18, 0.06), LIVERY)
 
     def hand(mb):
         mb.box((x, -0.01, 1.58), (0.13, 0.15, 0.15), PORCELAIN)
@@ -95,13 +96,13 @@ def leg_geo(side):
 def halberd_geo(mb):
     # Pivot at the grip (right hand); shaft pointing forward (-Y).
     mb.cylinder((-0.42, -0.5, 1.55), 0.035, 3.2, WOOD, sides=6, axis="Y")
-    mb.box((-0.42, 1.1, 1.55), (0.08, 0.08, 0.1), GOLD)
+    mb.box((-0.42, 1.1, 1.55), (0.08, 0.08, 0.1), PEWTER)
     base_y = -2.1
     # Axe head + hook + spike.
     mb.box((-0.42, base_y, 1.73), (0.04, 0.42, 0.34), STEEL, taper=(1, 1.35))
     mb.box((-0.42, base_y, 1.4), (0.04, 0.18, 0.22), STEEL, taper=(1, 0.2))
     mb.seg((-0.42, base_y - 0.2, 1.55), (-0.42, base_y - 0.75, 1.55), 0.07, 0.04, STEEL, taper=0.1)
-    mb.box((-0.42, base_y + 0.25, 1.55), (0.1, 0.1, 0.1), GOLD)
+    mb.box((-0.42, base_y + 0.25, 1.55), (0.1, 0.1, 0.1), PEWTER)
 
 
 rig.part("hips", (0, 0, 1.65), build=hips_geo)

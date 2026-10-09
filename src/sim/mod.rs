@@ -226,7 +226,7 @@ fn reset_fight(
     }
     events.0.clear();
     *rng = rng::SimRng::default();
-    *enc = Encounter { defeated: progress.defeated_bits(), ..default() };
+    *enc = Encounter { defeated: progress.defeated, ..default() };
     spawn_fight(&mut commands, &tuning, reset.players, &progress);
     events.push(SimEvent::Respawned);
 }
@@ -235,12 +235,12 @@ fn reset_fight(
 /// are created in a fixed order (determinism).
 pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &Progress) {
     let checkpoint = (progress.checkpoint as usize).min(t.level.checkpoints.len() - 1);
-    let door_open = encounter::door_open(t, progress.defeated_bits());
+    let door_open = encounter::door_open(t, progress.defeated);
     let arena = progress.arena.filter(|&i| (i as usize) < t.arenas.len());
     let zone = arena.map_or(world::Zone::Level, world::Zone::Arena);
     for id in 0..players.max(1) {
         let (spawn, spawn_yaw) = encounter::checkpoint_spawn(t, checkpoint);
-        // A saved position off the ground (old save, modified level): at the checkpoint.
+        // A saved position off the ground (modified level): at the checkpoint.
         // At the foot of a brazier (we quit while resting there): at the usual spot, facing
         // the way forward rather than the fire.
         let saved = progress.pos.and_then(|[x, z, yaw]| {
@@ -262,6 +262,7 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
         };
         let mut p = player::Player::new(id, t);
         p.embers = progress.embers;
+        p.level = progress.level;
         p.weapon = progress.weapon.min(t.weapons.len().saturating_sub(1) as u8);
         p.inventory = progress.inventory.clone();
         p.checkpoint = checkpoint as u8;

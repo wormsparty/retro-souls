@@ -26,9 +26,7 @@ pub enum Item {
     FlaskShard,
     /// Talisman: reduced damage taken.
     IronBrooch,
-    /// Talisman: dodges cost less stamina (`CarouselFeather`: its old name,
-    /// in save files).
-    #[serde(alias = "CarouselFeather")]
+    /// Talisman: dodges cost less stamina.
     CrestPlume,
 }
 
@@ -106,7 +104,6 @@ impl Item {
 pub const QUICK_SLOTS: usize = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(default)]
 pub struct Inventory {
     /// Items owned and their quantity (one entry per item, in order of acquisition).
     pub items: Vec<(Item, u8)>,

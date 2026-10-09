@@ -483,7 +483,6 @@ pub struct BossDef {
     /// Duration during which the last attacker keeps the aggro.
     pub aggro_ticks: u32,
     /// Embers earned by defeating it.
-    #[serde(alias = "souls")]
     pub embers: u32,
     pub groggy: MoveDef,
     pub fatal_received: MoveDef,

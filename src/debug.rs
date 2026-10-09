@@ -335,6 +335,8 @@ fn autoshot(
         menu.open(match page.as_str() {
             "help" => Page::Help,
             "equip" => Page::Equipment,
+            "status" => Page::Status,
+            "pause" => Page::Pause,
             "choose" => Page::Choose,
             "options" => Page::Options,
             "system" => Page::System,

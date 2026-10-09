@@ -13,7 +13,8 @@
 Everything is read from tools/blender/timings.json (exported from assets/config/arenas.ron and
 level.ron by `cargo run --bin export_timings`): same positions as the collisions.
 The "light_*" empties tell the game where to put the lights ("light_checkpoint_<i>":
-lanterns, "light_lamp_<i>": street lamps, "light_ash_<i>": the grey lava, the others: braziers).
+lanterns, "light_lamp_<i>": street lamps, "light_ash_<i>": the grey lava, "light_tint_<arena>_*":
+fires in the arena boss's colour, the others: braziers).
 
 Frame: the game's (x, y, z) maps to (x, -z, y) in Blender.
 """
@@ -42,7 +43,10 @@ DARKSTONE = material("a_darkstone", tex=tex_noise((0.25, 0.24, 0.24), 0.4, seed=
 ROCK = material("a_rock", tex=tex_noise((0.2, 0.18, 0.17), 0.5, seed=47, cells=(16, 8, 4)))
 WOOD = material("a_wood", tex=tex_planks((0.4, 0.28, 0.17), seed=45))
 PLANKS = material("a_planks", tex=tex_planks((0.33, 0.24, 0.16), seed=48))
-CANOPY = material("a_canopy", tex=tex_stripes((0.55, 0.12, 0.1), (0.8, 0.72, 0.55), n=8, seed=46))
+# The theatre's awnings: teal stripes, the Automaton's livery (assets/config/boss.ron).
+CANOPY = material("a_canopy", tex=tex_stripes((0.06, 0.42, 0.38), (0.72, 0.8, 0.74), n=8, seed=46))
+PEWTER = material("a_pewter", (0.6, 0.64, 0.63))  # its trims
+PUPPET = material("a_puppet", tex=tex_stripes((0.55, 0.12, 0.1), (0.8, 0.72, 0.55), n=8, seed=46))
 BOOTH = material("a_booth", tex=tex_stripes((0.2, 0.3, 0.45), (0.78, 0.72, 0.58), n=6, seed=49))
 GOLD = material("a_gold", (0.7, 0.52, 0.22))
 RED = material("a_red", (0.55, 0.1, 0.08))
@@ -233,13 +237,13 @@ def carousel(mb):
     cx, cy = 0.0, -(RADIUS + 9.0)
     rock_cone(mb, cx, cy, 0.0, 7.0, 7.0, 16, seed=8)
     mb.cylinder((cx, cy, 0.3), 6.0, 0.6, WOOD, sides=12)
-    mb.cylinder((cx, cy, 4.5), 0.4, 9.0, GOLD, sides=8)
+    mb.cylinder((cx, cy, 4.5), 0.4, 9.0, PEWTER, sides=8)
     for i in range(12):
         a = 2 * math.pi * i / 12
         if i in (3, 4):
             continue  # broken posts
-        mb.cylinder((cx + 5.2 * math.cos(a), cy + 5.2 * math.sin(a), 3.2), 0.1, 5.6, GOLD, sides=6)
-    mb.cylinder((cx, cy, 6.3), 6.4, 0.5, GOLD, sides=12)
+        mb.cylinder((cx + 5.2 * math.cos(a), cy + 5.2 * math.sin(a), 3.2), 0.1, 5.6, PEWTER, sides=6)
+    mb.cylinder((cx, cy, 6.3), 6.4, 0.5, PEWTER, sides=12)
     mb.cylinder((cx, cy, 8.0), 6.6, 3.0, CANOPY, sides=12, radius_top=0.3, uv_scale=(3, 1))
     mb.box((cx + 2.5, cy + 1.0, 1.1), (0.5, 1.4, 1.0), WOOD)  # toppled wooden horse
     mb.box((cx - 3.0, cy - 0.5, 1.3), (0.4, 1.2, 0.9), WOOD)
@@ -318,6 +322,108 @@ def platform(mb, f, seed):
         mb.box((px, py, y + 0.06), (0.32, 0.32, 0.12), STONE, taper=(0.8, 0.8))
 
 
+def ellipse_at(x, z):
+    """The level platform (centre, radii, y) that contains (x, z), or None."""
+    for (cx, cz), (rx, rz), y in ellipses():
+        if ((x - cx) / rx) ** 2 + ((z - cz) / rz) ** 2 <= 1.0:
+            return (cx, cz), (rx, rz), y
+    return None
+
+
+# Length of the fillets' legs, along the path's side and along the platform's edge (m).
+FILLET = 1.0
+
+
+def fillets(mb, f, a, b, deck, mat_side, out=0.0):
+    """Where a straight path meets a round platform, a wedge of void stays between the path's
+    side and the edge curving away (all the deeper as the path arrives at an angle): a curved
+    fillet of paving fills it, at the platform's height. Visual only: it stays within ~0.3 m of
+    the corner, less than the player's radius (they only fall once their centre is over the void).
+    `out`: from that far outside the path (walled path: from the outer face of its balustrades)."""
+    x0, z0, y0, x1, z1, y1, hw = strip_geom(f)
+    dx, dz = x1 - x0, z1 - z0
+    ln = math.hypot(dx, dz)
+    ux, uz = dx / ln, dz / ln
+    sx, sz = uz, -ux
+
+    def at(t, side):
+        return x0 + ux * t + sx * side, z0 + uz * t + sz * side
+
+    def height(t):
+        return y0 + (y1 - y0) * t / ln
+
+    # Ends in a platform: towards the platform, t decreases at `from`, increases at `to`.
+    for t_end, sgn in ((a, -1), (b, 1)):
+        e = ellipse_at(*at(0.0 if sgn < 0 else ln, 0.0))
+        if e is None:
+            continue
+        (cx, cz), (rx, rz), yp = e
+
+        def val(p):
+            return ((p[0] - cx) / rx) ** 2 + ((p[1] - cz) / rz) ** 2
+
+        for s in (-hw - out, hw + out):
+            # Where the path's side leaves the platform, going away from it.
+            t, inside = t_end + sgn * 3.0, None
+            while (t - t_end) * sgn > -3.0:
+                if val(at(t, s)) <= 1.0:
+                    inside = t
+                elif inside is not None:
+                    break
+                t -= sgn * 0.01
+            if inside is None or val(at(inside - sgn * FILLET, s)) <= 1.0:
+                continue
+            ex, ez = at(inside, s)
+            p1 = at(inside - sgn * FILLET, s)
+            # Along the edge, away from the path, over the same length.
+            th = math.atan2((ez - cz) / rz, (ex - cx) / rx)
+            away = 1 if s > 0 else -1
+            step = 0.01
+            probe = (cx + rx * math.cos(th + step), cz + rz * math.sin(th + step))
+            if ((probe[0] - ex) * sx + (probe[1] - ez) * sz) * away < 0:
+                step = -step
+            q, walked = (ex, ez), 0.0
+            while walked < FILLET:
+                th += step
+                nq = (cx + rx * math.cos(th), cz + rz * math.sin(th))
+                walked += math.hypot(nq[0] - q[0], nq[1] - q[1])
+                q = nq
+            # Quadratic curve from the path's side to the edge, its control point in the corner.
+            n = 6
+            curve = []
+            for k in range(n + 1):
+                u = k / n
+                w0, w1, w2 = (1 - u) ** 2, 2 * u * (1 - u), u * u
+                gx = w0 * p1[0] + w1 * ex + w2 * q[0]
+                gz = w0 * p1[1] + w1 * ez + w2 * q[1]
+                gy = (1 - u) * (height(inside - sgn * FILLET) - 0.02) + u * (yp - 0.01)
+                curve.append((gx, gz, gy))
+            corner = B(ex, ez, yp - 0.02)
+            top = [B(*c) for c in curve]
+            bot = [B(c[0], c[1], c[2] - deck) for c in curve]
+            corner_bot = (corner[0], corner[1], corner[2] - deck)
+            for k in range(n):
+                tri = [corner, top[k], top[k + 1]]
+                vs = [mb.bm.verts.new(p) for p in tri]
+                if not is_ccw(tri):
+                    vs.reverse()
+                mb._face(vs, FLOOR, uvs=[(v.co.x / 2, v.co.y / 2) for v in vs])
+                tri = [corner_bot, bot[k], bot[k + 1]]
+                vs = [mb.bm.verts.new(p) for p in tri]
+                if is_ccw(tri):
+                    vs.reverse()
+                mb._face(vs, mat_side)
+                # Skirt along the curve, facing away from the corner.
+                quad = [top[k], top[k + 1], bot[k + 1], bot[k]]
+                mx, my = (top[k][0] + top[k + 1][0]) / 2 - corner[0], (top[k][1] + top[k + 1][1]) / 2 - corner[1]
+                ex_, ey_ = top[k + 1][0] - top[k][0], top[k + 1][1] - top[k][1]
+                vs = [mb.bm.verts.new(p) for p in quad]
+                # Normal of (top k → top k+1, downwards) seen from above: (−ey, ex) rotated; flip if inwards.
+                if (ey_ * mx - ex_ * my) > 0:
+                    vs.reverse()
+                mb._face(vs, mat_side, uv_scale=(1, 0.4))
+
+
 def near_strip_end(f, x, z):
     x0, z0, _, x1, z1, _, hw = strip_geom(f)
     return min(math.hypot(x - x0, z - z0), math.hypot(x - x1, z - z1)) < hw + 1.2
@@ -331,18 +437,23 @@ def strip(mb, f, idx):
     ux, uz = dx / ln, dz / ln
     # Ends that go into a platform (or the arena floor) are trimmed: we don't
     # stack two floors (a 2 cm gap flickers from afar), only a seam remains.
-    def inside(t):
-        return inside_ellipse(x0 + ux * t, z0 + uz * t) is not None
-    a, b = 0.0, ln
-    while a < ln and inside(a + 0.3):
-        a += 0.1
-    while b > 0 and inside(b - 0.3):
-        b -= 0.1
+    sx, sz = uz, -ux  # side (right when looking towards `to`)
+
+    def trim(side):
+        """Ends of the line `side` metres from the axis, trimmed by the platforms."""
+        def inside(t):
+            return inside_ellipse(x0 + ux * t + sx * side, z0 + uz * t + sz * side) is not None
+        a, b = 0.0, ln
+        while a < ln and inside(a + 0.3):
+            a += 0.1
+        while b > 0 and inside(b - 0.3):
+            b -= 0.1
+        return a, b
+    a, b = trim(0.0)
     # Strip entirely on a platform: nothing to draw (except its balustrades).
     covered = b - a < 0.2 and not steps
     if b - a < 0.2:
         a, b = 0.0, ln
-    sx, sz = uz, -ux  # side (right when looking towards `to`)
     deck = 0.12 if style == "Planks" else 0.5
     mat_top = PLANKS if style == "Planks" else FLOOR
     mat_side = WOOD if style == "Planks" else STONE
@@ -368,10 +479,15 @@ def strip(mb, f, idx):
                 q = (v_bot[i], v_bot[j], v_top[j], v_top[i])
                 mb._face(q if is_ccw(corners) else tuple(reversed(q)), STONE, uv_scale=(1, 0.3))
     elif not covered:
-        # Deck slabs in strips of about 1 m (affine texture kept in check).
+        # Deck slabs in strips of about 1 m (affine texture kept in check). Each column of
+        # vertices is trimmed on its own: a path arriving at an angle goes into the platform on
+        # both sides (otherwise a corner of void remains between its end and the edge).
         n = max(1, math.ceil((b - a) / 1.0))
         cols = [-hw + 2 * hw * i / 3 for i in range(4)]
-        rows = [[mb.bm.verts.new(P(a + (b - a) * j / n, c, -0.02)) for c in cols] for j in range(n + 1)]
+        ends = [trim(c) for c in cols]
+        if any(eb - ea < 0.2 for ea, eb in ends):
+            ends = [(a, b)] * 4
+        rows = [[mb.bm.verts.new(P(ea + (eb - ea) * j / n, c, -0.02)) for c, (ea, eb) in zip(cols, ends)] for j in range(n + 1)]
         for j in range(n):
             for i in range(3):
                 q = [rows[j][i], rows[j + 1][i], rows[j + 1][i + 1], rows[j][i + 1]]
@@ -379,20 +495,22 @@ def strip(mb, f, idx):
                     q.reverse()
                 mb._face(q, mat_top, uvs=[(v.co.x / 2, v.co.y / 2) for v in q])
         # Deck edges.
-        for side in (-hw, hw):
+        for side, (ea, eb) in ((-hw, ends[0]), (hw, ends[3])):
             for j in range(n):
-                ta, tb = a + (b - a) * j / n, a + (b - a) * (j + 1) / n
+                ta, tb = ea + (eb - ea) * j / n, ea + (eb - ea) * (j + 1) / n
                 q = [mb.bm.verts.new(P(ta, side, -0.02)), mb.bm.verts.new(P(tb, side, -0.02)),
                      mb.bm.verts.new(P(tb, side, -deck)), mb.bm.verts.new(P(ta, side, -deck))]
                 if side < 0:
                     q.reverse()
                 mb._face(q, mat_side, uv_scale=(1, 0.4))
         # Underside.
-        q = [mb.bm.verts.new(P(a, -hw, -deck)), mb.bm.verts.new(P(a, hw, -deck)),
-             mb.bm.verts.new(P(b, hw, -deck)), mb.bm.verts.new(P(b, -hw, -deck))]
+        q = [mb.bm.verts.new(P(ends[0][0], -hw, -deck)), mb.bm.verts.new(P(ends[3][0], hw, -deck)),
+             mb.bm.verts.new(P(ends[3][1], hw, -deck)), mb.bm.verts.new(P(ends[0][1], -hw, -deck))]
         if is_ccw([v.co for v in q]):
             q.reverse()
         mb._face(q, mat_side)
+        if style != "Planks":
+            fillets(mb, f, a, b, deck, mat_side, out=0.4 if walled else 0.0)
         if style == "Planks":
             # Badly joined cross planks, and a few beams hanging underneath.
             for k in range(int((b - a) / 0.9)):
@@ -424,8 +542,12 @@ def strip(mb, f, idx):
         # Balustrades on either side (arena stairs).
         for side in (-hw - 0.2, hw + 0.2):
             n = max(1, steps or int(ln))
+            # Each one trimmed by the platforms along its own line (path arriving at an angle).
+            ea, eb = (a, b) if steps or covered else trim(side)
+            if eb - ea < 0.2:
+                ea, eb = a, b
             for k in range(n):
-                ta, tb = a + (b - a) * k / n, a + (b - a) * (k + 1) / n
+                ta, tb = ea + (eb - ea) * k / n, ea + (eb - ea) * (k + 1) / n
                 c0, c1 = P(ta, side), P(tb, side)
                 bot, top = min(c0[2], c1[2]) - 0.1, max(c0[2], c1[2]) + 0.9
                 rail(mb, c0, c1, 0.4, bot, top, STONE)
@@ -668,12 +790,16 @@ DARKBRICK = material("a_darkbrick", tex=tex_brick(seed=65, base=(0.26, 0.22, 0.2
 BLOOD = material("a_blood", (0.2, 0.02, 0.025))
 CURTAIN = material("a_curtain", tex=tex_stripes((0.45, 0.05, 0.06), (0.3, 0.03, 0.04), n=6, seed=66))
 EMBER = material("a_ember", (0.9, 0.35, 0.08), emissive=(0.9, 0.3, 0.05))
-# The Giant's dead fire: ash-grey lava (assets/config/bosses.ron, his colour).
-ASHLAVA = material("a_ashlava", tex=tex_noise((0.72, 0.72, 0.76), 0.6, seed=67, cells=(8, 8, 4)), emissive=(0.45, 0.45, 0.5))
+# The Giant's dead fire: cold, dark ash in the ditch, barely glowing (a light ring around the
+# arena caught the eye more than the fight).
+ASHLAVA = material("a_ashlava", tex=tex_noise((0.13, 0.12, 0.12), 0.5, seed=67, cells=(8, 8, 4)), emissive=(0.025, 0.025, 0.03))
 # The Wyvern's castle: grey stone like its courtyard's flagstones, darker below the courtyard.
 CASTLE = material("a_castle", tex=tex_brick(seed=68, base=(0.4, 0.39, 0.37)))
 CASTLE_DARK = material("a_castle_dark", tex=tex_brick(seed=69, base=(0.22, 0.21, 0.21)))
 BOSS_MATS = [material(f"a_boss_{i}", tuple(0.75 * c for c in col)) for i, col in enumerate(COLORS)]
+# Fire in a boss's colour (its arena's braziers, molten metal, lanterns): their lights are
+# "light_tint_<i>_*", tinted the same way by the game.
+BOSS_FIRE = [material(f"a_bossfire_{i}", tuple(0.45 + 0.55 * c for c in col), emissive=tuple(col)) for i, col in enumerate(COLORS)]
 
 # Height of the fog's opening (the game's fog is 4.2 m high), of the final door, and the place of
 # its medallions (see src/render/gates.rs).
@@ -754,7 +880,7 @@ def boss_gates():
                 # The theatre, at the top of the square's stairs: a taller front, its
                 # fairground canopy above the opening.
                 gateway(mb, hw, width=12.0, height=8.5, depth=12.0, seed=i)
-                mb.box((0, -0.75, OPENING + 1.0), (2 * hw + 2.4, 1.0, 0.25), GOLD)
+                mb.box((0, -0.75, OPENING + 1.0), (2 * hw + 2.4, 1.0, 0.25), PEWTER)
                 mb.box((0, -0.75, OPENING + 1.5), (2 * hw + 2.6, 1.1, 0.9), CANOPY, taper=(0.75, 0.3), uv_scale=(2, 1))
                 banner(mb, BOSS_MATS[i], OPENING + 3.6, w=1.4, h=1.4)
             else:
@@ -922,29 +1048,32 @@ def room_base(mb, cx, cz, rx, rz, seed):
     rock_cone(mb, bx, by, -1.5, rx + 1.4, rz + 1.4, 26, seed=seed, sides=20, rings=5)
 
 
-def room_braziers(i, cx, cz, rx, rz, door, count=4, high=False):
-    """Braziers along the wall (their light), avoiding the door."""
+def room_braziers(i, cx, cz, rx, rz, door, count=4, high=False, tinted=False, skip=lambda a: False):
+    """Braziers along the wall (their light), avoiding the door. `tinted`: their fire in the
+    boss's colour. `skip(angle)`: no brazier there (no wall to hang it on)."""
     (gx, gz, _), _ = portal(door)
+    fire = BOSS_FIRE[i] if tinted else FIRE
+    lname = f"light_tint_{i}" if tinted else f"light_a{i}"
     k = 0
     for j in range(count):
         a = 2 * math.pi * (j + 0.5) / count
         x, z = cx + (rx - 1.0) * math.cos(a), cz + (rz - 1.0) * math.sin(a)
-        if math.hypot(x - gx, z - gz) < 4.0:
+        if math.hypot(x - gx, z - gz) < 4.0 or skip(a):
             continue
 
         def build(mb):
             mb.cylinder((0, 0, 0.5), 0.08, 1.0, IRON, sides=6)
             mb.cylinder((0, 0, 1.1), 0.35, 0.25, IRON, sides=8, radius_top=0.45)
-            mb.box((0, 0, 1.32), (0.35, 0.35, 0.25), FIRE, taper=(0.4, 0.4))
+            mb.box((0, 0, 1.32), (0.35, 0.35, 0.25), fire, taper=(0.4, 0.4))
         bx, by, _ = B(x, z)
         if high:
             # Fixed high on the wall.
             wx, wz = cx + (rx + 0.45) * math.cos(a), cz + (rz + 0.45) * math.sin(a)
             obj(f"arena_{i}_brazier_{k}", build, loc=B(wx, wz, 2.6))
-            light(f"light_a{i}_{k}", B(wx, wz, 4.2))
+            light(f"{lname}_{k}", B(wx, wz, 4.2))
         else:
             obj(f"arena_{i}_brazier_{k}", build, loc=B(x, z, 0.0))
-            light(f"light_a{i}_{k}", B(x, z, 1.6))
+            light(f"{lname}_{k}", B(x, z, 1.6))
         k += 1
 
 
@@ -1023,7 +1152,7 @@ def arena_room(i, a):
     style = {
         "summit": dict(floor=FLOOR, wall=CASTLE, height=8.0, ruin=0.0, sky=DARKSTONE, tall=1.6, custom=True),
         "slaughter": dict(floor=DARKSTONE, wall=DARKBRICK, height=5.5, ruin=0.15, sky=DARKBRICK, tall=0.8),
-        "foundry": dict(floor=IRONPLATE, wall=BRICK, height=6.0, ruin=0.1, sky=DARKBRICK, tall=1.2),
+        "foundry": dict(floor=IRONPLATE, wall=DARKBRICK, height=6.0, ruin=0.1, sky=DARKBRICK, tall=1.2),
         "guignol": dict(floor=PLANKS, wall=DARKBRICK, height=7.0, ruin=0.05, sky=DARKSTONE, tall=1.0),
         "cistern": dict(floor=ICE, wall=DARKSTONE, height=6.0, ruin=0.1, sky=DARKSTONE, tall=0.9),
         "hearth": dict(floor=BURNT, wall=BURNT, height=4.5, ruin=0.5, sky=BURNT, tall=1.3, custom=True),
@@ -1210,20 +1339,21 @@ def theme_slaughter(i, a, cx, cz, rx, rz, pil, seed, style):
 
 def theme_foundry(i, a, cx, cz, rx, rz, pil, seed, style):
     """The Wick-Trimmer and the Anvil: a lantern foundry; its columns carry lanterns. Near the
-    wall, crucibles of molten metal and anvils (the pillars after the six columns)."""
+    wall, crucibles of molten metal and anvils (the pillars after the six columns). Every fire
+    burns in the duo's green (their lanterns' glow), none orange."""
     def build(mb):
         for k, (x, z, r) in enumerate(pil[:6]):
             bx, by, _ = B(x, z)
             mb.box((bx, by, 0.3), (r * 2.2, r * 2.2, 0.6), STONE)
             mb.cylinder((bx, by, 2.6), r * 0.6, 4.2, IRON, sides=6)
-            mb.box((bx, by, 4.95), (0.5, 0.5, 0.6), GLASS, taper=(1.15, 1.15))
+            mb.box((bx, by, 4.95), (0.5, 0.5, 0.6), BOSS_FIRE[i], taper=(1.15, 1.15))
             mb.box((bx, by, 5.35), (0.7, 0.7, 0.2), IRON, taper=(0.2, 0.2))
-            light(f"light_lamp_a{i}_{k}", (bx, by, 4.95))
+            light(f"light_tint_{i}_lamp{k}", (bx, by, 4.95))
     obj(f"arena_{i}_decor", build)
     for k, (x, z, r) in enumerate(pil[6:]):
         yaw = math.atan2(-(x - cx), -(z - cz))  # facing the centre
-        obj(f"arena_{i}_{'anvil' if k % 2 else 'crucible'}_{k}", anvil(r) if k % 2 else crucible(r), loc=B(x, z), yaw=yaw)
-    room_braziers(i, cx, cz, rx, rz, a["door"], count=2)
+        obj(f"arena_{i}_{'anvil' if k % 2 else 'crucible'}_{k}", anvil(r) if k % 2 else crucible(r, BOSS_FIRE[i]), loc=B(x, z), yaw=yaw)
+    room_braziers(i, cx, cz, rx, rz, a["door"], count=2, tinted=True)
 
     def chimneys(mb):
         for k in range(4):
@@ -1234,7 +1364,7 @@ def theme_foundry(i, a, cx, cz, rx, rz, pil, seed, style):
     obj(f"arena_{i}_chimneys", chimneys, loc=(bx, by, 0))
 
 
-def crucible(r):
+def crucible(r, metal=EMBER):
     """Crucible of molten metal (`r`: its collision radius), hollow: the metal well below the rim
     (faces a few centimetres apart flicker)."""
     def build(mb):
@@ -1242,7 +1372,7 @@ def crucible(r):
         mb.cylinder((0, 0, 0.45), r * 0.8, 0.9, IRON, sides=sides, radius_top=r, caps=False)
         ring_quads(mb, r - 0.12, r, 0.9, IRON, sides)
         tube_inside(mb, r - 0.12, 0.5, 0.9, IRON, sides)
-        disc(mb, r - 0.1, 0.72, EMBER, sides)
+        disc(mb, r - 0.1, 0.72, metal, sides)
         for k in range(3):
             q = 2 * math.pi * k / 3
             mb.box((r * 0.75 * math.cos(q), r * 0.75 * math.sin(q), 0.1), (0.25, 0.25, 0.2), STONE)
@@ -1301,10 +1431,19 @@ def theme_guignol(i, a, cx, cz, rx, rz, pil, seed, style):
             bx, by, _ = B(px, pz)
             h = STAGE_FRONT + 1.2 + rr.random() * 1.5
             mb.seg((bx, by, 12), (bx, by, h + 1.2), 0.02, 0.02, CREAM)
-            mb.box((bx, by, h + 0.6), (0.5, 0.3, 1.2), CANOPY)
+            mb.box((bx, by, h + 0.6), (0.5, 0.3, 1.2), PUPPET)
             mb.box((bx, by, h + 1.35), (0.3, 0.3, 0.3), CREAM)
     obj(f"arena_{i}_decor", build)
-    room_braziers(i, cx, cz, rx, rz, a["door"], count=4, high=True)
+    # Braziers on the wall, but not over the stage (its front is low: they would float in the
+    # air); torches on the proscenium's columns light it instead.
+    room_braziers(i, cx, cz, rx, rz, a["door"], count=4, high=True, skip=lambda q: math.sin(q) > 0.45)
+    ro, zo = rx + 1.3, rz + 1.3
+    W = 0.866 * ro
+    for k, sx in ((10, -1), (11, 1)):
+        px, pz = cx + sx * W, cz + 0.5 * zo + 0.8  # the column's centre (see build)
+        d = math.hypot(px - cx, pz - cz)
+        x, z = px - (px - cx) / d * 0.72, pz - (pz - cz) / d * 0.72  # on its face, towards the hall
+        wall_torch(i, k, x, z, math.atan2(z - cz, x - cx))
 
 
 def theme_cistern(i, a, cx, cz, rx, rz, pil, seed, style):
@@ -1337,8 +1476,8 @@ def theme_cistern(i, a, cx, cz, rx, rz, pil, seed, style):
 
 def theme_hearth(i, a, cx, cz, rx, rz, pil, seed, style):
     """The Dead-Hearth Giant: the hearth of a burnt city. Great pillars; a low parapet around the
-    floor, and beyond it, at the foot of the ruined wall, a ditch of lava: grey, like his dead fire
-    (assets/config/bosses.ron)."""
+    floor, and beyond it, at the foot of the ruined wall, a ditch of dead lava: dark ash, like his
+    dead fire (assets/config/bosses.ron)."""
     hw = a["door"]["half_width"]
     (gx, gz, _), _ = portal(a["door"])
     door_ang = math.atan2(gz - cz, gx - cx)
@@ -1371,7 +1510,7 @@ def theme_hearth(i, a, cx, cz, rx, rz, pil, seed, style):
     obj(f"arena_{i}_wall", lambda mb: room_wall(mb, cx, cz, outer - 0.5, (outer - 0.5) * rz / rx, a["door"], -1.0,
                                                 style["height"], BURNT, seed + 1, style["ruin"], bottom=lava - 0.3))
     obj(f"arena_{i}_base", lambda mb: room_base(mb, cx, cz, outer, outer * rz / rx, seed))
-    # The lava's glow, all along the ditch (a cold grey light).
+    # The ashes' faint glow, all along the ditch (a cold grey light).
     for k in range(8):
         q = door_ang + 2 * math.pi * (k + 0.5) / 8
         d = rx + 0.8 + ditch / 2

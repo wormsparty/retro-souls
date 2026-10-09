@@ -81,18 +81,13 @@ pub fn near_dropped(d: &Dropped, pos: Vec3) -> bool {
 
 /// A player's persistent progress: this is what the save contains.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
 pub struct Progress {
-    /// Currency (embers). The old name `souls` is accepted for old saves.
-    #[serde(alias = "souls")]
+    /// Currency (embers).
     pub embers: u32,
+    /// Character level.
+    pub level: u32,
     /// Defeated bosses (bit i: `Tuning::encounters[i]`).
     pub defeated: u32,
-    /// Old saves: a single boss, chosen at the checkpoint (read only, see `defeated_bits`).
-    #[serde(skip_serializing)]
-    pub boss_defeated: bool,
-    #[serde(skip_serializing)]
-    pub boss_choice: u8,
     pub weapon: u8,
     pub inventory: Inventory,
     /// HP (`None`: full).
@@ -116,12 +111,7 @@ pub struct Progress {
 
 impl Progress {
     pub fn new_game(t: &Tuning) -> Self {
-        Self { inventory: Inventory::new_game(t), found: 1, ..default() }
-    }
-
-    /// Defeated bosses, including the one of an old save.
-    pub fn defeated_bits(&self) -> u32 {
-        self.defeated | if self.boss_defeated { 1u32 << self.boss_choice.min(31) } else { 0 }
+        Self { inventory: Inventory::new_game(t), found: 1, level: 1, ..default() }
     }
 
     /// State to resume for this player. Dead (or mid-fall): as after the
@@ -158,6 +148,7 @@ impl Progress {
         Self {
             embers,
             dropped,
+            level: p.level,
             defeated: enc.defeated,
             weapon: p.weapon,
             inventory,

@@ -41,7 +41,7 @@ Blender 5.x and Python 3 are only needed to regenerate the assets.
 | Sprint (one click, as long as the stick is pushed) | L3 | — |
 | Lock on | R3 | Tab or middle click |
 | Switch target (locked on): next point to the left / right, higher / lower (a large boss's head) | right stick ← → ↑ ↓ | mouse ← → ↑ ↓ |
-| Switch weapon | D-pad ↑ | R |
+| Switch weapon | D-pad → | R |
 | Jump attack (more damage, the jump's stamina almost covers it) | RB / RT in the air | click in the air |
 | Use the selected item | X / □ | F |
 | Next item (quick slots) | D-pad ↓ | C |
@@ -58,10 +58,12 @@ menu shows the controls of the last device used (gamepad, or keyboard and mouse)
 ### Menus
 
 - **Title screen**: the centred title, on a background of embers and ash rising above the glow
-  of a brazier. New game (asks for confirmation if a save exists), Load, Options, *Fork me*
-  (opens the project page on GitHub), Quit.
-- **Pause** (Esc / Start): two icons, Equipment (helm) and System (cogwheel: Options, Help,
-  *Fork me*, Return to title screen, Quit). Esc / (B) closes the menu. While paused,
+  of a brazier. With a save, the final door's medallions under the title, lit in their colour
+  for the defeated bosses. Continue (with the character's level), New game (asks for
+  confirmation if a save exists), Options, *Fork me* (opens the project page on GitHub), Quit.
+- **Pause** (Esc / Start): three icons, Equipment (helm), Status (scroll: level, hit points,
+  stamina, attack of the weapon in hand, damage reduction, healing flasks, embers) and System
+  (cogwheel: Options, Help, *Fork me*, Return to title screen, Quit). Esc / (B) closes the menu. While paused,
   characters and spells are frozen; particles keep going.
 - **Checkpoint** (when resting there): Leave (selected by default), Travel (to another brazier
   already kindled, with a view of the place), Level up (greyed out, coming soon), Equipment.
@@ -188,8 +190,9 @@ Esc exits it, an action in game brings it back.
 - **Special gauge** (gold bar under stamina): fills up by hitting and perfect guarding; each
   special attack uses a third of it. Special attack hits don't recharge the gauge, and its
   stamina cost is fixed (not proportional to its heavy damage).
-- **HUD**: bottom left, the equipped weapon (icon; D-pad ↑ / R to switch) above the selected
-  quick item.
+- **HUD**: bottom left, the equipped weapon (icon; D-pad → / R to switch) above the selected
+  quick item. At the bottom, during a fight, the boss's health bar, in its colour (that of its
+  torch, its spells and its medallion).
 - **Boss**: 9 attacks in phase 1 (including one rage attack and two area attacks), 2 more in
   phase 2 (below 50% HP).
 

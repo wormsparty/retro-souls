@@ -83,7 +83,7 @@
         ),
         (
             name: (en: "Broken Belvedere", fr: "Belvédère brisé"),
-            // At the top of the stairs, away from the Wyvern's red torch (its own light).
+            // At the top of the stairs, away from the Wyvern's orange torch (its own light).
             // Facing the bridge to the parvis.
             pos: (12.0, -113.4), look: (12, -134.5),
             view: ((7.0, -1.5, -109.8), (12.4, -2.9, -114.6)),
@@ -112,8 +112,9 @@
         // Track: a single street lamp, on the west side (the Cistern's torch is on the east side).
         (kind: Lamp, pos: (1.65, -96.7)),
         (kind: Crates, pos: (10.0, -95.0), yaw: -30),
-        // Belvedere.
-        (kind: Bench, pos: (11.8, -117.6), yaw: 160),
+        // Belvedere: on its north-west edge, between the stairs and the Wyvern's corridor, facing
+        // the void.
+        (kind: Bench, pos: (7.4, -113.8), yaw: -56),
         // Parvis.
         (kind: Lamp, pos: (8.0, -138.3)), (kind: DeadLamp, pos: (16.0, -138.3), yaw: 160),
     ],
@@ -135,13 +136,23 @@
     ],
 
     pickups: [
-        (pos: (21.9, -35.2), items: [(FadedEmber, 1)]),
-        (pos: (-14.2, -56.0), items: [(GoldenMoss, 2)]),
-        (pos: (-5.2, -70.0), items: [(EmberResin, 2)]),
+        // Each one in sight, on its own, often guarded or at the brink: never right next to a
+        // boss torch, a street lamp, nor at the start of a bridge.
+        // Fountain garden: behind the fountain, at the edge of the void.
+        (pos: (21.8, -28.4), items: [(FadedEmber, 1)]),
+        // Bandstand: between the two sleeping dogs.
+        (pos: (-10.3, -55.1), items: [(GoldenMoss, 2)]),
+        // Ticket booths: at the east edge, past the sleeping dog.
+        (pos: (6.4, -72.9), items: [(EmberResin, 2)]),
+        // On the rock beyond the walkway, the ledge's dog in the way.
         (pos: (21.6, -66.7), items: [(FlaskShard, 1)]),
-        (pos: (5.17, -89.29), items: [(FadedEmber, 2)]),
-        (pos: (2.6, -97.0), items: [(LivelyEmber, 1)]),
+        // Long bridge: right behind the puppet that bars it.
+        (pos: (3.4, -86.0), items: [(FadedEmber, 2)]),
+        // Track: at its centre, at the colossus's feet.
+        (pos: (6.5, -100.8), items: [(LivelyEmber, 1)]),
+        // Isolated rock east of the belvedere (a running jump).
         (pos: (18.6, -115.3), items: [(IronBrooch, 1)]),
+        // Ledge at the end of the narrow plank.
         (pos: (-7.6, -104.6), items: [(CrestPlume, 1)]),
     ],
 

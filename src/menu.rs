@@ -30,7 +30,7 @@ use crate::sim::items::{Item, Kind, QUICK_SLOTS};
 use crate::sim::player::Player;
 use crate::sim::{ResetFight, SimEntity, SimEvent, SimEvents};
 use crate::render::preview::{CheckpointPreview, PREVIEW_SIZE};
-use crate::hud::{ITEM_ICON, ItemIcons, MenuIcons, WeaponIcons};
+use crate::hud::{GEM_ICON, ITEM_ICON, ItemIcons, MenuIcons, WeaponIcons};
 use crate::ui::{Glyph, Hint, Icons, PixelSize, PixelText, Seg, UiFont, hint_node, i, icon_bundle, image_bundle, set_hint, t};
 
 /// The project's repository ("Fork me" entry).
@@ -47,6 +47,8 @@ pub enum Page {
     /// Rekindle the torch of a defeated boss (`MenuState::reviving`): it will await again.
     Revive,
     Equipment,
+    /// Character sheet: level, HP, stamina, attack…
+    Status,
     /// System: settings, help, back to the title screen, quit.
     System,
     /// Choice of the item for a slot (`MenuState::choosing`) among those owned.
@@ -181,6 +183,53 @@ enum Entry {
     Lang(Lang),
     /// Graphics style offered: its internal resolution.
     Style(u32),
+    /// Line of the character sheet, not selectable.
+    Stat(Stat),
+}
+
+/// Line of the character sheet (status page).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stat {
+    Level,
+    Hp,
+    Stamina,
+    Attack,
+    Defense,
+    Flasks,
+    Embers,
+}
+
+impl Stat {
+    const ALL: [Stat; 7] = [Stat::Level, Stat::Hp, Stat::Stamina, Stat::Attack, Stat::Defense, Stat::Flasks, Stat::Embers];
+
+    fn label(self) -> &'static str {
+        match self {
+            Stat::Level => tr("Level", "Niveau"),
+            Stat::Hp => tr("Hit points", "Points de vie"),
+            Stat::Stamina => tr("Stamina", "Endurance"),
+            Stat::Attack => tr("Attack (weapon in hand)", "Attaque (arme en main)"),
+            Stat::Defense => tr("Damage reduction", "Réduction des dégâts"),
+            Stat::Flasks => tr("Healing flasks", "Fioles de soin"),
+            Stat::Embers => tr("Embers", "Braises"),
+        }
+    }
+
+    fn value(self, p: &Player, t: &Tuning) -> String {
+        match self {
+            Stat::Level => p.level.to_string(),
+            Stat::Hp => format!("{}", t.player.max_hp.round()),
+            Stat::Stamina => format!("{}", t.player.max_stamina.round()),
+            Stat::Attack => {
+                let w = t.weapons.get(p.weapon as usize);
+                // The first light attack's hit.
+                let damage = w.and_then(|w| w.light.first()).and_then(|m| m.hits.first()).map_or(0.0, |h| h.damage);
+                format!("{} ({})", damage.round(), w.map_or("", |w| w.name.get()))
+            }
+            Stat::Defense => pct(1.0 - p.defense_mult()),
+            Stat::Flasks => p.inventory.refill_amount(Item::HealFlask, t).unwrap_or(0).to_string(),
+            Stat::Embers => p.embers.to_string(),
+        }
+    }
 }
 
 /// What the content of the pages depends on.
@@ -250,7 +299,7 @@ fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
             (tr("Sprint", "Course"), vec![t(tr("hold", "maintenir")), i(Glyph::PadB), or(), i(Glyph::StickL3)]),
             (tr("Use item", "Utiliser l'objet"), vec![i(Glyph::PadX)]),
             (tr("Next item", "Objet suivant"), vec![i(Glyph::DpadDown)]),
-            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::DpadUp)]),
+            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::DpadRight)]),
             (tr("Lock on", "Verrouillage"), vec![i(Glyph::StickR3)]),
             (tr("Switch target (locked on)", "Changer de cible (verrouillé)"), vec![i(Glyph::StickR), t(tr("4 directions (up: higher)", "4 directions (haut : plus haut)"))]),
             (tr("Rest (checkpoint)", "Se reposer (checkpoint)"), vec![i(Glyph::PadA)]),
@@ -294,7 +343,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
         Page::Title => vec![Entry::Act(NewGame), Entry::Act(Load), Entry::Act(Open(Page::Options)), Entry::Act(Fork)],
         Page::ConfirmNew => vec![Entry::Act(Back), Entry::Act(ConfirmNew)],
         // Icons: the equipment, then the system (cogwheel).
-        Page::Pause => vec![Entry::Act(Open(Page::Equipment)), Entry::Act(Open(Page::System))],
+        Page::Pause => vec![Entry::Act(Open(Page::Equipment)), Entry::Act(Open(Page::Status)), Entry::Act(Open(Page::System))],
         Page::System => vec![Entry::Act(Open(Page::Options)), Entry::Act(Open(Page::Help)), Entry::Act(Fork), Entry::Act(ToTitle)],
         // "Leave" first: it's the line selected on opening.
         Page::Checkpoint => vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(LevelUp), Entry::Act(Open(Page::Equipment))],
@@ -324,6 +373,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
             };
             opts.iter().map(|o| Entry::Opt(*o)).chain([Entry::Act(Back)]).collect()
         }
+        Page::Status => Stat::ALL.into_iter().map(Entry::Stat).chain([Entry::Act(Back)]).collect(),
         Page::Help => (0..help_lines(c.device).len() as u8).map(Entry::Line).chain([Entry::Act(Back)]).collect(),
         Page::Language => Lang::ALL.into_iter().map(Entry::Lang).collect(),
         Page::Style => vec![Entry::Style(PS1_HEIGHT), Entry::Style(MODERN_HEIGHT)],
@@ -336,7 +386,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
 
 fn selectable(e: Entry, c: &PageCtx) -> bool {
     match e {
-        Entry::Line(..) | Entry::Act(Act::LevelUp) => false,
+        Entry::Line(..) | Entry::Stat(_) | Entry::Act(Act::LevelUp) => false,
         Entry::Place(i) => c.here != Some(i),
         Entry::Act(Act::Load) => c.has_save,
         _ => true,
@@ -350,6 +400,7 @@ fn act_label(a: Act) -> &'static str {
         Act::ConfirmNew => tr("Start a new game", "Commencer une nouvelle partie"),
         Act::Load => tr("Continue", "Continuer"),
         Act::Open(Page::Equipment) => tr("Equipment", "Équipement"),
+        Act::Open(Page::Status) => tr("Status", "Statut"),
         Act::Open(Page::System) => tr("System", "Système"),
         Act::Open(Page::Options) => tr("Options", "Options"),
         Act::Open(Page::Help) => tr("Help", "Aide"),
@@ -389,6 +440,7 @@ fn page_title(p: Page, device: Device) -> &'static str {
         Page::Travel => tr("TRAVEL", "VOYAGER"),
         Page::Revive => tr("REKINDLE THE TORCH", "RAVIVER LA TORCHE"),
         Page::Equipment => tr("EQUIPMENT", "ÉQUIPEMENT"),
+        Page::Status => tr("STATUS", "STATUT"),
         Page::System => tr("SYSTEM", "SYSTÈME"),
         Page::Choose => tr("CHOOSE", "CHOISIR"),
         Page::Options => "OPTIONS",
@@ -609,6 +661,11 @@ struct Ash {
     phase: f32,
     ember: bool,
 }
+/// Title screen, with a save: the final door's medallions, lit for the defeated bosses.
+#[derive(Component)]
+struct TitleGems;
+#[derive(Component)]
+struct TitleGem(u8);
 #[derive(Component)]
 struct MenuInfo;
 #[derive(Component)]
@@ -661,7 +718,7 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(AppState::Title), enter_title)
             .add_systems(
                 Update,
-                (open_on_rest.run_if(in_state(AppState::Playing)), menu_input, refresh_menu, title_backdrop)
+                (open_on_rest.run_if(in_state(AppState::Playing)), menu_input, refresh_menu, title_backdrop, title_gems)
                     .chain()
                     .after(crate::fx::consume_events)
                     .run_if(not(in_state(AppState::Loading))),
@@ -693,6 +750,15 @@ fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<Checkpo
             c.spawn((Node { flex_direction: FlexDirection::Column, row_gap: px(6), padding: UiRect::all(px(PANEL_PADDING)), width: px(960), ..default() }, MenuPanel))
                 .with_children(|c| {
                     c.spawn((ui_font.text("", 2, Color::srgb(0.9, 0.82, 0.62)), TextLayout::linebreak(LineBreak::NoWrap), Node::default(), MenuTitle));
+                    c.spawn((
+                        Node { display: Display::None, align_self: AlignSelf::Center, column_gap: px(10), margin: UiRect::bottom(px(24)), ..default() },
+                        TitleGems,
+                    ))
+                    .with_children(|c| {
+                        for i in 0..tuning.encounters.len() as u8 {
+                            c.spawn((image_bundle(Handle::default(), UVec2::splat(GEM_ICON as u32)), TitleGem(i)));
+                        }
+                    });
                     c.spawn((ui_font.text("", 1, text), Node { margin: UiRect::bottom(px(10)), width: px(960.0 - 2.0 * PANEL_PADDING), ..default() }, MenuInfo));
                     c.spawn(Node { flex_direction: FlexDirection::Row, column_gap: px(24), align_items: AlignItems::FlexStart, ..default() })
                         .with_children(|c| {
@@ -800,7 +866,7 @@ fn title_backdrop(
     if title_text.0.0 != size {
         title_text.0.0 = size;
     }
-    // Title screen and pause menu (only two cards): title and help centred, like the cards.
+    // Title screen and pause menu (a single row of cards): title and help centred, like the cards.
     let centered = menu.open && matches!(menu.page, Page::Title | Page::Pause);
     let align = if centered { AlignSelf::Center } else { AlignSelf::Auto };
     let margin = if title { UiRect::bottom(px(28)) } else { UiRect::ZERO };
@@ -838,6 +904,36 @@ fn title_backdrop(
         } else {
             Color::srgba(0.58, 0.54, 0.5, fade * 0.55)
         };
+    }
+}
+
+/// Title screen: as many medallions as bosses, in their colour if defeated in the save,
+/// dull stone otherwise (like those of the final door).
+fn title_gems(
+    menu: Res<MenuState>,
+    save: Res<SaveSlot>,
+    tuning: Res<Tuning>,
+    icons: Option<Res<MenuIcons>>,
+    mut row: Single<&mut Node, With<TitleGems>>,
+    mut gems: Query<(&TitleGem, &mut ImageNode)>,
+) {
+    let defeated = save.data.as_ref().filter(|_| menu.open && menu.page == Page::Title).map(|d| d.progress.defeated);
+    let want = if defeated.is_some() { Display::Flex } else { Display::None };
+    if row.display != want {
+        row.display = want;
+    }
+    let (Some(defeated), Some(icons)) = (defeated, icons) else { return };
+    for (g, mut img) in &mut gems {
+        if img.image != icons.gem {
+            img.image = icons.gem.clone();
+        }
+        let [r, gr, b] = tuning.encounter_color(g.0 as usize);
+        let c = Vec3::new(r, gr, b);
+        let c = if defeated & (1 << g.0) != 0 { c.lerp(Vec3::ONE, 0.15) } else { c * 0.1 + Vec3::splat(0.22) };
+        let want = Color::srgb(c.x, c.y, c.z);
+        if img.color != want {
+            img.color = want;
+        }
     }
 }
 
@@ -1256,7 +1352,7 @@ fn confirm(w: &mut World, e: Entry) {
             crate::save::save_now(w);
             close(w);
         }
-        Entry::Line(..) => {}
+        Entry::Line(..) | Entry::Stat(_) => {}
         Entry::Lang(l) => {
             w.resource_mut::<Settings>().language = Some(l);
             crate::lang::set(l);
@@ -1327,7 +1423,7 @@ fn monitor(w: &mut World) -> Option<Monitor> {
     crate::settings::pick_monitor(q.iter(w)).cloned()
 }
 
-fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player: Option<&Player>, save: Option<&SaveData>) -> (String, bool) {
+fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player: Option<&Player>, save: Option<&SaveData>, t: &Tuning) -> (String, bool) {
     match e {
         Entry::Opt(o) => choices(o, s, m).map(|c| (c.labels[c.current].clone(), c.enabled)).unwrap_or_default(),
         Entry::Slot(i) => {
@@ -1337,8 +1433,9 @@ fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player:
         Entry::Talisman => (player.and_then(|p| p.inventory.talisman).map_or("—", Item::name).into(), true),
         Entry::Pick(Some(it)) if it.kind() == Kind::Consumable => (format!("×{}", player.map_or(0, |p| p.inventory.count(it))), true),
         Entry::Pick(_) => (String::new(), true),
+        // The level of the saved character.
         Entry::Act(Act::Load) => match save {
-            Some(_) => (String::new(), true),
+            Some(d) => (format!("{} {}", tr("Level", "Niveau"), d.progress.level), true),
             None => (tr("No save", "Aucune sauvegarde").into(), false),
         },
         Entry::Place(i) if c.here == Some(i) => (tr("You are here", "Vous êtes ici").into(), false),
@@ -1347,6 +1444,7 @@ fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player:
         Entry::Weapon(i) if player.is_some_and(|p| p.weapon == i) => (tr("In hand", "En main").into(), true),
         Entry::Weapon(_) => (String::new(), true),
         Entry::Act(Act::LevelUp) => (tr("Coming soon", "Bientôt").into(), false),
+        Entry::Stat(st) => (player.map_or(String::new(), |p| st.value(p, t)), true),
         Entry::Line(..) | Entry::Lang(_) | Entry::Style(_) | Entry::Act(_) => (String::new(), true),
     }
 }
@@ -1366,6 +1464,7 @@ fn entry_label(e: Entry, t: &Tuning, device: Device) -> String {
         Entry::Lang(l) => l.native_name().into(),
         Entry::Style(h) if h == PS1_HEIGHT => "PS1".into(),
         Entry::Style(_) => tr("Modern", "Moderne").into(),
+        Entry::Stat(st) => st.label().into(),
     }
 }
 
@@ -1376,6 +1475,7 @@ struct CardCtx {
     portraits: Vec<Handle<Image>>,
     weapons: Vec<Handle<Image>>,
     equipment: Handle<Image>,
+    status: Handle<Image>,
     system: Handle<Image>,
 }
 
@@ -1410,7 +1510,11 @@ fn spawn_card(c: &mut ChildSpawnerCommands, i: usize, e: Entry, k: &CardCtx) {
             }
             // Pause menu icons, at the size of the others.
             Entry::Act(a) => {
-                let icon = if a == Act::Open(Page::System) { k.system.clone() } else { k.equipment.clone() };
+                let icon = match a {
+                    Act::Open(Page::System) => k.system.clone(),
+                    Act::Open(Page::Status) => k.status.clone(),
+                    _ => k.equipment.clone(),
+                };
                 let b = boxed(c, ITEM_ICON as u32);
                 c.commands().entity(b).with_child(image_bundle(icon, UVec2::splat(ITEM_ICON as u32)));
             }
@@ -1463,6 +1567,7 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
         portraits: w.resource::<BossPortraits>().0.clone(),
         weapons: (0..n_weapons).map(|i| w.get_resource::<WeaponIcons>().map(|ic| ic.get(i)).unwrap_or_default()).collect(),
         equipment: w.get_resource::<MenuIcons>().map(|m| m.equipment.clone()).unwrap_or_default(),
+        status: w.get_resource::<MenuIcons>().map(|m| m.status.clone()).unwrap_or_default(),
         system: w.get_resource::<MenuIcons>().map(|m| m.system.clone()).unwrap_or_default(),
     };
     let mut commands = w.commands();
@@ -1749,7 +1854,7 @@ fn refresh_menu(
     for (l, mut t, mut c) in &mut texts.p3() {
         let Some(e) = list_entries.get(l.0) else { continue };
         set(&mut t, &entry_label(*e, &tuning, *device));
-        c.0 = if matches!(e, Entry::Line(..)) {
+        c.0 = if matches!(e, Entry::Line(..) | Entry::Stat(_)) {
             Color::srgb(0.78, 0.75, 0.68)
         } else if !selectable(*e, &ctx) {
             Color::srgba(0.6, 0.58, 0.55, 0.6)
@@ -1761,7 +1866,7 @@ fn refresh_menu(
     }
     for (v, mut t, mut c) in &mut texts.p4() {
         let Some(e) = list_entries.get(v.0) else { continue };
-        let (s, enabled) = entry_value(*e, &ctx, &settings, m, player, save.data.as_ref());
+        let (s, enabled) = entry_value(*e, &ctx, &settings, m, player, save.data.as_ref(), &tuning);
         set(&mut t, &s);
         c.0 = if enabled { Color::srgb(0.95, 0.92, 0.85) } else { Color::srgba(0.6, 0.58, 0.55, 0.6) };
     }

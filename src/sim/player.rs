@@ -72,6 +72,8 @@ pub struct Player {
     pub healed: bool,
     /// Embers (currency), earned by defeating enemies.
     pub embers: u32,
+    /// Character level (always 1 for now: levelling up is not available yet).
+    pub level: u32,
     /// Ticks spent in the `Dead` state (respawn after `RESPAWN_TICKS`).
     pub dead_ticks: u32,
     /// Item being used (`Heal` action, shared by all consumables).
@@ -134,6 +136,7 @@ impl Player {
             inventory: Inventory::new_game(t),
             healed: false,
             embers: 0,
+            level: 1,
             dead_ticks: 0,
             using: None,
             regen_ticks: 0,

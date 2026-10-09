@@ -138,10 +138,12 @@ pub enum LightKind {
     Checkpoint(u8),
     /// Street lamp.
     Lamp,
-    /// Glow of the Giant's ash-grey lava.
+    /// Faint glow of the ashes in the Giant's ditch.
     Ash,
     /// Torch of boss `i`, in its colour (`gates`): a dim glow once it's out.
     Torch(u8),
+    /// Fire of arena `i` in its boss's colour (braziers, lanterns: `light_tint_<i>_*`).
+    Tinted(u8),
 }
 
 /// Scene lights (located by the scenery's `light_*` empties).
@@ -410,6 +412,8 @@ fn on_scene_ready(
                 LightKind::Lamp
             } else if rest.starts_with("ash") {
                 LightKind::Ash
+            } else if let Some(i) = rest.strip_prefix("tint_") {
+                LightKind::Tinted(i.split('_').next().and_then(|i| i.parse().ok()).unwrap_or(0))
             } else {
                 LightKind::Brazier
             };
@@ -735,8 +739,12 @@ fn flicker(
                 // Street lamp: pale gas light, almost steady.
                 LightKind::Lamp => (7.5, Vec3::new(0.95, 0.88, 0.62), 0.95, Vec4::new(0.04, 3.0, 0.0, 0.0)),
                 LightKind::Brazier => (9.0, Vec3::new(1.0, 0.55, 0.22), 1.1, Vec4::new(0.15, 9.0, 0.1, 23.0)),
-                // Grey lava: a cold, slowly breathing light.
-                LightKind::Ash => (9.0, Vec3::new(0.72, 0.72, 0.8), 1.0, Vec4::new(0.12, 1.3, 0.0, 0.0)),
+                // The ashes of the ditch: a faint, cold, slowly breathing light.
+                LightKind::Ash => (8.0, Vec3::new(0.72, 0.72, 0.8), 0.6, Vec4::new(0.12, 1.3, 0.0, 0.0)),
+                LightKind::Tinted(i) => {
+                    let c = Vec3::from(tuning.encounter_color(*i as usize));
+                    (9.0, c.lerp(Vec3::ONE, 0.15), 1.1, Vec4::new(0.15, 9.0, 0.1, 23.0))
+                }
                 // Boss torch: a lively flame in its colour; once it's out, a faint glow.
                 LightKind::Torch(i) => {
                     let c = Vec3::from(tuning.encounter_color(*i as usize));

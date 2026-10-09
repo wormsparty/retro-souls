@@ -137,11 +137,14 @@ impl WeaponIcons {
     }
 }
 
-/// Pause menu icons: equipment (helm) and system (cogwheel).
+/// Menu icons: equipment (helm), status (scroll) and system (cogwheel) of the pause menu, and
+/// the final door's medallion (title screen, tinted in each boss's colour).
 #[derive(Resource)]
 pub struct MenuIcons {
     pub equipment: Handle<Image>,
+    pub status: Handle<Image>,
     pub system: Handle<Image>,
+    pub gem: Handle<Image>,
 }
 
 /// Picked-up items to announce, one after the other.
@@ -502,6 +505,56 @@ fn gear_icon() -> Image {
     })
 }
 
+/// Scroll (status): a parchment unrolled between two wooden rods, with lines of writing.
+fn scroll_icon() -> Image {
+    ps1_icon(ITEM_ICON, true, |fx, fy| {
+        // The rods, top and bottom, a little wider than the sheet.
+        for rod in [4.0, 20.0] {
+            if (fy - rod).abs() < 1.6 && (3.0..21.0).contains(&fx) {
+                let light = (0.75 - 0.35 * (fy - rod)).clamp(0.0, 1.0);
+                return Some(Vec3::new(0.3, 0.16, 0.07).lerp(Vec3::new(0.62, 0.38, 0.18), light));
+            }
+        }
+        if !(5.0..19.0).contains(&fx) || !(5.5..18.5).contains(&fy) {
+            return None;
+        }
+        // Lines of writing (the last one shorter), darker at the edges of the sheet.
+        let line = ((fy - 7.5) / 2.5).fract() < 0.35 && fy < 17.0 && (7.0..17.0).contains(&fx) && !(fy > 14.5 && fx > 13.0);
+        if line {
+            return Some(Vec3::new(0.3, 0.2, 0.12));
+        }
+        let edge = ((fx - 12.0).abs() / 7.0).powi(4);
+        Some(Vec3::new(0.9, 0.82, 0.62).lerp(Vec3::new(0.62, 0.5, 0.34), edge))
+    })
+}
+
+/// Size of the medallion icon, in pixels.
+pub const GEM_ICON: usize = 15;
+
+/// Medallion of the final door (a square standing on a corner), in grey: tinted by the
+/// boss's colour. Facets lit from the top left, like the door's in the light.
+fn gem_icon() -> Image {
+    ps1_icon(GEM_ICON, true, |fx, fy| {
+        let c = GEM_ICON as f32 / 2.0;
+        let (dx, dy) = (fx - c, fy - c);
+        if dx.abs() + dy.abs() > c - 1.0 {
+            return None;
+        }
+        // Flat central table, bevels around it.
+        let shade = if dx.abs() + dy.abs() < c * 0.45 {
+            0.85
+        } else {
+            match (dx < 0.0, dy < 0.0) {
+                (true, true) => 1.0,
+                (false, true) => 0.78,
+                (true, false) => 0.62,
+                (false, false) => 0.45,
+            }
+        };
+        Some(Vec3::splat(shade))
+    })
+}
+
 /// Helm (equipment): iron helmet with a visor slit and a red crest.
 fn helm_icon() -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
@@ -772,7 +825,12 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
         });
     commands.insert_resource(icons);
     commands.insert_resource(weapon_icons);
-    commands.insert_resource(MenuIcons { equipment: images.add(helm_icon()), system: images.add(gear_icon()) });
+    commands.insert_resource(MenuIcons {
+        equipment: images.add(helm_icon()),
+        status: images.add(scroll_icon()),
+        system: images.add(gear_icon()),
+        gem: images.add(gem_icon()),
+    });
 
     // Embers, bottom right.
     commands
@@ -1156,7 +1214,7 @@ fn update_weapon(
     for mut t in &mut name {
         set_text(&mut t, tuning.weapons[w].name.get());
     }
-    let key = if *device == Device::Gamepad { Glyph::DpadUp } else { Glyph::Key("R") };
+    let key = if *device == Device::Gamepad { Glyph::DpadRight } else { Glyph::Key("R") };
     for mut h in &mut hint {
         set_hint(&mut h, if tuning.weapons.len() > 1 { vec![i(key), t(tr("switch", "changer"))] } else { vec![] });
     }
@@ -1168,6 +1226,11 @@ fn update_weapon(
     }
 }
 
+/// A boss's health bar: in its colour (that of its torch and its spells), a little darker.
+fn boss_bar_color([r, g, b]: [f32; 3]) -> Color {
+    Color::srgb(r * 0.82, g * 0.82, b * 0.82)
+}
+
 #[allow(clippy::type_complexity)]
 fn update_boss(
     enc: Res<Encounter>,
@@ -1176,7 +1239,7 @@ fn update_boss(
     mut panel: Query<&mut Visibility, (With<BossPanel>, Without<BossSlot>)>,
     mut slots: Query<(&BossSlot, &mut Visibility, &mut Node), Without<Bar>>,
     mut names: Query<(&BossName, &mut Text)>,
-    mut bars: Query<(&Bar, &mut Node), Without<BossSlot>>,
+    mut bars: Query<(&Bar, &mut Node, &mut BackgroundColor), Without<BossSlot>>,
 ) {
     // The panel only appears during the fight.
     for mut v in &mut panel {
@@ -1201,11 +1264,15 @@ fn update_boss(
             set_text(&mut t, b.def(&tuning).name.get());
         }
     }
-    for (b, mut n) in &mut bars {
+    for (b, mut n, mut bg) in &mut bars {
         match *b {
             Bar::BossHp(i) => {
-                if let Some((_, _, hp)) = main.get(i as usize) {
+                if let Some((_, boss, hp)) = main.get(i as usize) {
                     n.width = percent(hp.cur / hp.max * 100.0);
+                    let c = boss_bar_color(boss.def(&tuning).color);
+                    if bg.0 != c {
+                        bg.0 = c;
+                    }
                 }
             }
             Bar::BossStagger(i) => {
@@ -1472,6 +1539,7 @@ fn foe_bars(
     // Path enemies and a boss's supporting roles (the leads have their bar at the bottom).
     for (e, .., boss) in &enemies {
         if !has_bar.contains(&e) && boss.is_none_or(|b| b.def(&tuning).minor) {
+            let fill = boss.map_or(Color::srgb(0.68, 0.08, 0.06), |b| boss_bar_color(b.def(&tuning).color));
             commands
                 .spawn((
                     ChildOf(*root),
@@ -1481,7 +1549,7 @@ fn foe_bars(
                     Visibility::Hidden,
                 ))
                 .with_children(|c| {
-                    c.spawn((Node { width: px(W - 2.0), height: px(2), ..default() }, BackgroundColor(Color::srgb(0.68, 0.08, 0.06)), FoeBarFill));
+                    c.spawn((Node { width: px(W - 2.0), height: px(2), ..default() }, BackgroundColor(fill), FoeBarFill));
                 });
         }
     }
