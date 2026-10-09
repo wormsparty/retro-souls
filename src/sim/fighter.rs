@@ -1,21 +1,21 @@
-//! Composants communs à tous les combattants (joueurs et boss).
+//! Components shared by all fighters (players and bosses).
 
 use bevy::prelude::*;
 
 use super::data::{MoveDef, MoveRef, Tuning};
 
-/// Position et orientation de simulation. Le `Transform` de rendu est interpolé à partir de ça.
+/// Simulation position and orientation. The render `Transform` is interpolated from it.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Body {
     pub pos: Vec3,
     pub yaw: f32,
     pub radius: f32,
     pub height: f32,
-    /// Poids relatif pour la séparation des corps (le boss pousse plus qu'il n'est poussé).
+    /// Relative weight for body separation (the boss pushes more than it's pushed).
     pub mass: f32,
 }
 
-/// État du tick précédent, pour l'interpolation de rendu.
+/// State of the previous tick, for render interpolation.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct PrevBody {
     pub pos: Vec3,
@@ -37,11 +37,11 @@ impl Health {
     }
 }
 
-/// Gel de l'entité pendant N ticks après un impact (« hitstop »).
+/// Freezes the entity for N ticks after an impact ("hitstop").
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Hitstop(pub u8);
 
-/// Adversaire des joueurs (boss ou ennemi du chemin) : on peut le verrouiller et le frapper.
+/// The players' opponent (boss or path enemy): it can be locked on and hit.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Foe;
 
@@ -51,19 +51,19 @@ pub enum Team {
     Enemies,
 }
 
-/// Action en cours (attaque, esquive, réaction…), commune aux joueurs et au boss.
+/// Current action (attack, dodge, reaction…), shared by players and the boss.
 #[derive(Component, Clone, Debug, Default)]
 pub struct Action {
     pub mv: Option<MoveRef>,
-    /// Index du tick en cours d'exécution dans l'action.
+    /// Index of the tick being executed in the action.
     pub tick: u32,
-    /// Compteur incrémenté à chaque nouvelle action (identifie l'instance d'attaque).
+    /// Counter incremented on each new action (identifies the attack instance).
     pub seq: u32,
-    /// Coups déjà portés pendant cette action : (index de la fenêtre, victime).
+    /// Hits already landed during this action: (window index, victim).
     pub hits: Vec<(u8, Entity)>,
-    /// Distance à la cible figée au démarrage (pour les mouvements `to_target`).
+    /// Distance to the target frozen at the start (for `to_target` movements).
     pub target_dist: f32,
-    /// Vrai si l'entité a exécuté une frame ce tick (faux pendant le hitstop).
+    /// True if the entity ran a frame this tick (false during hitstop).
     pub executed: bool,
 }
 

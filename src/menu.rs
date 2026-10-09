@@ -1,13 +1,13 @@
-//! Menus : écran titre, pause, checkpoint (voyage, niveau, équipement), options, aide.
+//! Menus: title screen, pause, checkpoint (travel, level, equipment), settings, help.
 //!
-//! Navigation : haut/bas pour choisir, gauche/droite pour changer une valeur, Entrée / (A)
-//! pour valider, Échap / (B) pour revenir. Échap / Start ouvre le menu pause, Start le referme.
-//! La souris marche aussi : survoler une ligne la sélectionne (seulement si la souris bouge,
-//! pour ne pas voler la sélection quand une page s'ouvre sous le curseur), clic pour valider,
-//! clic sur ‹ / › pour changer la valeur.
+//! Navigation: up/down to choose, left/right to change a value, Enter / (A)
+//! to confirm, Esc / (B) to go back. Esc / Start opens the pause menu, Start closes it.
+//! The mouse works too: hovering a line selects it (only if the mouse moves,
+//! so as not to steal the selection when a page opens under the cursor), click to confirm,
+//! click on ‹ / › to change the value.
 //!
-//! Les actions s'exécutent avec un accès complet au monde (`handle`), ce qui permet de lancer
-//! une partie, de sauvegarder ou d'appliquer un équipement directement.
+//! Actions run with full access to the world (`handle`), which allows starting
+//! a game, saving or applying equipment directly.
 
 use bevy::prelude::*;
 use bevy::text::LineBreak;
@@ -33,7 +33,7 @@ use crate::render::preview::{CheckpointPreview, PREVIEW_SIZE};
 use crate::hud::{ITEM_ICON, ItemIcons, MenuIcons, WeaponIcons};
 use crate::ui::{Glyph, Hint, Icons, PixelSize, PixelText, Seg, UiFont, hint_node, i, icon_bundle, image_bundle, set_hint, t};
 
-/// Le dépôt du projet (entrée « Fork me »).
+/// The project's repository ("Fork me" entry).
 pub const REPO_URL: &str = "https://github.com/wormsparty/retro-souls";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,20 +42,20 @@ pub enum Page {
     ConfirmNew,
     Pause,
     Checkpoint,
-    /// Voyage rapide entre checkpoints (avec un aperçu du lieu).
+    /// Fast travel between checkpoints (with a preview of the place).
     Travel,
-    /// Choix du boss qui attend dans l'arène (boss à l'essai).
+    /// Choice of the boss waiting in the arena (trial bosses).
     Bosses,
     Equipment,
-    /// Système : options, aide, retour à l'écran titre, quitter.
+    /// System: settings, help, back to the title screen, quit.
     System,
-    /// Choix de l'objet d'un emplacement (`MenuState::choosing`) parmi ceux qu'on possède.
+    /// Choice of the item for a slot (`MenuState::choosing`) among those owned.
     Choose,
     Options,
     Help,
-    /// Choix de la langue au premier lancement.
+    /// Language choice on first launch.
     Language,
-    /// Choix du style graphique (PS1 ou moderne) au premier lancement.
+    /// Graphics style choice (PS1 or modern) on first launch.
     Style,
 }
 
@@ -63,20 +63,20 @@ pub enum Page {
 pub struct MenuState {
     pub open: bool,
     page: Page,
-    /// Pages précédentes (et ligne sélectionnée), pour revenir en arrière.
+    /// Previous pages (and selected line), to go back.
     stack: Vec<(Page, usize)>,
     selected: usize,
-    /// Répétition de navigation au stick/D-pad maintenu.
+    /// Navigation repeat while the stick/D-pad is held.
     repeat: f32,
-    /// Ouvert à cette frame : on ignore les entrées (le bouton qui l'a ouvert, par exemple (A)
-    /// pour se reposer, ne doit pas aussi valider la première ligne).
+    /// Opened this frame: inputs are ignored (the button that opened it, for example (A)
+    /// to rest, must not also confirm the first line).
     fresh: bool,
-    /// Dernière position connue du curseur (le survol ne compte que s'il a bougé).
+    /// Last known cursor position (hovering only counts if it has moved).
     cursor: Option<Vec2>,
-    /// Temps pendant lequel on ignore les mouvements du curseur après l'ouverture (il peut
-    /// sauter quand on le libère).
+    /// Time during which cursor movements are ignored after opening (it can
+    /// jump when it's released).
     settle: f32,
-    /// Emplacement en cours de choix (page `Choose`) : 0..QUICK_SLOTS, ou QUICK_SLOTS pour le talisman.
+    /// Slot being chosen (`Choose` page): 0..QUICK_SLOTS, or QUICK_SLOTS for the talisman.
     choosing: u8,
 }
 
@@ -91,7 +91,7 @@ impl MenuState {
         self.open && matches!(self.page, Page::Title | Page::Language | Page::Style)
     }
 
-    /// Ouvre le menu sur une page (sans toucher au curseur).
+    /// Opens the menu on a page (without touching the cursor).
     pub fn open(&mut self, page: Page) {
         self.open = true;
         self.fresh = true;
@@ -107,7 +107,7 @@ impl MenuState {
         self.selected = 0;
     }
 
-    /// Revient à la page précédente ; faux s'il n'y en a pas.
+    /// Goes back to the previous page; false if there is none.
     fn back(&mut self) -> bool {
         match self.stack.pop() {
             Some((p, s)) => {
@@ -135,13 +135,13 @@ enum Act {
     ToTitle,
     Quit,
     ReviveBoss,
-    /// Monter de niveau (pas encore disponible : affiché grisé).
+    /// Level up (not available yet: shown greyed out).
     LevelUp,
-    /// Ouvre la page du projet sur GitHub.
+    /// Opens the project page on GitHub.
     Fork,
 }
 
-/// Option de réglage.
+/// Setting option.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Opt {
     Display,
@@ -162,40 +162,40 @@ enum Opt {
 enum Entry {
     Act(Act),
     Opt(Opt),
-    /// Emplacement rapide d'objet.
+    /// Item quick slot.
     Slot(u8),
-    /// Talisman porté.
+    /// Worn talisman.
     Talisman,
-    /// Arme (index dans `Tuning::weapons`) : affichée dans l'équipement, on change d'arme en jeu.
+    /// Weapon (index in `Tuning::weapons`): shown in the equipment, weapons are switched in game.
     Weapon(u8),
-    /// Objet proposé pour l'emplacement en cours de choix (`None` : le vider).
+    /// Item offered for the slot being chosen (`None`: empty it).
     Pick(Option<Item>),
-    /// Destination de voyage (index du checkpoint).
+    /// Travel destination (checkpoint index).
     Place(u8),
-    /// Rencontre de boss (index dans `Tuning::encounters`).
+    /// Boss encounter (index in `Tuning::encounters`).
     Boss(u8),
-    /// Ligne d'aide (index dans `help_lines`), non sélectionnable.
+    /// Help line (index in `help_lines`), not selectable.
     Line(u8),
-    /// Langue proposée (page de choix de la langue).
+    /// Language offered (language choice page).
     Lang(Lang),
-    /// Style graphique proposé : sa résolution interne.
+    /// Graphics style offered: its internal resolution.
     Style(u32),
 }
 
-/// Ce dont dépend le contenu des pages.
+/// What the content of the pages depends on.
 #[derive(Clone, Copy, PartialEq)]
 struct PageCtx {
     has_save: bool,
     boss_defeated: bool,
     boss_choice: u8,
-    /// Nombre de rencontres de boss proposées, et d'armes.
+    /// Number of boss encounters offered, and of weapons.
     encounters: u8,
     weapons: u8,
     device: Device,
-    /// Checkpoints découverts par le joueur local (bits), et celui où il se trouve.
+    /// Checkpoints discovered by the local player (bits), and the one they're at.
     found: u32,
     here: Option<u8>,
-    /// Objets possédés (bits, dans l'ordre de `Item::ALL`), et emplacement en cours de choix.
+    /// Owned items (bits, in the order of `Item::ALL`), and slot being chosen.
     owned: u16,
     choosing: u8,
 }
@@ -204,20 +204,20 @@ fn owned_bits(p: Option<&Player>) -> u16 {
     p.map_or(0, |p| Item::ALL.iter().enumerate().filter(|(_, it)| p.inventory.owns(**it)).fold(0, |b, (i, _)| b | 1 << i))
 }
 
-/// Pages en grille (gauche/droite et haut/bas s'y déplacent) : nombre de cases de chaque rangée,
-/// pour `n` entrées.
+/// Grid pages (left/right and up/down move around them): number of cells in each row,
+/// for `n` entries.
 fn grid_rows(page: Page, n: usize, weapons: usize) -> Option<Vec<usize>> {
     match page {
         Page::Bosses => Some((0..n).step_by(BOSS_COLUMNS as usize).map(|i| (n - i).min(BOSS_COLUMNS as usize)).collect()),
-        // L'équipement important (armes, talisman), puis les consommables.
+        // The important equipment (weapons, talisman), then the consumables.
         Page::Equipment => Some(vec![weapons + 1, QUICK_SLOTS]),
-        // Le menu pause : une rangée d'icônes.
+        // The pause menu: a row of icons.
         Page::Pause => Some(vec![n]),
         _ => None,
     }
 }
 
-/// Rangée et colonne de l'entrée `i` d'une grille.
+/// Row and column of entry `i` of a grid.
 fn grid_pos(rows: &[usize], i: usize) -> (usize, usize) {
     let mut start = 0;
     for (r, &len) in rows.iter().enumerate() {
@@ -230,14 +230,14 @@ fn grid_pos(rows: &[usize], i: usize) -> (usize, usize) {
 }
 
 const BOSS_COLUMNS: i32 = 4;
-/// Portrait d'un boss (page de choix), en points.
+/// Boss portrait (choice page), in dots.
 const PORTRAIT: u32 = 64;
-/// Marge intérieure du panneau des menus.
+/// Inner margin of the menu panel.
 const PANEL_PADDING: f32 = 16.0;
 
 const NATIVE: bool = !cfg!(target_arch = "wasm32");
 
-/// Lignes de la page d'aide : action, touches.
+/// Help page lines: action, keys.
 fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
     let or = || t(tr("or", "ou"));
     if device == Device::Gamepad {
@@ -290,15 +290,15 @@ fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
 fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
     use Act::*;
     let mut v = match page {
-        // Avec une sauvegarde, « Continuer » vient en premier (choix par défaut).
+        // With a save, "Continue" comes first (default choice).
         Page::Title if c.has_save => vec![Entry::Act(Load), Entry::Act(NewGame), Entry::Act(Open(Page::Options)), Entry::Act(Fork)],
         Page::Title => vec![Entry::Act(NewGame), Entry::Act(Load), Entry::Act(Open(Page::Options)), Entry::Act(Fork)],
         Page::ConfirmNew => vec![Entry::Act(Back), Entry::Act(ConfirmNew)],
-        // Des icônes : l'équipement, puis le système (roue crantée).
+        // Icons: the equipment, then the system (cogwheel).
         Page::Pause => vec![Entry::Act(Open(Page::Equipment)), Entry::Act(Open(Page::System))],
         Page::System => vec![Entry::Act(Open(Page::Options)), Entry::Act(Open(Page::Help)), Entry::Act(Fork), Entry::Act(ToTitle)],
         Page::Checkpoint => {
-            // « Partir » d'abord : c'est la ligne sélectionnée à l'ouverture.
+            // "Leave" first: it's the line selected on opening.
             let mut v = vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(Open(Page::Bosses)), Entry::Act(LevelUp), Entry::Act(Open(Page::Equipment))];
             if c.boss_defeated {
                 v.push(Entry::Act(ReviveBoss));
@@ -306,7 +306,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
             v
         }
         Page::Travel => (0..32u8).filter(|i| c.found & (1 << i) != 0).map(Entry::Place).chain([Entry::Act(Back)]).collect(),
-        // Grilles : on revient avec Échap / (B).
+        // Grids: go back with Esc / (B).
         Page::Bosses => (0..c.encounters).map(Entry::Boss).collect(),
         Page::Equipment => (0..c.weapons).map(Entry::Weapon).chain([Entry::Talisman]).chain((0..QUICK_SLOTS as u8).map(Entry::Slot)).collect(),
         Page::Choose => {
@@ -326,7 +326,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
             let opts: &[Opt] = if NATIVE {
                 &[Language, Display, Resolution, Refresh, VSync, Internal, Master, Effects, Sensitivity, InvertY, Shake, ShowFps]
             } else {
-                // Dans le navigateur, résolution, fréquence et VSync sont gérées par le navigateur.
+                // In the browser, resolution, refresh rate and VSync are handled by the browser.
                 &[Language, Display, Internal, Master, Effects, Sensitivity, InvertY, Shake, ShowFps]
             };
             opts.iter().map(|o| Entry::Opt(*o)).chain([Entry::Act(Back)]).collect()
@@ -430,11 +430,11 @@ fn page_info(p: Page) -> &'static str {
     }
 }
 
-/// Valeurs possibles d'une option, et index de la valeur actuelle.
+/// Possible values of an option, and index of the current value.
 struct Choices {
     labels: Vec<String>,
     current: usize,
-    /// Faux si l'option ne s'applique pas dans le mode actuel (affichée grisée).
+    /// False if the option doesn't apply in the current mode (shown greyed out).
     enabled: bool,
 }
 
@@ -559,7 +559,7 @@ fn choices(item: Opt, s: &Settings, m: Option<&Monitor>) -> Option<Choices> {
     })
 }
 
-/// Change la valeur d'une option de `delta` crans (sans boucler).
+/// Changes an option's value by `delta` steps (without wrapping).
 fn change(item: Opt, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
     let Some(c) = choices(item, s, m) else { return };
     if !c.enabled || c.labels.len() < 2 {
@@ -572,7 +572,7 @@ fn change(item: Opt, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
     match item {
         Opt::Display => {
             s.display = display_modes()[i];
-            // La résolution choisie dépend du mode : on repart sur l'automatique.
+            // The chosen resolution depends on the mode: go back to automatic.
             s.resolution = None;
             s.refresh_mhz = None;
         }
@@ -602,14 +602,14 @@ fn change(item: Opt, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
 struct MenuRoot;
 #[derive(Component)]
 struct MenuTitle;
-/// Colonne du menu (titre, lignes, pied de page) : plus étroite et centrée sur l'écran titre.
+/// Menu column (title, lines, footer): narrower and centred on the title screen.
 #[derive(Component)]
 struct MenuPanel;
-/// Fond de l'écran titre : lueur au bas de l'écran, braises et cendres qui montent.
+/// Title screen background: glow at the bottom of the screen, rising embers and ash.
 #[derive(Component)]
 struct TitleBackdrop;
-/// Une braise (ou un flocon de cendre) du fond de l'écran titre. Position en fraction de
-/// l'écran, vitesse de montée (écrans/s), balancement.
+/// An ember (or ash flake) of the title screen background. Position as a fraction of
+/// the screen, rising speed (screens/s), sway.
 #[derive(Component)]
 struct Ash {
     pos: Vec2,
@@ -622,12 +622,12 @@ struct Ash {
 struct MenuInfo;
 #[derive(Component)]
 struct MenuList;
-/// Aperçu du lieu (page de voyage).
+/// Preview of the place (travel page).
 #[derive(Component)]
 struct MenuPreview;
 #[derive(Component)]
 struct MenuPreviewCaption;
-/// Description de l'objet sélectionné (page d'équipement).
+/// Description of the selected item (equipment page).
 #[derive(Component)]
 struct MenuDetail;
 #[derive(Component)]
@@ -640,25 +640,25 @@ struct RowLabel(usize);
 struct RowValue(usize);
 #[derive(Component)]
 struct Arrow(usize, i32);
-/// Icône et quantité de l'objet d'un emplacement (page d'équipement), par ligne.
+/// Icon and quantity of a slot's item (equipment page), per line.
 #[derive(Component)]
 struct SlotIcon(usize);
 #[derive(Component)]
 struct SlotCount(usize);
 
-/// Portraits des rencontres de boss (`assets/ui/boss_<n>.png`, rendus par
-/// `tools/blender/boss_icons.py`), dans l'ordre de `Tuning::encounters`.
+/// Portraits of the boss encounters (`assets/ui/boss_<n>.png`, rendered by
+/// `tools/blender/boss_icons.py`), in the order of `Tuning::encounters`.
 #[derive(Resource)]
 struct BossPortraits(Vec<Handle<Image>>);
 
-/// Illustrations des deux styles graphiques (captures du jeu en 240p et en 480p).
+/// Illustrations of the two graphics styles (game screenshots at 240p and 480p).
 #[derive(Resource)]
 struct StyleImages {
     ps1: Handle<Image>,
     modern: Handle<Image>,
 }
 
-/// Taille des illustrations, en points.
+/// Size of the illustrations, in dots.
 const STYLE_IMAGE_SIZE: UVec2 = UVec2::new(192, 108);
 
 pub struct MenuPlugin;
@@ -735,10 +735,10 @@ fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<Checkpo
         });
 }
 
-/// Nombre de braises et de flocons du fond de l'écran titre.
+/// Number of embers and flakes in the title screen background.
 const ASHES: usize = 150;
 
-/// Pseudo-aléatoire du fond de l'écran titre (purement visuel), dans [0, 1].
+/// Pseudo-random for the title screen background (purely visual), in [0, 1].
 fn ash_rand(seed: u32) -> f32 {
     let x = seed.wrapping_mul(747796405).wrapping_add(2891336453);
     let x = (x ^ (x >> 15)).wrapping_mul(2246822519);
@@ -752,7 +752,7 @@ fn spawn_backdrop(c: &mut ChildSpawnerCommands) {
         TitleBackdrop,
     ))
     .with_children(|c| {
-        // Lueur d'un brasier sous l'écran : bandes de plus en plus chaudes vers le bas.
+        // Glow of a brazier below the screen: bands getting warmer towards the bottom.
         const BANDS: u32 = 30;
         for k in 0..BANDS {
             let a = 0.17 * ((k + 1) as f32 / BANDS as f32).powi(3);
@@ -781,8 +781,8 @@ fn spawn_backdrop(c: &mut ChildSpawnerCommands) {
     });
 }
 
-/// Écran titre : titre grand et centré au-dessus d'un menu plus étroit ; les braises et les
-/// cendres du fond montent (seulement s'il est affiché).
+/// Title screen: big centred title above a narrower menu; the background embers and
+/// ash rise (only if it's displayed).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn title_backdrop(
     time: Res<Time>,
@@ -799,8 +799,8 @@ fn title_backdrop(
     let width = if title { 720.0 } else { 960.0 };
     if panel.width != px(width) {
         panel.width = px(width);
-        // Textes sur plusieurs lignes à largeur explicite : sinon, pour la hauteur du panneau,
-        // ils sont estimés un mot par ligne et le panneau, trop haut, déborde en haut de l'écran.
+        // Multi-line texts with an explicit width: otherwise, for the panel height,
+        // they're estimated at one word per line and the panel, too tall, overflows the top of the screen.
         for mut n in &mut texts {
             n.width = px(width - 2.0 * PANEL_PADDING);
         }
@@ -809,8 +809,11 @@ fn title_backdrop(
     if title_text.0.0 != size {
         title_text.0.0 = size;
     }
-    let (align, margin) = if title { (AlignSelf::Center, UiRect::bottom(px(28))) } else { (AlignSelf::Auto, UiRect::ZERO) };
-    if title_text.1.align_self != align {
+    // Title screen and pause menu (only two cards): title and help centred, like the cards.
+    let centered = menu.open && matches!(menu.page, Page::Title | Page::Pause);
+    let align = if centered { AlignSelf::Center } else { AlignSelf::Auto };
+    let margin = if title { UiRect::bottom(px(28)) } else { UiRect::ZERO };
+    if title_text.1.align_self != align || title_text.1.margin != margin {
         title_text.1.align_self = align;
         title_text.1.margin = margin;
         footer.align_self = align;
@@ -828,14 +831,14 @@ fn title_backdrop(
     for (mut a, mut n, mut bg) in &mut ashes {
         a.pos.y -= a.rise * dt;
         if a.pos.y < -0.02 {
-            // Repart du bas, ailleurs.
+            // Starts again from the bottom, elsewhere.
             *seed = seed.wrapping_add(1);
             a.pos = Vec2::new(ash_rand(*seed ^ 0x9e37), 1.02 + ash_rand(*seed ^ 0x51ed) * 0.08);
         }
         let x = a.pos.x + (t * 0.7 + a.phase).sin() * a.sway + (t * 0.23 + a.phase * 2.0).sin() * a.sway * 0.6;
         n.left = percent(x * 100.0);
         n.top = percent(a.pos.y * 100.0);
-        // Elles pâlissent en montant ; les braises scintillent.
+        // They fade as they rise; the embers twinkle.
         let fade = (a.pos.y * 1.25).clamp(0.0, 1.0) * ((1.02 - a.pos.y) * 8.0).clamp(0.0, 1.0);
         bg.0 = if a.ember {
             let flicker = 0.75 + 0.25 * (t * 9.0 + a.phase * 5.0).sin();
@@ -869,7 +872,7 @@ fn close(w: &mut World) {
     cursor_free(w, false);
 }
 
-/// Écran titre : plus aucun combattant dans le monde.
+/// Title screen: no more fighters in the world.
 pub fn enter_title(mut commands: Commands) {
     commands.queue(|w: &mut World| {
         let sim: Vec<Entity> = w.query_filtered::<Entity, With<SimEntity>>().iter(w).collect();
@@ -885,7 +888,7 @@ pub fn enter_title(mut commands: Commands) {
     });
 }
 
-/// Premier lancement : on demande d'abord la langue, puis le style graphique.
+/// First launch: ask for the language first, then the graphics style.
 fn first_launch_page(s: &Settings) -> Page {
     if s.language.is_none() {
         Page::Language
@@ -901,7 +904,7 @@ pub enum Launch {
     Load,
 }
 
-/// Lance une partie (nouvelle, ou depuis la sauvegarde).
+/// Starts a game (new, or from the save).
 pub fn launch(w: &mut World, how: Launch) {
     let t = w.resource::<Tuning>().clone();
     let (progress, play_time) = match how {
@@ -923,7 +926,7 @@ pub fn launch(w: &mut World, how: Launch) {
     close(w);
 }
 
-/// Repos au checkpoint : ouvre le menu du checkpoint.
+/// Rest at the checkpoint: opens the checkpoint menu.
 fn open_on_rest(mut commands: Commands, fx: Res<FxState>, local: Query<(), With<LocalPlayer>>) {
     let rested = fx.last.iter().any(|e| matches!(e, SimEvent::Rested { entity } if local.contains(*entity)));
     if rested {
@@ -933,11 +936,11 @@ fn open_on_rest(mut commands: Commands, fx: Res<FxState>, local: Query<(), With<
 
 #[derive(Clone, Copy, Debug)]
 enum Intent {
-    /// Ouvrir le menu pause.
+    /// Open the pause menu.
     Pause,
-    /// Page précédente (ou fermer).
+    /// Previous page (or close).
     Back,
-    /// Fermer le menu (Start).
+    /// Close the menu (Start).
     Close,
     Move(i32),
     Change(i32),
@@ -1000,7 +1003,7 @@ fn menu_input(
         if k(&[KeyCode::Enter, KeyCode::Space]) || pad(GamepadButton::South) {
             out.push(Intent::Confirm);
         }
-        // Manette : D-pad ou stick, avec répétition quand on maintient.
+        // Gamepad: D-pad or stick, with repeat when held.
         let mut held = Vec2::ZERO;
         for g in &gamepads {
             let mut v = g.left_stick();
@@ -1038,8 +1041,8 @@ fn menu_input(
                 arrow_clicked = true;
             }
         }
-        // Survol : seulement quand la souris bouge (une page qui s'ouvre sous le curseur, au
-        // centre de l'écran, ne doit pas changer la ligne sélectionnée par défaut).
+        // Hover: only when the mouse moves (a page opening under the cursor, in the
+        // centre of the screen, must not change the line selected by default).
         if moved {
             for (r, i) in &rows {
                 if *i == Interaction::Hovered {
@@ -1079,7 +1082,7 @@ fn page_ctx(w: &mut World) -> PageCtx {
     }
 }
 
-/// Checkpoints découverts par le joueur local, et celui près duquel il se trouve.
+/// Checkpoints discovered by the local player, and the one they're near.
 fn local_place(w: &mut World) -> (u32, Option<u8>) {
     let t = w.resource::<Tuning>().clone();
     let mut q = w.query::<(&Player, &Body)>();
@@ -1116,8 +1119,8 @@ fn handle(w: &mut World, intent: Intent) {
                 close(w);
             }
         }
-        // Grilles : haut/bas changent de rangée (en restant dans la colonne, ou sur la dernière
-        // case d'une rangée plus courte), gauche/droite de colonne (sans boucler).
+        // Grids: up/down change rows (staying in the column, or on the last
+        // cell of a shorter row), left/right change columns (without wrapping).
         Intent::Move(d) if grid_rows(page, list.len(), ctx.weapons as usize).is_some() => {
             let rows = grid_rows(page, list.len(), ctx.weapons as usize).unwrap_or_default();
             let (r, c) = grid_pos(&rows, selected);
@@ -1147,7 +1150,7 @@ fn handle(w: &mut World, intent: Intent) {
             }
             w.resource_mut::<MenuState>().selected = i as usize;
         }
-        // Styles côte à côte : gauche/droite passe de l'un à l'autre.
+        // Styles side by side: left/right switch from one to the other.
         Intent::Change(d) if page == Page::Style => {
             w.resource_mut::<MenuState>().selected = (selected as i32 + d).clamp(0, list.len() as i32 - 1) as usize;
         }
@@ -1183,7 +1186,7 @@ fn handle(w: &mut World, intent: Intent) {
     }
 }
 
-/// Gauche / droite sur une option : la valeur précédente ou suivante.
+/// Left / right on an option: the previous or next value.
 fn change_entry(w: &mut World, e: Entry, d: i32) {
     if let Entry::Opt(o) = e {
         let mon = monitor(w);
@@ -1198,9 +1201,9 @@ fn change_entry(w: &mut World, e: Entry, d: i32) {
 fn confirm(w: &mut World, e: Entry) {
     match e {
         Entry::Act(a) => act(w, a),
-        // Les armes sont seulement montrées : on en change en jeu.
+        // Weapons are only shown: they're switched in game.
         Entry::Weapon(_) => {}
-        // Valider une option la fait avancer d'un cran (en bouclant pour les choix binaires).
+        // Confirming an option advances it by one step (wrapping for binary choices).
         Entry::Opt(o) => {
             let mon = monitor(w);
             let mut s = w.resource::<Settings>().clone();
@@ -1215,7 +1218,7 @@ fn confirm(w: &mut World, e: Entry) {
                 *w.resource_mut::<Settings>() = s;
             }
         }
-        // Emplacement : la liste de ce qu'on possède, l'objet actuel sélectionné.
+        // Slot: the list of what's owned, the current item selected.
         Entry::Slot(_) | Entry::Talisman => {
             let slot = if let Entry::Slot(s) = e { s } else { QUICK_SLOTS as u8 };
             let current = local_player(w).and_then(|p| if let Entry::Slot(s) = e { p.inventory.slots[s as usize] } else { p.inventory.talisman });
@@ -1234,11 +1237,11 @@ fn confirm(w: &mut World, e: Entry) {
                 SimCommand::Equip { player: p.id, slot, item }
             };
             w.resource_mut::<SimCommands>().0.push(cmd);
-            // La sim est en pause pendant le menu : la commande est appliquée tout de suite.
+            // The sim is paused during the menu: the command is applied right away.
             let _ = w.run_system_cached(apply_commands);
             w.resource_mut::<MenuState>().back();
         }
-        // Voyage : on réapparaît reposé devant l'autre brasier (ennemis revenus à leur poste).
+        // Travel: respawn rested in front of the other brazier (enemies back at their post).
         Entry::Place(i) => {
             let Some(p) = local_player(w) else { return };
             w.resource_mut::<SimCommands>().0.push(SimCommand::Travel { player: p.id, checkpoint: i });
@@ -1246,7 +1249,7 @@ fn confirm(w: &mut World, e: Entry) {
             crate::save::save_now(w);
             close(w);
         }
-        // Le boss choisi apparaît tout de suite dans l'arène (neuf, s'il avait été vaincu).
+        // The chosen boss appears in the arena right away (fresh, if it had been defeated).
         Entry::Boss(i) => {
             w.resource_mut::<SimCommands>().0.push(SimCommand::ChooseBoss(i));
             let _ = w.run_system_cached(apply_commands);
@@ -1290,7 +1293,7 @@ fn act(w: &mut World, a: Act) {
             w.resource_mut::<NextState<AppState>>().set(AppState::Title);
         }
         Act::Quit => {
-            // La sauvegarde est écrite en fin de frame (voir `save`).
+            // The save is written at the end of the frame (see `save`).
             w.write_message(AppExit::Success);
         }
         Act::ReviveBoss => {
@@ -1304,7 +1307,7 @@ fn act(w: &mut World, a: Act) {
     }
 }
 
-/// Ouvre une page web (navigateur du système, ou nouvel onglet dans le navigateur).
+/// Opens a web page (system browser, or new tab in the browser).
 fn open_url(url: &str) {
     #[cfg(target_arch = "wasm32")]
     if let Some(w) = web_sys::window() {
@@ -1320,7 +1323,7 @@ fn open_url(url: &str) {
             std::process::Command::new("xdg-open").arg(url).spawn()
         };
         if let Err(e) = cmd {
-            warn!("impossible d'ouvrir {url} : {e}");
+            warn!("cannot open {url}: {e}");
         }
     }
 }
@@ -1373,7 +1376,7 @@ fn entry_label(e: Entry, t: &Tuning, device: Device) -> String {
     }
 }
 
-/// Carte d'une page en grille : portrait d'un boss, case d'équipement, icône du menu pause.
+/// Card of a grid page: boss portrait, equipment cell, pause menu icon.
 struct CardCtx {
     font: UiFont,
     frame: Color,
@@ -1396,7 +1399,7 @@ fn spawn_card(c: &mut ChildSpawnerCommands, i: usize, e: Entry, k: &CardCtx) {
         BackgroundColor(Color::NONE),
     ))
     .with_children(|c| {
-        // Case encadrée autour d'une icône de `n` points.
+        // Framed cell around an icon of `n` dots.
         let boxed = |c: &mut ChildSpawnerCommands, n: u32| {
             c.spawn((
                 Node { border: UiRect::all(px(2)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
@@ -1412,7 +1415,7 @@ fn spawn_card(c: &mut ChildSpawnerCommands, i: usize, e: Entry, k: &CardCtx) {
                 c.spawn((Node { border: UiRect::all(px(2)), ..default() }, BorderColor::all(k.frame), BackgroundColor(Color::BLACK)))
                     .with_child(image_bundle(portrait, UVec2::splat(PORTRAIT)));
             }
-            // Icônes du menu pause, à la taille des autres.
+            // Pause menu icons, at the size of the others.
             Entry::Act(a) => {
                 let icon = if a == Act::Open(Page::System) { k.system.clone() } else { k.equipment.clone() };
                 let b = boxed(c, ITEM_ICON as u32);
@@ -1422,7 +1425,7 @@ fn spawn_card(c: &mut ChildSpawnerCommands, i: usize, e: Entry, k: &CardCtx) {
                 let b = boxed(c, ITEM_ICON as u32);
                 c.commands().entity(b).with_child(image_bundle(k.weapons.get(wi as usize).cloned().unwrap_or_default(), UVec2::splat(ITEM_ICON as u32)));
             }
-            // Case d'objet, à la taille des icônes de la liste de choix (et sa quantité).
+            // Item cell, at the size of the choice list icons (and its quantity).
             _ => {
                 let b = boxed(c, ITEM_ICON as u32);
                 let font = k.font.clone();
@@ -1439,13 +1442,13 @@ fn spawn_card(c: &mut ChildSpawnerCommands, i: usize, e: Entry, k: &CardCtx) {
         let wrap = if matches!(e, Entry::Boss(_)) { LineBreak::WordBoundary } else { LineBreak::NoWrap };
         c.spawn((k.font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::new(Justify::Center, wrap), RowLabel(i)));
         if matches!(e, Entry::Boss(_) | Entry::Weapon(_)) {
-            // Sans retour à la ligne : sinon la carte est estimée plus haute qu'elle ne l'est.
+            // No line wrapping: otherwise the card is estimated taller than it is.
             c.spawn((k.font.text("", 1, Color::srgb(0.95, 0.92, 0.85)), TextLayout::new(Justify::Center, LineBreak::NoWrap), RowValue(i)));
         }
     });
 }
 
-/// Recrée les lignes de la liste (en rangées de cartes sur les pages en grille).
+/// Recreates the list lines (in rows of cards on grid pages).
 fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
     let ui_font = w.resource::<UiFont>().clone();
     let help = help_lines(*w.resource::<Device>());
@@ -1473,11 +1476,12 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
     commands.entity(list).entry::<Node>().and_modify(move |mut n| {
         n.flex_direction = if side_by_side { FlexDirection::Row } else { FlexDirection::Column };
         n.justify_content = if side_by_side { JustifyContent::SpaceEvenly } else { JustifyContent::Default };
+        n.align_items = if page == Page::Pause { AlignItems::Center } else { AlignItems::Default };
         n.flex_wrap = FlexWrap::NoWrap;
         n.row_gap = px(2);
     });
     if let Some(rows) = grid {
-        // Pages en grille : une rangée de cartes par rangée de la grille.
+        // Grid pages: one row of cards per grid row.
         commands.entity(list).despawn_children().with_children(|c| {
             let mut i = 0;
             for len in rows {
@@ -1496,7 +1500,7 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
     commands.entity(list).despawn_children().with_children(|c| {
         for (i, e) in entries.iter().enumerate() {
             if let Entry::Style(h) = *e {
-                // Carte : illustration, nom du style, description.
+                // Card: illustration, style name, description.
                 let (image, desc) = if h == PS1_HEIGHT {
                     (style.0.clone(), tr("240p: big pixels, the 1997 look", "240p : gros pixels, l'image de 1997"))
                 } else {
@@ -1536,10 +1540,10 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
                 BackgroundColor(Color::NONE),
             ))
             .with_children(|c| {
-                // Icône devant le libellé : objet proposé, logo de GitHub.
+                // Icon next to the label: offered item (in front), GitHub logo (after).
                 let icon = match e {
                     Entry::Pick(Some(_)) => pick_icons[i].clone().map(|h| image_bundle(h, UVec2::splat(ITEM_ICON as u32))),
-                    // Case vide : une icône transparente, pour aligner les libellés.
+                    // Empty cell: a transparent icon, to align the labels.
                     Entry::Pick(None) => {
                         let mut b = image_bundle(Handle::default(), UVec2::splat(ITEM_ICON as u32));
                         b.0.color = Color::NONE;
@@ -1550,24 +1554,32 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
                 };
                 let label = Node { flex_shrink: 0.0, margin: UiRect::right(px(16)), ..default() };
                 if let (Entry::Act(Act::Fork), Some(icon)) = (e, icon.clone()) {
-                    // Le logo déborde de la ligne sans l'agrandir : toutes les lignes du menu
-                    // gardent la même hauteur.
+                    // The logo overflows the line without enlarging it: all menu lines
+                    // keep the same height.
                     let width = icon.2.0.x;
-                    c.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(8), ..default() })
-                        .with_children(|c| {
-                            c.spawn(Node {
-                                position_type: PositionType::Absolute,
-                                left: px(0),
-                                top: px(0),
-                                bottom: px(0),
-                                align_items: AlignItems::Center,
-                                ..default()
-                            })
-                            .with_child(icon);
-                            // Place réservée au logo (à sa largeur, sans hauteur).
-                            c.spawn((Node { flex_shrink: 0.0, ..default() }, PixelSize(UVec2::new(width, 0))));
-                            c.spawn((ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::linebreak(LineBreak::NoWrap), label, RowLabel(i)));
-                        });
+                    // Logo after the label.
+                    let row = Node {
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        column_gap: px(8),
+                        margin: UiRect::right(px(16)),
+                        ..default()
+                    };
+                    c.spawn(row).with_children(|c| {
+                        let label = Node { flex_shrink: 0.0, ..default() };
+                        c.spawn((ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::linebreak(LineBreak::NoWrap), label, RowLabel(i)));
+                        // Space reserved for the logo (at its width, without height).
+                        c.spawn((Node { flex_shrink: 0.0, ..default() }, PixelSize(UVec2::new(width, 0))));
+                        c.spawn(Node {
+                            position_type: PositionType::Absolute,
+                            right: px(0),
+                            top: px(0),
+                            bottom: px(0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_child(icon);
+                    });
                 } else if let Some(icon) = icon {
                     c.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(8), ..default() }).with_children(|c| {
                         c.spawn(icon);
@@ -1577,7 +1589,7 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
                     c.spawn((ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::linebreak(LineBreak::NoWrap), label, RowLabel(i)));
                 }
                 if let Entry::Line(l) = e {
-                    // Aide : icônes des touches, alignées à gauche.
+                    // Help: key icons, left-aligned.
                     let mut h = Hint::new(1, Color::srgb(0.85, 0.82, 0.75));
                     h.segs = help.get(*l as usize).map(|h| h.1.clone()).unwrap_or_default();
                     c.spawn(Node { width: px(340), flex_shrink: 0.0, ..default() }).with_children(|c| {
@@ -1634,7 +1646,7 @@ fn refresh_menu(
     if *root.0 != want {
         *root.0 = want;
     }
-    // L'aperçu du lieu (et sa caméra) ne vit que sur la page de voyage.
+    // The place preview (and its camera) only lives on the travel page.
     let travel = menu.open && menu.page == Page::Travel;
     if preview.shown != travel {
         preview.shown = travel;
@@ -1648,7 +1660,7 @@ fn refresh_menu(
     if !menu.open {
         return;
     }
-    // L'écran titre masque complètement le monde.
+    // The title screen completely hides the world.
     root.1.0 = if menu.on_title() { Color::srgb(0.03, 0.025, 0.035) } else { Color::srgba(0.0, 0.0, 0.0, 0.72) };
     let (found, here) = players
         .iter()
@@ -1668,14 +1680,14 @@ fn refresh_menu(
         choosing: menu.choosing,
     };
     let list_entries = entries(menu.page, &ctx);
-    // Les lignes d'aide (icônes) dépendent aussi de la langue.
+    // The help lines (icons) also depend on the language.
     let key = (list_entries.clone(), Some(crate::lang::current()));
     if *built != key {
         let (list, entries) = (*list, list_entries.clone());
         let page = menu.page;
         commands.queue(move |w: &mut World| build_rows(w, list, &entries, page));
         *built = key;
-        // Les nouvelles lignes n'existent qu'à la frame suivante.
+        // New lines only exist on the next frame.
         return;
     }
     if !list_entries.get(menu.selected).is_some_and(|e| selectable(*e, &ctx)) {
@@ -1698,18 +1710,21 @@ fn refresh_menu(
         }
     }
     let mut footer = if matches!(menu.page, Page::Language | Page::Style) {
-        // Rien à modifier sur ces pages : choisir et valider. La langue n'est pas encore choisie
-        // sur la première.
+        // Nothing to modify on these pages: choose and confirm. The language isn't chosen yet
+        // on the first one.
         let keys = if menu.page == Page::Style { ["←", "→"] } else { ["↑", "↓"] };
         let (nav, ok) = if *device == Device::Gamepad { (vec![i(Glyph::Dpad)], Glyph::PadA) } else { (keys.map(|k| i(Glyph::Key(k))).to_vec(), Glyph::Key("↵")) };
         let select = if menu.page == Page::Style { tr("select", "choisir") } else { "select / choisir" };
         nav.into_iter().chain([t(select), i(ok), t("OK")]).collect()
     } else if grid_rows(menu.page, list_entries.len(), ctx.weapons as usize).is_some() || menu.page == Page::Choose {
-        // Rien à modifier : on choisit, on valide.
+        // Nothing to modify: choose, confirm.
         let nav = if *device == Device::Gamepad {
             vec![i(Glyph::Dpad)]
         } else if menu.page == Page::Choose {
             vec![i(Glyph::Key("↑")), i(Glyph::Key("↓"))]
+        } else if menu.page == Page::Pause {
+            // A single row of cards.
+            vec![i(Glyph::Key("←")), i(Glyph::Key("→"))]
         } else {
             ["↑", "↓", "←", "→"].map(|k| i(Glyph::Key(k))).to_vec()
         };
@@ -1759,7 +1774,7 @@ fn refresh_menu(
         set(&mut t, &s);
         c.0 = if enabled { Color::srgb(0.95, 0.92, 0.85) } else { Color::srgba(0.6, 0.58, 0.55, 0.6) };
     }
-    // Aperçu : le lieu de la ligne sélectionnée (ou celui où l'on se trouve).
+    // Preview: the place of the selected line (or the one you're at).
     let shown = match list_entries.get(menu.selected) {
         Some(Entry::Place(i)) => *i as usize,
         _ => here.unwrap_or(0) as usize,
@@ -1770,7 +1785,7 @@ fn refresh_menu(
     for mut t in &mut texts.p5() {
         set(&mut t, tuning.level.checkpoints.get(shown).map_or("", |c| c.name.get()));
     }
-    // Équipement : l'objet de chaque case, et ce que fait celui de la case sélectionnée.
+    // Equipment: the item of each cell, and what the one in the selected cell does.
     let slot_item = |e: Option<&Entry>| match e {
         Some(Entry::Slot(i)) => player.and_then(|p| p.inventory.slots[*i as usize]),
         Some(Entry::Talisman) => player.and_then(|p| p.inventory.talisman),
@@ -1808,8 +1823,8 @@ fn refresh_menu(
         }
         _ => String::new(),
     };
-    // Sur les pages d'équipement, la ligne de description est toujours là (même vide) : les
-    // éléments ne bougent pas d'une sélection à l'autre.
+    // On the equipment pages, the description line is always there (even empty): the
+    // elements don't move from one selection to the next.
     let keep = matches!(menu.page, Page::Equipment | Page::Choose);
     for (mut t, mut n) in &mut texts.p6() {
         set(&mut t, if detail.is_empty() && keep { " " } else { &detail });

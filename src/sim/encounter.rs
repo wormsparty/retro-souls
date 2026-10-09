@@ -1,8 +1,8 @@
-//! Déroulement de la partie : checkpoints (repos, découverte, voyage), entrée dans l'arène
-//! (le boss se réveille et la brume ferme l'escalier), victoire (braises), mort et
-//! réapparition au dernier checkpoint, objets ramassés, commandes venues des menus.
+//! Game flow: checkpoints (rest, discovery, travel), entering the arena
+//! (the boss wakes up and the fog closes the stairs), victory (embers), death and
+//! respawn at the last checkpoint, picked-up items, commands coming from the menus.
 //!
-//! C'est de la simulation : tout ce qui change l'état passe par ici, au tick près.
+//! This is simulation: everything that changes the state goes through here, tick-accurate.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -17,36 +17,36 @@ use super::{ResetFight, SimEvent, SimEvents, math, world};
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Encounter {
     pub boss_defeated: bool,
-    /// Combat en cours : le boss est réveillé et la brume bloque l'escalier.
+    /// Fight in progress: the boss is awake and the fog blocks the stairs.
     pub active: bool,
-    /// Un ennemi du chemin est à la poursuite d'un joueur : impossible de se reposer.
+    /// A path enemy is chasing a player: resting is impossible.
     pub hunted: bool,
-    /// Les ennemis doivent revenir à leur poste (repos au checkpoint).
+    /// Enemies must return to their post (rest at the checkpoint).
     pub respawn_enemies: bool,
-    /// Rencontre qui attend dans l'arène (`Tuning::encounters`).
+    /// Encounter waiting in the arena (`Tuning::encounters`).
     pub boss_choice: u8,
 }
 
-/// Délai entre la fin de l'animation de mort et la réapparition.
+/// Delay between the end of the death animation and the respawn.
 pub const RESPAWN_TICKS: u32 = 150;
-/// Distance au checkpoint pour pouvoir s'y reposer.
+/// Distance to the checkpoint to be able to rest there.
 pub const REST_RANGE: f32 = 2.2;
-/// Distance pour ramasser un objet.
+/// Distance to pick up an item.
 pub const PICKUP_RANGE: f32 = 1.4;
-/// Rayon de collision du checkpoint.
+/// Collision radius of the checkpoint.
 pub const CHECKPOINT_RADIUS: f32 = 0.6;
-/// Distance pour récupérer les braises laissées à la mort.
+/// Distance to recover the embers dropped on death.
 pub const RECOVER_RANGE: f32 = 1.6;
-/// Les braises laissées par une chute restent au moins à cette distance du bord.
+/// Embers dropped by a fall stay at least this far from the edge.
 const DROP_MARGIN: f32 = 0.9;
-/// Il faut s'enfoncer d'autant dans l'arène pour réveiller le boss.
+/// You have to go this deep into the arena to wake the boss.
 const ENTER_MARGIN: f32 = 1.5;
 
-/// Braises laissées sur place à la mort (avec le cadavre). Les récupérer les rend ; mourir
-/// avant les fait perdre pour de bon.
+/// Embers left on the spot on death (with the corpse). Recovering them gives them back; dying
+/// before that loses them for good.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Dropped {
-    /// Position au sol (x, y, z).
+    /// Ground position (x, y, z).
     pub at: [f32; 3],
     pub embers: u32,
 }
@@ -57,38 +57,38 @@ impl Dropped {
     }
 }
 
-/// Assez près des braises laissées pour les récupérer.
+/// Close enough to the dropped embers to recover them.
 pub fn near_dropped(d: &Dropped, pos: Vec3) -> bool {
     let p = d.pos();
     math::flat_len(pos - p) <= RECOVER_RANGE && (pos.y - p.y).abs() < 1.5
 }
 
-/// Progression persistante d'un joueur : c'est ce que contient la sauvegarde.
+/// A player's persistent progress: this is what the save contains.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Progress {
-    /// Monnaie (braises). L'ancien nom `souls` est accepté pour les vieilles sauvegardes.
+    /// Currency (embers). The old name `souls` is accepted for old saves.
     #[serde(alias = "souls")]
     pub embers: u32,
     pub boss_defeated: bool,
-    /// Rencontre choisie au checkpoint (`Tuning::encounters`).
+    /// Encounter chosen at the checkpoint (`Tuning::encounters`).
     #[serde(default)]
     pub boss_choice: u8,
     pub weapon: u8,
     pub inventory: Inventory,
-    /// PV (`None` : pleins).
+    /// HP (`None`: full).
     pub hp: Option<f32>,
-    /// Position (x, z) et orientation (`None` : devant le dernier checkpoint).
+    /// Position (x, z) and orientation (`None`: in front of the last checkpoint).
     pub pos: Option<[f32; 3]>,
-    /// Dernier checkpoint où l'on s'est reposé : on y réapparaît.
+    /// Last checkpoint rested at: respawn there.
     pub checkpoint: u8,
-    /// Checkpoints découverts (bit i : `level.checkpoints[i]`).
+    /// Discovered checkpoints (bit i: `level.checkpoints[i]`).
     pub found: u32,
-    /// Objets ramassés (bit i : `level.pickups[i]`).
+    /// Picked-up items (bit i: `level.pickups[i]`).
     pub picked: u64,
-    /// Ennemis uniques vaincus (bit i : `level.enemies[i]`).
+    /// Defeated unique enemies (bit i: `level.enemies[i]`).
     pub slain: u64,
-    /// Braises laissées à la dernière mort.
+    /// Embers dropped on the last death.
     pub dropped: Option<Dropped>,
 }
 
@@ -97,10 +97,10 @@ impl Progress {
         Self { inventory: Inventory::new_game(t), found: 1, ..default() }
     }
 
-    /// État à reprendre pour ce joueur. Mort (ou en pleine chute) : comme après la
-    /// réapparition (dernier checkpoint, objets rechargés), ses braises restent là où il est
-    /// tombé (et celles qu'il n'avait pas récupérées sont perdues). En plein combat de boss :
-    /// devant la brume, le boss sera réinitialisé.
+    /// State to resume for this player. Dead (or mid-fall): as after the
+    /// respawn (last checkpoint, items refilled), their embers stay where they
+    /// fell (and those they hadn't recovered are lost). Mid boss fight:
+    /// in front of the fog, the boss will be reset.
     pub fn of_player(p: &Player, body: &Body, hp: &Health, enc: &Encounter, t: &Tuning) -> Self {
         let dead = matches!(p.state, PState::Dead | PState::Falling) || hp.dead();
         let mut inventory = p.inventory.clone();
@@ -116,7 +116,7 @@ impl Progress {
             Some([body.pos.x, body.pos.z, body.yaw])
         };
         let (embers, dropped) = if dead {
-            // Une chute : au bord d'où l'on est tombé, un peu en retrait du vide.
+            // A fall: at the edge you fell from, a little back from the void.
             let at = world::settle(t, if p.falling { p.fall_at } else { body.pos }, DROP_MARGIN);
             (0, (p.embers > 0).then_some(Dropped { at: at.to_array(), embers: p.embers }))
         } else {
@@ -139,15 +139,15 @@ impl Progress {
     }
 }
 
-/// Brasier du checkpoint `i`, au sol.
+/// Brazier of checkpoint `i`, on the ground.
 pub fn checkpoint_pos(t: &Tuning, i: usize) -> Vec3 {
     let c = &t.level.checkpoints[i.min(t.level.checkpoints.len() - 1)];
     let y = world::floor_at(t, c.pos[0], c.pos[1], 0.0).unwrap_or(0.0);
     Vec3::new(c.pos[0], y, c.pos[1])
 }
 
-/// Point de réapparition au checkpoint `i` (position, orientation) : à côté du brasier (le feu à
-/// sa gauche), tourné vers la suite du chemin (`look`) ; la caméra, derrière, voit le feu de côté.
+/// Respawn point at checkpoint `i` (position, orientation): next to the brazier (the fire on
+/// its left), facing the way forward (`look`); the camera, behind, sees the fire from the side.
 pub fn checkpoint_spawn(t: &Tuning, i: usize) -> (Vec3, f32) {
     let c = &t.level.checkpoints[i.min(t.level.checkpoints.len() - 1)];
     let fire = checkpoint_pos(t, i);
@@ -157,7 +157,7 @@ pub fn checkpoint_spawn(t: &Tuning, i: usize) -> (Vec3, f32) {
     (Vec3::new(p.x, y, p.z), yaw)
 }
 
-/// Checkpoint à portée de repos.
+/// Checkpoint within resting range.
 pub fn near_checkpoint(t: &Tuning, pos: Vec3) -> Option<u8> {
     (0..t.level.checkpoints.len()).find_map(|i| {
         let c = checkpoint_pos(t, i);
@@ -165,13 +165,13 @@ pub fn near_checkpoint(t: &Tuning, pos: Vec3) -> Option<u8> {
     })
 }
 
-/// Position au sol d'un objet à ramasser.
+/// Ground position of an item to pick up.
 pub fn pickup_pos(t: &Tuning, i: usize) -> Vec3 {
     let p = &t.level.pickups[i];
     Vec3::new(p.pos[0], world::floor_at(t, p.pos[0], p.pos[1], 0.0).unwrap_or(0.0), p.pos[1])
 }
 
-/// Objet pas encore ramassé (bits de `picked`) à portée.
+/// Item not yet picked up (bits of `picked`) within range.
 pub fn near_pickup(t: &Tuning, picked: u64, pos: Vec3) -> Option<u16> {
     (0..t.level.pickups.len())
         .filter(|i| picked & (1u64 << i) == 0)
@@ -185,7 +185,7 @@ pub fn in_arena(a: &super::data::ArenaDef, pos: Vec3) -> bool {
     math::flat_len(Vec3::new(pos.x, 0.0, pos.z)) < a.radius - ENTER_MARGIN && pos.y > -1.0
 }
 
-/// Entrée dans l'arène, victoire, réapparition.
+/// Entering the arena, victory, respawn.
 #[allow(clippy::type_complexity)]
 pub fn encounter_tick(
     tuning: Res<Tuning>,
@@ -199,10 +199,10 @@ pub fn encounter_tick(
     for (mut p, _, _) in &mut players {
         p.dead_ticks = if p.state == PState::Dead { p.dead_ticks + 1 } else { 0 };
     }
-    // Les seconds rôles (chiens du boucher) ne comptent pas pour la victoire.
+    // Supporting roles (the butcher's dogs) don't count for victory.
     let boss_alive = bosses.iter().any(|(b, _, h)| !h.dead() && !b.def(t).minor);
 
-    // Entrée dans l'arène : le boss se réveille en rugissant et la brume se referme.
+    // Entering the arena: the boss wakes up roaring and the fog closes again.
     if !enc.active
         && boss_alive
         && players.iter().any(|(_, b, h)| !h.dead() && in_arena(&t.arena, b.pos))
@@ -219,7 +219,7 @@ pub fn encounter_tick(
     if enc.active && !boss_alive {
         enc.active = false;
         enc.boss_defeated = true;
-        // Le maître tombé, ses chiens s'effondrent avec lui.
+        // With the master fallen, his dogs collapse with him.
         for (b, mut a, mut h) in &mut bosses {
             if !h.dead() {
                 h.cur = 0.0;
@@ -233,7 +233,7 @@ pub fn encounter_tick(
         events.push(SimEvent::BossDefeated { embers });
     }
 
-    // Tout le monde est mort : retour au checkpoint, le boss repart de zéro.
+    // Everyone is dead: back to the checkpoint, the boss starts over.
     let all_dead = players.iter().all(|(p, ..)| p.state == PState::Dead && p.dead_ticks >= RESPAWN_TICKS);
     if all_dead
         && !reset.requested
@@ -244,16 +244,16 @@ pub fn encounter_tick(
     }
 }
 
-/// Actions décidées dans les menus. En réseau, elles transiteront avec les inputs.
+/// Actions decided in the menus. Over the network, they'll travel with the inputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SimCommand {
     Equip { player: u8, slot: u8, item: Option<Item> },
     EquipTalisman { player: u8, item: Option<Item> },
-    /// Fait revenir le boss vaincu (depuis le checkpoint).
+    /// Brings back the defeated boss (from the checkpoint).
     ReviveBoss,
-    /// Choisit le boss qui attend dans l'arène (depuis le checkpoint) : il apparaît neuf.
+    /// Chooses the boss waiting in the arena (from the checkpoint): it appears fresh.
     ChooseBoss(u8),
-    /// Voyage vers un checkpoint découvert : on y réapparaît reposé, le monde est réinitialisé.
+    /// Travel to a discovered checkpoint: you respawn there rested, the world is reset.
     Travel { player: u8, checkpoint: u8 },
 }
 

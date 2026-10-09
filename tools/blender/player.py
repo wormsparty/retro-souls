@@ -1,4 +1,4 @@
-"""Génère assets/models/player.glb : personnage low-poly + animations.
+"""Generates assets/models/player.glb: low-poly character + animations.
 
 blender -b --factory-startup -P tools/blender/player.py
 """
@@ -12,7 +12,7 @@ from common import *  # noqa: E402,F403
 reset_scene()
 T = load_timings()["player"]
 
-# ----------------------------------------------------------------------------- matériaux
+# ----------------------------------------------------------------------------- materials
 COAT = material("coat", tex=tex_noise((0.36, 0.11, 0.09), 0.4, seed=11))
 COAT_DARK = material("coat_dark", tex=tex_noise((0.2, 0.07, 0.06), 0.35, seed=12))
 SHIRT = material("shirt", (0.86, 0.83, 0.74))
@@ -23,14 +23,14 @@ HAT = material("hat", (0.11, 0.09, 0.09))
 BRASS = material("brass", (0.78, 0.6, 0.28))
 EYE = material("eye", (0.95, 0.8, 0.35), emissive=(0.9, 0.7, 0.2))
 
-# ----------------------------------------------------------------------------- modèle
+# ----------------------------------------------------------------------------- model
 rig = Rig("player")
-R, L = -1, 1  # signe X du côté droit / gauche
+R, L = -1, 1  # X sign of the right / left side
 
 
 def hips_geo(mb):
     mb.box((0, 0, 0.95), (0.34, 0.2, 0.16), TROUSERS)
-    # Pans du manteau (plus larges en bas).
+    # Coat tails (wider at the bottom).
     mb.box((0, 0.015, 0.72), (0.46, 0.3, 0.42), COAT, taper=(0.76, 0.72))
     mb.box((0, 0, 1.04), (0.34, 0.23, 0.05), LEATHER)
     mb.box((0, -0.125, 1.04), (0.06, 0.02, 0.045), BRASS)
@@ -38,8 +38,8 @@ def hips_geo(mb):
 
 def chest_geo(mb):
     mb.box((0, 0, 1.29), (0.34, 0.22, 0.42), COAT, taper=(1.25, 1.08))
-    # Plastron et boutons : nettement en saillie (≥ 1,5 cm) sur le manteau, sinon le
-    # vertex snapping fait clignoter les deux faces presque confondues.
+    # Breastplate and buttons: clearly raised (≥ 1.5 cm) off the coat, otherwise
+    # vertex snapping makes the two nearly coincident faces flicker.
     mb.box((0, -0.115, 1.3), (0.1, 0.04, 0.36), SHIRT, taper=(1.4, 1))
     mb.box((0, 0.01, 1.5), (0.24, 0.2, 0.08), COAT_DARK)
     for z in (1.2, 1.3, 1.4):
@@ -106,7 +106,7 @@ for side, s in (("R", R), ("L", L)):
     rig.part(f"foot_{side}", (lx, 0, 0.08), f"shin_{side}", build=ft)
 
 # ----------------------------------------------------------------------------- poses
-# Voir common.py pour les conventions d'axes. Les tuples sont des angles (X, Y, Z) en degrés.
+# See common.py for the axis conventions. Tuples are angles (X, Y, Z) in degrees.
 
 
 def hips(r=(0, 0, 0), t=(0, 0, 0)):
@@ -114,7 +114,7 @@ def hips(r=(0, 0, 0), t=(0, 0, 0)):
 
 
 def legs(tr=-20, sr=25, tl=10, sl=20, drop=-0.04, twist=0, fwd=0.0, side=(0, 0)):
-    """Jambes : cuisses/tibias (X) ; les pieds restent à plat. `drop` abaisse le bassin."""
+    """Legs: thighs/shins (X); the feet stay flat. `drop` lowers the pelvis."""
     return {
         "thigh_R": (tr, side[0], 0), "shin_R": (sr, 0, 0), "foot_R": (-(tr + sr), 0, 0),
         "thigh_L": (tl, side[1], 0), "shin_L": (sl, 0, 0), "foot_L": (-(tl + sl), 0, 0),
@@ -126,14 +126,14 @@ def arm(side, upper, fore=(0, 0, 0), hand=(0, 0, 0)):
     return {f"upper_arm_{side}": upper, f"forearm_{side}": fore, f"hand_{side}": hand}
 
 
-# Garde de la rapière : profil droit en avant, pointe vers le visage de l'adversaire.
+# Rapier guard: right side forward, point aimed at the opponent's face.
 STANCE_R = merge(
     legs(-22, 28, 12, 22, -0.05, twist=22),
     {"chest": (6, 0, 8), "head": (0, 0, -28)},
     arm("R", (-42, 14, 0), (-30, 0, 0), (57, 0, 0)),
     arm("L", (22, -22, 0), (-75, 0, 0), (0, 0, 0)),
 )
-# Garde de l'épée longue : à deux mains, lame pointée vers l'avant.
+# Longsword guard: two-handed, blade pointing forward.
 STANCE_G = merge(
     legs(-24, 30, 16, 26, -0.08, twist=14),
     {"chest": (14, 0, 8), "head": (-8, 0, -18)},
@@ -188,7 +188,7 @@ for t, p in run_cycle(64, 20, 18, 4, 0.01, {}, 0):
 anim("guard_walk", guard_walk, loop=True)
 anim("guard", [(0, GUARD), (60, merge(GUARD, {"chest": (10, 0, 12)})), (120, GUARD)], loop=True)
 
-# ----------------------------------------------------------------------------- génériques
+# ----------------------------------------------------------------------------- generic
 TUCK = merge(
     {"chest": (45, 0, 0), "head": (30, 0, 0)},
     legs(-110, 130, -100, 120, -0.45),
@@ -204,8 +204,8 @@ anim("dodge", [
                arm("R", (-40, 15, 0), (-40, 0, 0), (60, 0, 0)))),
     ("T", merge(STANCE_R, {"hips": {"r": (360, 0, 22), "t": (0, 0, -0.05)}})),
 ])
-# Saut : impulsion, jambes repliées au sommet, puis tendues vers le sol (le jeu tient la
-# dernière pose jusqu'à l'atterrissage ; ~0,55 s en l'air).
+# Jump: push-off, legs tucked at the apex, then stretched towards the ground (the game holds the
+# last pose until landing; ~0.55 s in the air).
 AIR_ARMS = merge(arm("R", (-50, 25, 0), (-40, 0, 0), (60, 0, 0)), arm("L", (-40, -35, 0), (-30, 0, 0)))
 anim("jump", [
     (0, merge(STANCE_R, legs(-40, 60, -30, 55, -0.18), {"chest": (18, 0, 6)})),
@@ -258,7 +258,7 @@ anim("death", [
                 arm("R", (-170, 20, 0)), arm("L", (-160, -30, 0)))),
 ])
 
-# Soin : la main gauche porte la fiole à la poitrine.
+# Heal: the left hand brings the flask to the chest.
 DRINK = merge(STANCE_R, {"chest": (2, 0, 14), "head": (8, 0, -14)},
               arm("L", (-55, 30, 0), (-105, 0, 0), (0, 0, 0)),
               arm("R", (-20, 12, 0), (-40, 0, 0), (60, 0, 0)))
@@ -268,7 +268,7 @@ anim("heal", [
     (30, merge(DRINK, {"chest": (6, 0, 14)})), ("T", STANCE_R),
 ])
 
-# ----------------------------------------------------------------------------- rapière
+# ----------------------------------------------------------------------------- rapier
 LUNGE = legs(-50, 45, 30, 8, -0.12, twist=25, fwd=0.12)
 PULL_R = merge(STANCE_R, {"chest": (2, 0, 30)}, arm("R", (-15, 18, 0), (-85, 0, 0), (85, 0, 0)))
 
@@ -327,7 +327,7 @@ anim("rapier_fatal", [
     ("h0e+32", merge(STANCE_R, legs(-10, 20, 30, 20, -0.05, twist=22))), ("T", STANCE_R),
 ])
 
-# ----------------------------------------------------------------------------- épée longue
+# ----------------------------------------------------------------------------- longsword
 ARMS_FWD = merge(arm("R", (-82, 6, 0), (-8, 0, 0), (90, 0, 0)), arm("L", (-80, 22, 0), (-12, 0, 0), (90, 0, 0)))
 STEP = legs(-35, 30, 22, 14, -0.1, twist=0, fwd=0.08)
 
@@ -384,8 +384,8 @@ anim("greatsword_fatal", [
     ("h0e+34", merge(STANCE_G, {"chest": (20, 0, 0)})), ("T", STANCE_G),
 ])
 
-# ----------------------------------------------------------------------------- attaques sautées
-# En l'air : jambes repliées, l'arme levée, puis abattue en retombant.
+# ----------------------------------------------------------------------------- jump attacks
+# In the air: legs tucked, weapon raised, then brought down while falling.
 AIR_LEGS = legs(-60, 80, -35, 70, 0.0)
 anim("rapier_jump", [
     (0, merge(HIGH_R, AIR_LEGS)), ("h0-3", merge(HIGH_R, AIR_LEGS, {"chest": (-14, 0, 20)})),
@@ -398,7 +398,7 @@ anim("greatsword_jump", [
 
 missing = sorted(set(T) - set(markers))
 if missing:
-    raise SystemExit(f"animations manquantes : {missing}")
+    raise SystemExit(f"missing animations: {missing}")
 
 rest_pose(rig)
 export("player", markers)

@@ -1,9 +1,9 @@
-"""Génère assets/models/puppet.glb : pantin de foire en bois (~1,9 m), fils coupés, armé du
-maillet d'un stand de « tête de Turc ». Le colosse de la piste réutilise ce modèle, agrandi.
+"""Generates assets/models/puppet.glb: a wooden fairground puppet (~1.9 m), strings cut, armed with
+the mallet of a "high striker" stall. The track's colossus reuses this model, scaled up.
 
 blender -b --factory-startup -P tools/blender/puppet.py
 
-Les attaques sont calées sur les timings de assets/config/enemies.ron (type « puppet »).
+Attacks are timed on the timings in assets/config/enemies.ron (type "puppet").
 """
 
 import os
@@ -36,7 +36,7 @@ def joint(mb, x, y, z, r=0.055):
 
 def hips_geo(mb):
     mb.box((0, 0, 0.98), (0.3, 0.18, 0.14), WOOD_DARK)
-    # Culotte bouffante à rayures.
+    # Striped puffy breeches.
     mb.box((0, 0, 0.88), (0.36, 0.24, 0.2), VEST, taper=(0.9, 0.9))
 
 
@@ -45,8 +45,8 @@ def chest_geo(mb):
     mb.box((0, -0.11, 1.3), (0.12, 0.03, 0.34), RED, taper=(1.3, 1))
     for z in (1.2, 1.3, 1.4):
         mb.box((0, -0.13, z), (0.03, 0.02, 0.03), GOLD)
-    mb.box((0, 0, 1.55), (0.42, 0.22, 0.06), WOOD)  # épaules
-    # Fils coupés qui pendent encore des épaules.
+    mb.box((0, 0, 1.55), (0.42, 0.22, 0.06), WOOD)  # shoulders
+    # Cut strings still hanging from the shoulders.
     for s in (R, L):
         mb.seg((s * 0.18, 0, 1.58), (s * 0.24, 0.05, 2.05), 0.012, 0.012, STRING)
 
@@ -56,9 +56,9 @@ def head_geo(mb):
     mb.box((0, -0.01, 1.76), (0.2, 0.2, 0.22), MASK, taper=(0.88, 0.9))
     for s in (R, L):
         mb.box((s * 0.05, -0.112, 1.79), (0.04, 0.016, 0.03), EYES)
-        mb.box((s * 0.07, -0.108, 1.71), (0.035, 0.016, 0.025), PAINT)  # joues fardées
-    mb.box((0, -0.114, 1.69), (0.09, 0.016, 0.015), PAINT)  # sourire peint
-    # Bonnet de bouffon à deux pointes.
+        mb.box((s * 0.07, -0.108, 1.71), (0.035, 0.016, 0.025), PAINT)  # rouged cheeks
+    mb.box((0, -0.114, 1.69), (0.09, 0.016, 0.015), PAINT)  # painted smile
+    # Two-pointed jester cap.
     mb.box((0, 0, 1.9), (0.22, 0.22, 0.06), RED)
     for s in (R, L):
         mb.seg((s * 0.06, 0, 1.92), (s * 0.2, 0.04, 2.08), 0.08, 0.08, RED if s == R else VEST, taper=0.3)
@@ -101,11 +101,11 @@ def leg_geo(side):
 
 
 def mallet_geo(mb):
-    # Pivot à la poignée (main droite) ; manche vers l'avant (-Y), masse au bout.
+    # Pivot at the grip (right hand); handle pointing forward (-Y), head at the end.
     x, z = -0.24, 0.87
     mb.cylinder((x, -0.4, z), 0.025, 1.0, WOOD_DARK, sides=6, axis="Y")
     mb.box((x, 0.12, z), (0.05, 0.05, 0.06), IRON)
-    # Masse en travers du manche (axe X), cerclée de laiton.
+    # Head across the handle (X axis), ringed with brass.
     mb.box((x, -0.95, z), (0.4, 0.22, 0.22), RED)
     mb.box((x - 0.2, -0.95, z), (0.03, 0.24, 0.24), GOLD)
     mb.box((x + 0.2, -0.95, z), (0.03, 0.24, 0.24), GOLD)
@@ -127,7 +127,7 @@ for side, s in (("R", R), ("L", L)):
     rig.part(f"foot_{side}", (lx, 0, 0.08), f"shin_{side}", build=ft)
 rig.part("mallet", (-0.24, 0, 0.87), "hand_R", build=mallet_geo)
 
-# ----------------------------------------------------------------------------- poses (même logique que le boss)
+# ----------------------------------------------------------------------------- poses (same logic as the boss)
 
 
 def legs(tr=-15, sr=20, tl=10, sl=18, drop=-0.04, twist=0, fwd=0.0, lift=0.0):
@@ -150,7 +150,7 @@ def with_hips(pose, r=(0, 0, 0), t=(0, 0, 0)):
     return out
 
 
-# Pantin : un peu voûté, la tête penchée, le maillet traînant à moitié.
+# Puppet: a little hunched, head tilted, mallet half dragging.
 STANCE = merge(legs(-12, 18, 10, 16, -0.05), {"chest": (12, 0, 8), "head": (10, 0, -14)},
                arm("R", (-24, 10, 0), (-30, 0, 0), (40, 0, 0)), arm("L", (8, -8, 0), (-14, 0, 0), (0, 0, 0)))
 FWD = merge(arm("R", (-80, 4, 0), (-10, 0, 0), (90, 0, 0)), arm("L", (-60, 24, 0), (-14, 0, 0), (60, 0, 0)))
@@ -162,7 +162,7 @@ PULL = merge(legs(-6, 30, 22, 30, -0.09, twist=-20), {"chest": (0, 0, -30), "hea
              arm("R", (-5, 30, 0), (-95, 0, 0), (98, 0, 0)), arm("L", (-60, 40, 0), (-60, 0, 0), (40, 0, 0)))
 THRUST = merge(legs(-46, 40, 30, 10, -0.12, twist=5, fwd=0.16), {"chest": (18, 0, 6), "head": (-10, 0, -5)},
                arm("R", (-88, 2, 0), (-2, 0, 0), (74, 0, 0)), arm("L", (-20, 34, 0), (-8, 0, 0)))
-# Fils coupés : affaissé, genoux pliés, bras ballants, tête sur la poitrine.
+# Strings cut: slumped, knees bent, arms dangling, head on the chest.
 SLUMP = merge(legs(-50, 80, -40, 76, -0.36), {"chest": (40, 0, 10), "head": (50, 0, -20)},
               arm("R", (10, 20, 0), (-10, 0, 0), (20, 0, 0)), arm("L", (20, -14, 0), (-6, 0, 0)))
 KNEEL = merge(legs(-80, 85, 75, 100, -0.48), {"chest": (38, 0, 8), "head": (35, 0, 0)},
@@ -189,7 +189,7 @@ def swing(z_from, z_to, low=False):
 
 
 # ----------------------------------------------------------------------------- locomotion
-# Ballant, comme s'il était encore tiré par des fils.
+# Dangling, as if still pulled by strings.
 anim("idle", [(0, STANCE), (50, merge(STANCE, {"chest": (16, 0, 4), "head": (16, 0, -20)})), (100, STANCE)], loop=True)
 walk = []
 for t, (tr, tl, lift) in ((0, (-25, 20, -0.05)), (20, (0, 0, 0.0)), (40, (20, -25, -0.05)), (60, (0, 0, 0.0)), (80, (-25, 20, -0.05))):
@@ -228,7 +228,7 @@ anim("death", [(0, STANCE), (8, HIT), (26, merge(KNEEL, {"head": (-30, 0, 0), "c
 
 missing = sorted(set(T) - set(markers))
 if missing:
-    raise SystemExit(f"animations manquantes : {missing}")
+    raise SystemExit(f"missing animations: {missing}")
 
 rest_pose(rig)
 export("puppet", markers)

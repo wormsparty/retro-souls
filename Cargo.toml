@@ -17,7 +17,7 @@ bevy = { version = "0.19.1", default-features = false, features = [
     "keyboard",
     "mouse",
     "gamepad",
-    # Maths déterministes (glam via libm) : indispensable pour le futur rollback.
+    # Deterministic maths (glam via libm): essential for future rollback.
     "libm",
 ] }
 serde = { version = "1", features = ["derive"] }
@@ -31,7 +31,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 web-sys = { version = "0.3", features = ["Window", "Storage", "Document", "Element"] }
 
 [features]
-# `cargo run --features dev` : hot-reload des assets/configs et linking dynamique (natif uniquement).
+# `cargo run --features dev`: hot reload of assets/configs and dynamic linking (native only).
 dev = ["bevy/file_watcher", "bevy/dynamic_linking"]
 
 [profile.dev]

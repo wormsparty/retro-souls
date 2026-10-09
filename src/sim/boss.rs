@@ -1,6 +1,6 @@
-//! IA des boss : lente, télégraphiée, avec des pauses où on peut punir. Chaque boss a sa
-//! définition (`boss.ron`, `bosses.ron`) : attaques, sorts, parties à verrouiller. Une rencontre
-//! peut en réunir plusieurs (un duo, un boucher et ses chiens).
+//! Boss AI: slow, telegraphed, with pauses where you can punish. Each boss has its
+//! definition (`boss.ron`, `bosses.ron`): attacks, spells, lockable parts. An encounter
+//! can bring several together (a duo, a butcher and his dogs).
 
 use bevy::prelude::*;
 
@@ -13,23 +13,23 @@ use super::{DT, SimDebug, SimEvent, SimEvents, SimTick, math, spell};
 
 #[derive(Component, Clone, Debug)]
 pub struct Boss {
-    /// Définition (index dans `Tuning::bosses`).
+    /// Definition (index in `Tuning::bosses`).
     pub def: u8,
     pub phase: u8,
     pub target: Option<Entity>,
-    /// Dernier joueur à l'avoir frappé, et quand (aggro en coop).
+    /// Last player to hit it, and when (aggro in co-op).
     pub last_attacker: Option<(Entity, u32)>,
     pub stagger: f32,
     pub stagger_delay: u32,
-    /// Tick à partir duquel chaque attaque redevient disponible.
+    /// Tick from which each attack becomes available again.
     pub cooldowns: Vec<u32>,
-    /// Ticks restants avant de pouvoir attaquer.
+    /// Remaining ticks before it can attack.
     pub idle: u32,
     pub strafe: f32,
     pub strafe_timer: u32,
-    /// Grande bête (`heading_slack`) : elle est en train de se tourner vers sa cible.
+    /// Large beast (`heading_slack`): it's turning towards its target.
     pub turning: bool,
-    /// Écart (radians) entre la direction visée et la cible, renouvelé de temps en temps.
+    /// Offset (radians) between the aimed direction and the target, renewed from time to time.
     pub aim_offset: f32,
     pub aim_timer: u32,
 }
@@ -57,7 +57,7 @@ impl Boss {
         &t.bosses[self.def as usize]
     }
 
-    /// Ajoute du stagger ; retourne vrai si le boss devient groggy.
+    /// Adds stagger; returns true if the boss becomes staggered.
     pub fn add_stagger(&mut self, amount: f32, action: &mut Action, t: &Tuning) -> bool {
         let immune = matches!(
             action.mv,
@@ -96,7 +96,7 @@ pub fn boss_act(
 ) {
     let t = &*tuning;
     let now = tick.0;
-    // Un des premiers rôles est tombé : son partenaire passe en phase 2.
+    // One of the leads has fallen: its partner enters phase 2.
     let partner_fallen = bosses.iter().any(|(_, b, .., h)| h.dead() && !b.def(t).minor);
 
     for (entity, mut boss, mut body, mut action, mut hitstop, health) in &mut bosses {
@@ -108,7 +108,7 @@ pub fn boss_act(
         }
         action.executed = true;
 
-        // Choix de la cible : dernier attaquant récent, sinon le joueur vivant le plus proche.
+        // Target choice: recent last attacker, otherwise the nearest living player.
         let alive = |e: Entity| players.get(e).is_ok_and(|(_, _, h)| !h.dead());
         let recent = boss
             .last_attacker
@@ -126,7 +126,7 @@ pub fn boss_act(
         if let Some(mv) = action.mv {
             let def = t.get(mv);
             if action.tick < def.total {
-                // Saut qui retombe sur la cible : distance suivie jusqu'au décollage.
+                // Jump that lands on the target: distance tracked until take-off.
                 if let Some(tp) = target_pos
                     && def.motion.iter().any(|m| m.to_target && m.retarget && action.tick <= m.start)
                 {
@@ -137,7 +137,7 @@ pub fn boss_act(
                     let (a, _, r) = super::combat::hit_capsule(&body, h, action.tick as f32);
                     events.push(SimEvent::Shockwave { pos: Vec3::new(a.x, body.pos.y, a.z), radius: r, boss: boss.def });
                 }
-                // Une même attaque ne touche qu'une fois, quel que soit son nombre de sorts.
+                // The same attack only hits once, whatever its number of spells.
                 let volley = (entity.to_bits() as u32).rotate_left(16) ^ action.seq;
                 for c in def.casts.iter().filter(|c| c.at == action.tick) {
                     let aim = boss.target.zip(target_pos);
@@ -147,7 +147,7 @@ pub fn boss_act(
             }
             match mv {
                 MoveRef::Boss(_, BossMove::Death) => {
-                    // Reste sur la dernière frame.
+                    // Stays on the last frame.
                     action.tick = def.total - 1;
                     action.executed = false;
                     continue;
@@ -174,7 +174,7 @@ pub fn boss_act(
             }
         }
 
-        // Endormi tant que personne n'est entré dans l'arène.
+        // Asleep as long as nobody has entered the arena.
         if health.dead() || !encounter.active {
             continue;
         }
@@ -188,7 +188,7 @@ pub fn boss_act(
             continue;
         };
 
-        // Approche : se tourner lentement vers la cible, marcher ou tourner autour.
+        // Approach: turn slowly towards the target, walk or circle around.
         let to = tp - body.pos;
         let dist = math::flat_len(to);
         let want = math::yaw_of(to);
@@ -197,7 +197,7 @@ pub fn boss_act(
         } else {
             body.yaw = math::turn_towards(body.yaw, want, bd.turn_rate.to_radians() * DT);
             if bd.keep_away > 0.0 && dist < bd.keep_away {
-                // Lanceur de sorts : il recule face à la cible.
+                // Spellcaster: it backs away facing the target.
                 let back = math::forward(body.yaw) * bd.walk_speed * DT;
                 body.pos -= back;
             } else if dist > bd.preferred_range + 0.75 {
@@ -257,9 +257,9 @@ pub fn boss_act(
     }
 }
 
-/// Déplacement d'une grande bête : elle ne se tourne que lorsque sa cible sort du cône
-/// `heading_slack`, vise à peu près sa direction, et n'avance que face à elle. Tout près, elle
-/// pivote plus lentement (ses attaques de côté la font aussi tourner).
+/// Movement of a large beast: it only turns when its target leaves the
+/// `heading_slack` cone, aims roughly in its direction, and only advances when facing it. Up close, it
+/// pivots more slowly (its side attacks also make it turn).
 fn lumber(boss: &mut Boss, body: &mut Body, bd: &BossDef, want: f32, dist: f32, rng: &mut SimRng) {
     let slack = bd.heading_slack.to_radians();
     if boss.aim_timer == 0 {
@@ -272,8 +272,8 @@ fn lumber(boss: &mut Boss, body: &mut Body, bd: &BossDef, want: f32, dist: f32, 
     if boss.turning {
         let goal = want + boss.aim_offset;
         let near = dist < bd.radius + 2.5;
-        // Tout près, elle pivote plus lentement : la cible sur son flanc a le temps d'en profiter
-        // (ou d'y prendre un coup de queue), mais elle finit par lui faire face.
+        // Up close, it pivots more slowly: the target on its flank has time to take advantage
+        // (or to take a tail swipe there), but it ends up facing it.
         let rate = bd.turn_rate.to_radians() * DT * if near { 0.7 } else { 1.0 };
         body.yaw = math::turn_towards(body.yaw, goal, rate);
         boss.turning = math::wrap(goal - body.yaw).abs() > 0.05;
@@ -318,17 +318,17 @@ pub fn boss_end_tick(tuning: Res<Tuning>, mut q: Query<(&mut Boss, &Action)>) {
     }
 }
 
-/// Avertissement minimal d'une zone d'effet (ticks) : le cercle reste fixe tout ce temps, et le
-/// boss cesse de suivre sa cible dès qu'il apparaît (`Tuning::parse`).
+/// Minimum warning of an area effect (ticks): the circle stays fixed all that time, and the
+/// boss stops tracking its target as soon as it appears (`Tuning::parse`).
 pub const MIN_WARNING: u32 = 40;
 
-/// Tick à partir duquel l'endroit visé par la zone d'effet `h` ne bouge plus : fin du suivi de
-/// la cible, derniers sorts lancés, fin d'un pivot — au plus tard `MIN_WARNING` ticks avant
-/// l'impact. Un saut qui retombe sur sa cible la suit jusqu'au décollage : son vol sert d'alerte.
+/// Tick from which the spot targeted by area effect `h` no longer moves: end of target
+/// tracking, last spells cast, end of a pivot — at the latest `MIN_WARNING` ticks before
+/// the impact. A jump landing on its target tracks it until take-off: its flight serves as the warning.
 pub fn aoe_lock_tick(def: &MoveDef, h: &super::data::HitWindow) -> u32 {
     let casts = def.casts.iter().map(|c| c.at + 1).filter(|&at| at < h.start).max().unwrap_or(0);
     let jumps = def.motion.iter().filter(|m| m.to_target && m.retarget && m.start < h.start).map(|m| m.start).max();
-    // Un pivot en cours déplace aussi la zone : elle n'est fixée qu'après.
+    // An ongoing pivot also moves the area: it's only fixed afterwards.
     let turns = def.motion.iter().filter(|m| m.turn != 0.0 && m.start < h.start).map(|m| m.end).max().unwrap_or(0);
     match jumps {
         Some(j) => j.max(casts).max(turns).min(h.start),
@@ -336,10 +336,10 @@ pub fn aoe_lock_tick(def: &MoveDef, h: &super::data::HitWindow) -> u32 {
     }
 }
 
-/// Zone d'effet annoncée par l'action en cours : centre au sol à l'impact (en extrapolant le
-/// déplacement restant), rayon, et avancement de l'anticipation (0 → 1 à l'impact).
-/// Sert à dessiner l'alerte au sol ; `None` hors anticipation ou pendant l'impact passé, et
-/// tant que l'endroit n'est pas fixé (le cercle ne suit jamais le joueur).
+/// Area effect announced by the current action: ground centre at impact (extrapolating the
+/// remaining movement), radius, and wind-up progress (0 → 1 at impact).
+/// Used to draw the ground warning; `None` outside the wind-up or after the impact, and
+/// as long as the spot isn't fixed (the circle never follows the player).
 pub fn aoe_telegraph(body: &Body, action: &Action, t: &Tuning) -> Option<(Vec3, f32, f32)> {
     let def = action.def(t)?;
     let h = def.hits.iter().find(|h| h.aoe && action.tick < h.end)?;
@@ -360,15 +360,15 @@ pub fn aoe_telegraph(body: &Body, action: &Action, t: &Tuning) -> Option<(Vec3, 
     Some((Vec3::new(a.x, 0.0, a.z), r, progress))
 }
 
-/// Vrai si l'action courante du boss contient une attaque furie pas encore déclenchée.
+/// True if the boss's current action contains a rage attack not yet triggered.
 pub fn fury_pending(action: &Action, t: &Tuning) -> bool {
     action.def(t).is_some_and(|d: &MoveDef| {
         d.hits.iter().any(|h| h.fury && action.tick < h.end)
     })
 }
 
-/// Vrai si l'action courante prépare un coup qu'on ne peut pas bloquer et qu'aucun cercle au sol
-/// n'annonce (attaque furie, jet de feu) : le modèle rougeoie, il faut fuir.
+/// True if the current action prepares an unblockable hit that no ground circle
+/// announces (rage attack, fire stream): the model glows red, you have to flee.
 pub fn unblockable_pending(action: &Action, t: &Tuning, boss: Option<&BossDef>) -> bool {
     if fury_pending(action, t) {
         return true;
@@ -382,8 +382,8 @@ pub fn unblockable_pending(action: &Action, t: &Tuning, boss: Option<&BossDef>) 
     })
 }
 
-/// Points verrouillables d'un adversaire (repère monde, position de simulation) : les parties
-/// d'un grand boss, sinon le milieu du corps.
+/// Lockable points of an opponent (world frame, simulation position): the parts
+/// of a large boss, otherwise the middle of the body.
 pub fn lock_points(t: &Tuning, body: &Body, boss: Option<&Boss>) -> Vec<Vec3> {
     let parts: Vec<Vec3> = boss
         .map(|b| &b.def(t).parts)
@@ -395,7 +395,7 @@ pub fn lock_points(t: &Tuning, body: &Body, boss: Option<&Boss>) -> Vec<Vec3> {
     if parts.is_empty() { vec![body.pos + Vec3::Y * body.height * 0.55] } else { parts }
 }
 
-/// Index de la `n`-ième partie verrouillable dans `parts` (pour retrouver sa pièce du modèle).
+/// Index of the `n`-th lockable part in `parts` (to find its model piece).
 pub fn lock_part(def: &BossDef, n: u8) -> Option<&super::data::PartDef> {
     def.parts.iter().filter(|p| p.lock).nth(n as usize)
 }

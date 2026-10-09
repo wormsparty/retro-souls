@@ -1,6 +1,6 @@
-// L'Automate du Carrousel : grand pantin mécanique armé d'une hallebarde.
-// Lent et télégraphié : longues anticipations, longues récupérations (fenêtres de punition).
-// Ondes de choc et sauts l'obligent à se déplacer et à faire bouger le joueur.
+// The Carousel Automaton: a large mechanical puppet armed with a halberd.
+// Slow and telegraphed: long wind-ups, long recoveries (punish windows).
+// Shockwaves and jumps force it to move around and keep the player moving.
 (
     name: (en: "The Carousel Automaton", fr: "L'Automate du Carrousel"),
     max_hp: 3200,
@@ -72,7 +72,7 @@
             name: "estoc_retarde",
             min_range: 2, max_range: 4.6, max_angle: 40, weight: 2, cooldown: 240, phases: [1, 2],
             mv: (
-                // La longue pause piège ceux qui spamment la garde.
+                // The long pause traps those who spam guard.
                 anim: "delayed_thrust", total: 122, track_until: 56, track_rate: 120,
                 motion: [(start: 60, end: 68, speed: 4.0)],
                 hits: [(start: 63, end: 68, damage: 100, hitstop: 6,
@@ -89,11 +89,11 @@
                         capsule: (a: (0.0, 0.3, 1.0), b: (0.0, 0.3, 2.4), r: 1.5))],
             ),
         ),
-        // ---- Zones d'effet et sauts : obligent à bouger. `aoe` : ni garde ni parade, la zone
-        // est marquée au sol pendant l'anticipation.
+        // ---- Area effects and jumps: force you to move. `aoe`: neither guard nor parry, the area
+        // is marked on the ground during the wind-up.
         (
-            // Plante la hallebarde : l'onde de choc dure plus longtemps que les i-frames d'une
-            // roulade sur place, il faut sortir du cercle.
+            // Plants the halberd: the shockwave lasts longer than the i-frames of a
+            // roll in place, you have to get out of the circle.
             name: "onde_de_choc",
             min_range: 0, max_range: 5, max_angle: 180, weight: 3, cooldown: 540, phases: [1, 2],
             mv: (
@@ -103,7 +103,7 @@
             ),
         ),
         (
-            // Bond en arrière pour reprendre de la distance, souvent suivi du saut écrasant.
+            // Leaps back to regain distance, often followed by the crushing jump.
             name: "bond_arriere",
             min_range: 0, max_range: 3.5, max_angle: 180, weight: 2, cooldown: 420, phases: [1, 2],
             mv: (
@@ -113,7 +113,7 @@
             next: [("saut_ecrasant", 0.7)],
         ),
         (
-            // Saut très haut qui retombe là où se trouvait la cible au décollage.
+            // Very high jump that lands where the target was at take-off.
             name: "saut_ecrasant",
             min_range: 4.5, max_range: 13, max_angle: 60, weight: 2, cooldown: 480, phases: [1, 2],
             mv: (

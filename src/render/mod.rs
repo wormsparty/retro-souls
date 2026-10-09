@@ -1,4 +1,4 @@
-//! Présentation : tout ce qui lit la simulation pour l'afficher, sans jamais la modifier.
+//! Presentation: everything that reads the simulation to display it, without ever modifying it.
 
 pub mod camera;
 pub mod models;
@@ -14,30 +14,30 @@ use crate::sim::math;
 pub enum AppState {
     #[default]
     Loading,
-    /// Écran titre (aucun combattant dans le monde).
+    /// Title screen (no fighter in the world).
     Title,
     Playing,
 }
 
-/// Position/orientation interpolées entre les deux derniers ticks de simulation.
+/// Position/orientation interpolated between the last two simulation ticks.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Interp {
     pub pos: Vec3,
     pub yaw: f32,
 }
 
-/// Horloge de l'animation : pas de temps et avancement entre deux ticks de simulation. Figée
-/// tant que le jeu est en pause (menu ouvert en jeu : la simulation ne tourne plus) ; les
-/// particules, elles, continuent avec le temps réel.
+/// Animation clock: time step and progress between two simulation ticks. Frozen
+/// while the game is paused (menu open in game: the simulation stops running); the
+/// particles keep going in real time.
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct AnimClock {
     pub dt: f32,
-    /// Fraction du tick en cours (0 → 1) ; 1 en pause (dernier état de la simulation).
+    /// Fraction of the current tick (0 → 1); 1 when paused (last simulation state).
     pub over: f32,
     pub paused: bool,
 }
 
-/// Joueur contrôlé sur cette machine (la caméra et le HUD le suivent).
+/// Player controlled on this machine (the camera and the HUD follow it).
 #[derive(Component)]
 pub struct LocalPlayer;
 
@@ -47,9 +47,9 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((ps1::Ps1Plugin, camera::CameraPlugin, models::ModelsPlugin, preview::PreviewPlugin))
             .init_resource::<AnimClock>()
-            // Après la boucle à pas fixe : la fraction de tick n'est juste qu'une fois les ticks
-            // de la frame joués (en PreUpdate, elle a un tick de retard une frame sur deux et
-            // le joueur tremble en courant).
+            // After the fixed-step loop: the tick fraction is only correct once the frame's
+            // ticks have run (in PreUpdate, it lags one tick every other frame and
+            // the player jitters while running).
             .add_systems(RunFixedMainLoop, tick_anim_clock.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop))
             .add_systems(Update, interpolate.run_if(in_state(AppState::Playing)));
     }

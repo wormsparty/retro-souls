@@ -1,10 +1,10 @@
-// Movesets des armes. Repère local : x = droite, y = haut, z = avant.
-// Endurance : sans `stamina` explicite, une attaque coûte ses dégâts totaux × `stamina_per_damage`
-// (player.ron) : à dégâts égaux, rapière et greatsword coûtent la même chose.
-// `arc: (début, fin)` fait tourner la capsule autour de l'axe vertical (positif = vers la gauche).
+// Weapon movesets. Local frame: x = right, y = up, z = forward.
+// Stamina: without an explicit `stamina`, an attack costs its total damage × `stamina_per_damage`
+// (player.ron): for equal damage, rapier and greatsword cost the same.
+// `arc: (start, end)` rotates the capsule around the vertical axis (positive = to the left).
 (
     weapons: [
-        // ------------------------------------------------------------------ Rapière
+        // ------------------------------------------------------------------ Rapier
         (
             name: (en: "Rapier", fr: "Rapière"),
             description: (en: "Quick, precise thrusts: best against a single target.",
@@ -63,8 +63,8 @@
             ),
             charge_ticks: 36,
             charge_anim: "rapier_charge",
-            // Fente éclair : dash puis rafale d'estocs. Coût d'endurance fixe, et ses coups ne
-            // rechargent pas la jauge spéciale : elle doit valoir le segment dépensé à elle seule.
+            // Lightning lunge: dash then a flurry of thrusts. Fixed stamina cost, and its hits don't
+            // recharge the special gauge: it has to be worth the spent segment on its own.
             special: (
                 anim: "rapier_special", total: 62, stamina: 30,
                 track_until: 8, track_rate: 600,
@@ -88,7 +88,7 @@
                 hits: [(start: 46, end: 48, damage: 340, hitstop: 10,
                         capsule: (a: (0.0, 1.2, 0.3), b: (0.0, 1.4, 2.2), r: 0.35))],
             ),
-            // Attaque sautée : un estoc plongeant. Le saut a déjà coûté son endurance.
+            // Jump attack: a plunging thrust. The jump has already paid its stamina.
             jump: (
                 anim: "rapier_jump", total: 34, stamina: 6,
                 chain_from: 24, cancel_from: 22,
@@ -97,7 +97,7 @@
             ),
         ),
         // ------------------------------------------------------------------ Greatsword
-        // Lente et lourde : grande allonge, hyperarmure pendant les coups, gros stagger.
+        // Slow and heavy: long reach, hyper armour during swings, big stagger.
         (
             name: (en: "Greatsword", fr: "Espadon"),
             description: (en: "Slow, wide sweeping blows: best against groups of enemies.",
@@ -153,8 +153,8 @@
             ),
             charge_ticks: 54,
             charge_anim: "greatsword_charge",
-            // Posture : garde haute (hyperarmure + contre), puis taille ascendante. Coût fixe,
-            // pas de recharge de la jauge par ses propres coups (voir la rapière).
+            // Stance: high guard (hyper armour + counter), then a rising cut. Fixed cost,
+            // its own hits don't recharge the gauge (see the rapier).
             special: (
                 anim: "greatsword_special", total: 80, stamina: 35,
                 track_until: 34, track_rate: 240,
@@ -182,7 +182,7 @@
                 hits: [(start: 52, end: 54, damage: 460, hitstop: 12,
                         capsule: (a: (0.0, 1.2, 0.3), b: (0.0, 1.4, 2.8), r: 0.45))],
             ),
-            // Attaque sautée : l'épée abattue de tout son poids en retombant.
+            // Jump attack: the sword brought down with all its weight while landing.
             jump: (
                 anim: "greatsword_jump", total: 54, stamina: 14,
                 chain_from: 40, cancel_from: 38,

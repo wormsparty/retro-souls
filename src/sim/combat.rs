@@ -1,4 +1,4 @@
-//! Collisions entre corps, détection des coups et résolution (garde, garde parfaite, dégâts…).
+//! Body collisions, hit detection and resolution (guard, perfect guard, damage…).
 
 use bevy::prelude::*;
 
@@ -11,8 +11,8 @@ use super::player::{PState, Player, force_move};
 use super::world::{self, Mover, Step};
 use super::{DT, SimEvent, SimEvents, SimTick, math};
 
-/// Sépare les corps qui se chevauchent et les garde sur un sol praticable. Un joueur poussé
-/// (ou qui marche, roule…) au-delà d'un bord ouvert tombe.
+/// Separates overlapping bodies and keeps them on walkable ground. A player pushed
+/// (or walking, rolling…) past an open edge falls.
 #[allow(clippy::type_complexity)]
 pub fn separate_bodies(
     tuning: Res<Tuning>,
@@ -52,8 +52,8 @@ pub fn separate_bodies(
                 b.pos += d / dist * (pr + r - dist);
             }
         }
-        // La brume ferme l'arène pendant le combat ; le boss n'en sort jamais, les ennemis du
-        // chemin n'y entrent pas.
+        // The fog closes the arena during the fight; the boss never leaves it, path
+        // enemies never enter it.
         let mover = match (&player, is_boss) {
             (Some(_), _) if enc.active => Mover::PlayerInFight,
             (Some(_), _) => Mover::Player,
@@ -77,14 +77,14 @@ pub fn separate_bodies(
     }
 }
 
-/// Un sol plus haut que ça au-dessus des pieds arrête un sauteur (il en heurte le bord) ;
-/// en dessous, il s'y hisse en retombant.
+/// A floor higher than this above the feet stops a jumper (they hit its edge);
+/// below that, they climb onto it while coming down.
 const LEDGE: f32 = 0.35;
-/// Au-dessus du vide, passé d'autant sous le sol quitté, le saut devient une chute.
+/// Above the void, once this far below the floor left behind, the jump becomes a fall.
 const AIR_FALL: f32 = 1.0;
 
-/// Joueur en l'air : les murs l'arrêtent, le vide non. Il atterrit sur le premier sol qu'il
-/// rencontre en retombant ; s'il passe trop bas au-dessus du vide, c'est la chute.
+/// Player in the air: walls stop them, the void doesn't. They land on the first floor they
+/// meet while coming down; if they pass too low above the void, they fall.
 #[allow(clippy::too_many_arguments)]
 fn air_step(t: &Tuning, b: &mut Body, prev: &PrevBody, p: &mut Player, action: &mut Action, mover: Mover, dead: bool, entity: Entity, events: &mut SimEvents) {
     if let Step::Ground(g) = world::step(t, b.pos, b.radius, mover) {
@@ -93,7 +93,7 @@ fn air_step(t: &Tuning, b: &mut Body, prev: &PrevBody, p: &mut Player, action: &
     }
     let mut floor = world::floor_at(t, b.pos.x, b.pos.z, b.pos.y);
     if floor.is_some_and(|y| y > b.pos.y + LEDGE) {
-        // Contre le flanc d'une plate-forme plus haute : on y reste collé, on retombe.
+        // Against the side of a higher platform: stick to it, fall back down.
         b.pos.x = prev.pos.x;
         b.pos.z = prev.pos.z;
         p.vel = Vec3::ZERO;
@@ -120,7 +120,7 @@ fn air_step(t: &Tuning, b: &mut Body, prev: &PrevBody, p: &mut Player, action: &
     }
 }
 
-/// Capsule monde d'une fenêtre de frappe à un instant donné (`sub` ∈ [0,1] entre deux ticks).
+/// World capsule of a hit window at a given instant (`sub` ∈ [0,1] between two ticks).
 pub fn hit_capsule(body: &Body, h: &HitWindow, tick: f32) -> (Vec3, Vec3, f32) {
     let (mut a, mut b) = (h.capsule.a, h.capsule.b);
     if let Some([s, e]) = h.arc {
@@ -137,12 +137,12 @@ pub fn hit_capsule(body: &Body, h: &HitWindow, tick: f32) -> (Vec3, Vec3, f32) {
     )
 }
 
-/// Test d'une fenêtre active contre la hurtbox (capsule verticale) d'un corps.
-/// Les balayages en arc sont sous-échantillonnés pour ne pas « sauter » par-dessus la cible.
+/// Tests an active window against a body's hurtbox (vertical capsule).
+/// Arc sweeps are sub-sampled so as not to "skip" over the target.
 ///
-/// `reach_down` : la frappe s'abaisse jusqu'aux adversaires plus petits qu'elle (un chien
-/// sous un estoc porté à hauteur de poitrine), comme le ferait l'animation.
-/// `parts` : zones touchables en plus du corps (tête, queue d'un grand boss).
+/// `reach_down`: the hit lowers down to opponents smaller than it (a dog
+/// under a thrust at chest height), as the animation would.
+/// `parts`: hittable zones on top of the body (head, tail of a large boss).
 pub fn hit_test(attacker: &Body, h: &HitWindow, tick: u32, victim: &Body, reach_down: bool, parts: &[PartDef]) -> bool {
     let h1 = victim.pos + Vec3::Y * victim.radius;
     let h2 = victim.pos + Vec3::Y * (victim.height - victim.radius).max(victim.radius);
@@ -178,14 +178,14 @@ struct Pending {
     window: u8,
 }
 
-/// Point d'impact approximatif pour les effets visuels.
+/// Approximate impact point for visual effects.
 fn impact_point(attacker: &Body, victim: &Body) -> Vec3 {
     let dir = (attacker.pos - victim.pos).normalize_or_zero();
     victim.pos + Vec3::Y * (victim.height * 0.55).min(1.4) + dir * victim.radius
 }
 
-/// Coup encaissé par un adversaire (boss ou ennemi) qui ne le tue pas : stagger du boss,
-/// interruption de l'ennemi. Vrai si le boss devient groggy.
+/// Hit taken by an opponent (boss or enemy) that doesn't kill it: boss stagger,
+/// enemy interruption. True if the boss becomes staggered.
 pub fn foe_stagger(boss: Option<&mut Boss>, enemy: Option<&mut Enemy>, attacker: Entity, amount: f32, poise: f32, action: &mut Action, t: &Tuning) -> bool {
     if let Some(b) = boss {
         return b.add_stagger(amount, action, t);
@@ -215,7 +215,7 @@ pub fn resolve_hits(
     let mut pending = Vec::new();
     let targetable = |p: &Player, h: &Health| !h.dead() && !matches!(p.state, PState::Falling | PState::Dead);
 
-    // 1) Détection (lecture seule), dans un ordre déterministe : joueurs puis adversaires.
+    // 1) Detection (read-only), in a deterministic order: players then opponents.
     for (pe, p, pbody, phealth, pact, _) in &players {
         let (Some(mv), true) = (pact.mv, pact.executed) else { continue };
         if !targetable(p, phealth) {
@@ -224,7 +224,7 @@ pub fn resolve_hits(
         for (wi, h) in active_hits(t.get(mv), pact.tick) {
             for (fe, fboss, _, fbody, fhealth, fact, _) in &foes {
                 let parts = fboss.map_or(&[][..], |b| &b.def(t).parts[..]);
-                // Hors d'atteinte (la marionnette hissée dans les airs, l'allumeur qui s'éclipse).
+                // Out of reach (the marionette hoisted into the air, the lamplighter slipping away).
                 if !fhealth.dead() && !fact.iframes(t) && !pact.hits.contains(&(wi, fe)) && hit_test(pbody, h, pact.tick, fbody, true, parts) {
                     pending.push(Pending { attacker: pe, victim: fe, mv, window: wi });
                 }
@@ -245,11 +245,11 @@ pub fn resolve_hits(
         }
     }
 
-    // 2) Résolution.
+    // 2) Resolution.
     for hit in pending {
         let h = &t.get(hit.mv).hits[hit.window as usize];
         if let Ok((pe, mut p, pbody, mut php, mut pact, mut pstop)) = players.get_mut(hit.attacker) {
-            // Joueur → adversaire.
+            // Player → opponent.
             let Ok((fe, mut boss, mut enemy, fbody, mut fhp, mut fact, mut fstop)) = foes.get_mut(hit.victim) else {
                 continue;
             };
@@ -262,13 +262,13 @@ pub fn resolve_hits(
             if let Some(b) = boss.as_mut() {
                 b.last_attacker = Some((pe, now));
             }
-            // Regain : frapper rend une partie des PV perdus en garde.
+            // Regain: hitting restores part of the HP lost while guarding.
             let heal = (dmg * t.player.regain_ratio).min(p.regain);
             if heal > 0.0 {
                 php.cur = (php.cur + heal).min(php.max);
                 p.regain -= heal;
             }
-            // Les coups de la spéciale ne rechargent pas la jauge (sinon elle se rembourse).
+            // Special attack hits don't recharge the gauge (otherwise it pays for itself).
             if !matches!(hit.mv, MoveRef::Weapon(_, WeaponMove::Special | WeaponMove::SpecialCounter)) {
                 p.special += dmg * t.player.special_per_damage;
             }
@@ -296,18 +296,18 @@ pub fn resolve_hits(
                 events.push(SimEvent::Groggy { entity: fe });
             }
         } else if let Ok((fe, mut boss, mut enemy, fbody, _, mut fact, mut fstop)) = foes.get_mut(hit.attacker) {
-            // Adversaire → joueur.
+            // Opponent → player.
             let Ok((pe, mut p, pbody, mut php, mut pact, mut pstop)) = players.get_mut(hit.victim) else {
                 continue;
             };
             let pos = impact_point(fbody, pbody);
             let g = &t.player.guard;
             match strike_player(t, now, fbody.pos, &Blow::of(h), &mut p, &mut pact, &mut php, &mut pstop, pbody, pos, &mut events) {
-                // Les i-frames ne consomment pas le coup : il peut toucher plus tard dans la fenêtre.
+                // I-frames don't consume the hit: it can land later in the window.
                 Struck::Dodged => continue,
                 Struck::Parried => {
-                    // Garde parfaite ou contre : stagger du boss ; un ennemi est interrompu (sauf
-                    // s'il a assez d'équilibre : il en perd beaucoup).
+                    // Perfect guard or counter: boss stagger; an enemy is staggered (unless
+                    // it has enough poise: it loses a lot of it).
                     fstop.0 = g.perfect_hitstop;
                     if foe_stagger(boss.as_deref_mut(), enemy.as_deref_mut(), pe, g.perfect_stagger, g.perfect_stagger * 5.0, &mut fact, t) {
                         events.push(SimEvent::Groggy { entity: fe });
@@ -320,7 +320,7 @@ pub fn resolve_hits(
     }
 }
 
-/// Ce qui frappe un joueur : un coup (fenêtre d'attaque) ou un sort.
+/// What hits a player: a strike (attack window) or a spell.
 #[derive(Clone, Copy, Debug)]
 pub struct Blow {
     pub damage: f32,
@@ -336,19 +336,19 @@ impl Blow {
     }
 }
 
-/// Issue d'un coup porté à un joueur.
+/// Outcome of a hit dealt to a player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Struck {
-    /// I-frames : le coup passe au travers.
+    /// I-frames: the hit goes through.
     Dodged,
-    /// Garde parfaite ou contre de la posture.
+    /// Perfect guard or stance counter.
     Parried,
     Guarded,
     Hit,
 }
 
-/// Applique un coup venu de `from` au joueur : contre, garde parfaite, garde, ou dégâts et
-/// réaction. Ne touche pas à l'attaquant (stagger, hitstop), laissé à l'appelant.
+/// Applies a hit coming from `from` to the player: counter, perfect guard, guard, or damage and
+/// reaction. Doesn't touch the attacker (stagger, hitstop), left to the caller.
 #[allow(clippy::too_many_arguments)]
 pub fn strike_player(
     t: &Tuning,
@@ -371,7 +371,7 @@ pub fn strike_player(
     let g = &t.player.guard;
     let damage = blow.damage * p.defense_mult();
 
-    // Contre de la posture (spéciale de l'épée longue). Une onde de choc ne se contre pas.
+    // Stance counter (longsword special). A shockwave can't be countered.
     if let (Some(MoveRef::Weapon(w, WeaponMove::Special)), false) = (pact.mv, blow.aoe) {
         let def = t.get(MoveRef::Weapon(w, WeaponMove::Special));
         if facing && MoveDef::in_window(def.counter, pact.tick) && t.weapons[w as usize].special_counter.is_some() {
@@ -387,7 +387,7 @@ pub fn strike_player(
         || pact.is(MoveRef::Player(PlayerMove::PerfectGuard));
     if p.guard_held && facing && in_guard && !blow.aoe {
         if now.saturating_sub(p.guard_start) <= p.perfect_window(t) {
-            // Garde parfaite : aucun dégât, stagger pour l'attaquant.
+            // Perfect guard: no damage, stagger for the attacker.
             force_move(p, pact, MoveRef::Player(PlayerMove::PerfectGuard));
             p.special += g.perfect_special;
             pstop.0 = g.perfect_hitstop;
@@ -395,7 +395,7 @@ pub fn strike_player(
             return Struck::Parried;
         }
         if !blow.fury {
-            // Garde normale : dégâts réduits, convertis en regain.
+            // Normal guard: reduced damage, converted into regain.
             let dmg = damage * g.damage_ratio;
             php.cur = (php.cur - dmg).max(0.0);
             p.regain += dmg;
@@ -416,7 +416,7 @@ pub fn strike_player(
         }
     }
 
-    // Coup encaissé.
+    // Hit taken.
     php.cur = (php.cur - damage).max(0.0);
     p.regain = 0.0;
     p.regain_timer = 0;

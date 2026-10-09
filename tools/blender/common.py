@@ -1,16 +1,15 @@
-"""Outils communs aux scripts de génération d'assets (Blender 5.x, mode batch).
+"""Shared tools for the asset generation scripts (Blender 5.x, batch mode).
 
-Conventions (repère Blender) : Z en haut, les personnages regardent vers -Y,
-la droite du personnage est donc -X. Les « rigs » sont des hiérarchies d'objets
-(pièces rigides, comme sur PS1) dont la rotation de repos est l'identité : les
-rotations d'animation sont donc exprimées dans les axes du monde :
+Conventions (Blender frame): Z up, characters face -Y, so the character's right
+is -X. "Rigs" are hierarchies of objects (rigid pieces, as on the PS1) whose rest
+rotation is the identity: animation rotations are therefore expressed in world axes:
 
-- X positif : un membre pendant part vers l'arrière ; le buste se penche en avant.
-- Z positif : rotation vers la gauche (vue de dessus).
-- Y positif : le haut d'une pièce bascule vers la gauche du personnage
-  (bras droit pendant : abduction ; bras gauche : adduction).
+- positive X: a hanging limb swings backwards; the torso leans forward.
+- positive Z: rotation to the left (seen from above).
+- positive Y: the top of a piece tilts towards the character's left
+  (hanging right arm: abduction; left arm: adduction).
 
-Les animations sont échantillonnées à 60 i/s : 1 frame = 1 tick de simulation.
+Animations are sampled at 60 fps: 1 frame = 1 simulation tick.
 """
 
 import json
@@ -75,7 +74,7 @@ def fbm(x, y, size, seed, cells=(16, 8, 4)):
 
 
 def make_image(name, size, fn):
-    """Crée une image 'size'x'size' ; fn(x, y) -> (r, g, b) en 0..1 (sRGB)."""
+    """Creates a 'size'x'size' image; fn(x, y) -> (r, g, b) in 0..1 (sRGB)."""
     img = bpy.data.images.new(name, size, size, alpha=False)
     px = []
     for y in range(size):
@@ -149,13 +148,13 @@ def tex_stripes(a, b, n=8, size=64, seed=5):
     return fn
 
 
-# ----------------------------------------------------------------------------- matériaux
+# ----------------------------------------------------------------------------- materials
 
 _materials = {}
 
 
 def material(name, color=(0.8, 0.8, 0.8), tex=None, emissive=None):
-    """Matériau simple : couleur unie ou texture (filtrage « closest », style PS1)."""
+    """Simple material: flat colour or texture ("closest" filtering, PS1 style)."""
     if name in _materials:
         return _materials[name]
     m = bpy.data.materials.new(name)
@@ -182,14 +181,14 @@ def srgb_to_linear(c):
     return tuple(x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c)
 
 
-# ----------------------------------------------------------------------------- géométrie
+# ----------------------------------------------------------------------------- geometry
 
 class MeshBuilder:
-    """Accumule des primitives low-poly dans un seul maillage (faces plates, UV par face).
+    """Accumulates low-poly primitives into a single mesh (flat faces, per-face UVs).
 
-    `MeshBuilder.cell` (mètres) : si défini, les faces des boîtes et segments sont découpées en
-    cases d'au plus cette taille, la texture répétée sur chacune : sur un grand modèle, une seule
-    texture étirée sur une face de plusieurs mètres se déforme (mapping affine de la PS1)."""
+    `MeshBuilder.cell` (metres): if set, the faces of boxes and segments are split into
+    cells of at most that size, with the texture repeated on each: on a large model, a single
+    texture stretched over a face several metres long gets distorted (PS1 affine mapping)."""
 
     cell = None
 
@@ -215,7 +214,7 @@ class MeshBuilder:
         return f
 
     def _quad(self, verts, mat, uv_scale=(1, 1)):
-        """Face à quatre sommets, découpée selon `cell` (voir la classe)."""
+        """Four-vertex face, split according to `cell` (see the class)."""
         if not self.cell or len(verts) != 4:
             return self._face(verts, mat, uv_scale=uv_scale)
         p0, p1, p2, p3 = (v.co.copy() for v in verts)
@@ -225,7 +224,7 @@ class MeshBuilder:
             return self._face(verts, mat, uv_scale=uv_scale)
         at = lambda u, v: (p0.lerp(p1, u)).lerp(p3.lerp(p2, u), v)
         grid = [[self.bm.verts.new(at(i / nu, j / nv)) for j in range(nv + 1)] for i in range(nu + 1)]
-        # Une répétition de texture par case (à peu près carrée), raccordée d'une case à l'autre.
+        # One texture repeat per cell (roughly square), joined from one cell to the next.
         ku, kv = lu / nu / self.cell, lv / nv / self.cell
         for i in range(nu):
             for j in range(nv):
@@ -234,7 +233,7 @@ class MeshBuilder:
                 self._face(q, mat, uvs=uvs, uv_scale=uv_scale)
 
     def box(self, center, size, mat, taper=(1.0, 1.0), shift_top=(0.0, 0.0), uv_scale=(1, 1)):
-        """Boîte centrée ; `taper` met à l'échelle la face du haut (x, y), `shift_top` la décale."""
+        """Centred box; `taper` scales the top face (x, y), `shift_top` offsets it."""
         cx, cy, cz = center
         sx, sy, sz = size[0] / 2, size[1] / 2, size[2] / 2
         tx, ty = taper
@@ -245,9 +244,9 @@ class MeshBuilder:
             for x, y in bot
         ]
         faces = [
-            (v[0], v[3], v[2], v[1]),  # bas
-            (v[4], v[5], v[6], v[7]),  # haut
-            (v[0], v[1], v[5], v[4]),  # avant (-Y)
+            (v[0], v[3], v[2], v[1]),  # bottom
+            (v[4], v[5], v[6], v[7]),  # top
+            (v[0], v[1], v[5], v[4]),  # front (-Y)
             (v[1], v[2], v[6], v[5]),
             (v[2], v[3], v[7], v[6]),
             (v[3], v[0], v[4], v[7]),
@@ -256,10 +255,10 @@ class MeshBuilder:
             self._quad(f, mat, uv_scale=uv_scale)
 
     def panel(self, origin, du, dv, mat, cell=1.0, tile=2.0):
-        """Quadrilatère (origin, origin+du, origin+du+dv, origin+dv) découpé en cases d'au plus
-        `cell` mètres, UV en coordonnées monde (une répétition de texture tous les `tile`
-        mètres) : les panneaux voisins se raccordent, et la déformation affine des textures
-        (PS1) reste limitée à chaque petite case."""
+        """Quad (origin, origin+du, origin+du+dv, origin+dv) split into cells of at most
+        `cell` metres, UVs in world coordinates (one texture repeat every `tile`
+        metres): neighbouring panels line up, and the affine texture distortion
+        (PS1) stays confined to each small cell."""
         import mathutils
         o, du, dv = mathutils.Vector(origin), mathutils.Vector(du), mathutils.Vector(dv)
         nu, nv = max(1, math.ceil(du.length / cell - 1e-6)), max(1, math.ceil(dv.length / cell - 1e-6))
@@ -272,8 +271,8 @@ class MeshBuilder:
                 self._face(q, mat, uvs=[uv(v.co) for v in q])
 
     def slab(self, center, size, mat, cell=1.0, tile=2.0, skip=("bottom",)):
-        """Boîte dont chaque face est un `panel` (subdivisée, UV monde). `skip` : faces omises
-        parmi bottom, top, -x, +x, -y, +y."""
+        """Box whose every face is a `panel` (subdivided, world UVs). `skip`: faces left out
+        among bottom, top, -x, +x, -y, +y."""
         cx, cy, cz = center
         sx, sy, sz = size
         x0, y0, z0 = cx - sx / 2, cy - sy / 2, cz - sz / 2
@@ -290,20 +289,20 @@ class MeshBuilder:
                 self.panel(o, du, dv, mat, cell, tile)
 
     def seg(self, a, b, w, d, mat, taper=1.0):
-        """Boîte allongée entre deux points (alignée sur Z si a et b sont alignés verticalement)."""
+        """Elongated box between two points (aligned with Z if a and b are vertically aligned)."""
         ax, ay, az = a
         bx, by, bz = b
         if abs(ax - bx) < 1e-6 and abs(ay - by) < 1e-6:
             lo, hi = min(az, bz), max(az, bz)
             t = (taper, taper) if az > bz else (1.0, 1.0)
             if az > bz:
-                # Plus large en haut : on construit à l'envers.
+                # Wider at the top: build it upside down.
                 self.box(((ax), ay, (lo + hi) / 2), (w * taper, d * taper, hi - lo), mat,
                          taper=(1 / taper, 1 / taper))
             else:
                 self.box((ax, ay, (lo + hi) / 2), (w, d, hi - lo), mat, taper=(taper, taper))
             return
-        # Segment quelconque : prisme orienté.
+        # Arbitrary segment: oriented prism.
         import mathutils
         va, vb = mathutils.Vector(a), mathutils.Vector(b)
         axis = (vb - va)
@@ -319,11 +318,13 @@ class MeshBuilder:
         ]
         r0 = ring(va, 1.0)
         r1 = ring(va + axis * length, taper)
-        self._quad((r0[3], r0[2], r0[1], r0[0]), mat)
-        self._quad((r1[0], r1[1], r1[2], r1[3]), mat)
+        # (side, up2, axis) is a left-handed frame: rings run clockwise seen
+        # from +axis, hence this order so that normals point outwards.
+        self._quad((r0[0], r0[1], r0[2], r0[3]), mat)
+        self._quad((r1[3], r1[2], r1[1], r1[0]), mat)
         for i in range(4):
             j = (i + 1) % 4
-            self._quad((r0[i], r0[j], r1[j], r1[i]), mat)
+            self._quad((r0[j], r0[i], r1[i], r1[j]), mat)
 
     def cylinder(self, center, radius, height, mat, sides=8, radius_top=None, uv_scale=(1, 1),
                  caps=True, axis="Z"):
@@ -336,7 +337,7 @@ class MeshBuilder:
             if axis == "Z":
                 bot.append(self.bm.verts.new((cx + ca * radius, cy + sa * radius, cz - height / 2)))
                 top.append(self.bm.verts.new((cx + ca * rt, cy + sa * rt, cz + height / 2)))
-            else:  # axe Y
+            else:  # Y axis
                 bot.append(self.bm.verts.new((cx + ca * radius, cy - height / 2, cz + sa * radius)))
                 top.append(self.bm.verts.new((cx + ca * rt, cy + height / 2, cz + sa * rt)))
         for i in range(sides):
@@ -357,7 +358,7 @@ class MeshBuilder:
                     self._face(list(reversed(top)), mat)
 
     def finish(self, name):
-        # Sommets des faces découpées remplacés par leur grille.
+        # Vertices of the split faces replaced by their grid.
         loose = [v for v in self.bm.verts if not v.link_faces]
         if loose:
             bmesh.ops.delete(self.bm, geom=loose, context="VERTS")
@@ -373,7 +374,7 @@ class MeshBuilder:
 # ----------------------------------------------------------------------------- rig
 
 class Rig:
-    """Hiérarchie de pièces rigides. Chaque pièce a son origine sur l'articulation."""
+    """Hierarchy of rigid pieces. Each piece has its origin on the joint."""
 
     def __init__(self, name):
         self.sc = bpy.context.scene
@@ -384,8 +385,8 @@ class Rig:
         self.root_name = name
 
     def part(self, name, pivot, parent=None, build=None):
-        """`build(mb, px, py, pz)` ajoute la géométrie en coordonnées monde ; elle est
-        recentrée sur le pivot. Sans `build`, la pièce est un objet vide (point d'attache)."""
+        """`build(mb, px, py, pz)` adds geometry in world coordinates; it is
+        recentred on the pivot. Without `build`, the piece is an empty object (attachment point)."""
         px, py, pz = pivot
         if build is not None:
             mb = MeshBuilder()
@@ -414,13 +415,13 @@ _TIME_RE = re.compile(r"^(T|h\d+e?|c\d+|\d+)([+-]\d+)?$")
 
 
 def resolve_time(spec, info):
-    """Temps symbolique : entier, "T" (durée), "h0" (début du coup 0), "h0e" (fin), "c0" (tick du
-    sort 0), avec ±n."""
+    """Symbolic time: integer, "T" (duration), "h0" (start of hit 0), "h0e" (end), "c0" (tick of
+    spell 0), with ±n."""
     if isinstance(spec, (int, float)):
         return float(spec)
     m = _TIME_RE.match(spec.replace(" ", ""))
     if not m:
-        raise ValueError(f"temps invalide: {spec}")
+        raise ValueError(f"invalid time: {spec}")
     base, off = m.group(1), int(m.group(2) or 0)
     if base == "T":
         v = info["total"]
@@ -435,7 +436,7 @@ def resolve_time(spec, info):
 
 
 def merge(*poses):
-    """Combine des poses (les suivantes écrasent les précédentes, pièce par pièce)."""
+    """Combines poses (later ones override earlier ones, piece by piece)."""
     out = {}
     for p in poses:
         for k, v in p.items():
@@ -444,7 +445,7 @@ def merge(*poses):
 
 
 def mirror(pose):
-    """Échange gauche/droite (rotations Y et Z inversées)."""
+    """Swaps left/right (Y and Z rotations inverted)."""
     out = {}
     for k, v in pose.items():
         nk = k.replace("_L", "_TMP").replace("_R", "_L").replace("_TMP", "_R")
@@ -479,9 +480,9 @@ def rig_parent_name(rig, name):
 
 
 def add_animation(rig, name, keys, info=None, interp="BEZIER"):
-    """Crée une action `name` animant toutes les pièces, et la range dans une piste NLA.
+    """Creates an action `name` animating all the pieces, and stores it in an NLA track.
 
-    keys : liste de (temps, pose). Retourne la durée en frames.
+    keys: list of (time, pose). Returns the duration in frames.
     """
     info = info or {"total": 0, "hits": []}
     act = bpy.data.actions.new(name)
@@ -510,7 +511,7 @@ def add_animation(rig, name, keys, info=None, interp="BEZIER"):
 
 
 def _fcurves(act, slot):
-    # API « slotted actions » (Blender 4.4+).
+    # "Slotted actions" API (Blender 4.4+).
     for layer in act.layers:
         for strip in layer.strips:
             cb = strip.channelbag(slot)
@@ -554,7 +555,7 @@ def export(name, markers=None, selection=False, save_blend=True):
 
 
 def anim_markers(info):
-    """Marqueurs (en frames) utilisés à l'exécution pour recaler l'animation si le tuning change."""
+    """Markers (in frames) used at runtime to retime the animation if the tuning changes."""
     marks = [0]
     for s, e in info.get("hits", []):
         marks += [s, e]

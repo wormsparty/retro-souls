@@ -1,341 +1,334 @@
-# Giant's Flame — prototype de combat
+# Giant's Flame — combat prototype
 
-Prototype de combat inspiré de *Lies of P* / *Dark Souls*, rendu façon PlayStation 1, en
-Rust + [Bevy 0.19](https://bevy.org) (natif et navigateur via WASM).
+A combat prototype inspired by *Lies of P* / *Dark Souls*, rendered PlayStation 1 style, in
+Rust + [Bevy 0.19](https://bevy.org) (native, and in the browser via WASM).
 
-Un joueur, deux armes (rapière et greatsword), un boss lent et télégraphié — l'Automate du
-Carrousel — dans une arène circulaire. En sortant de l'arène, un escalier descend vers la place
-des Allumeurs (premier checkpoint), suspendue au-dessus du vide ; de là, un long chemin de ponts
-et de plates-formes, gardé par des chiens et des pantins, mène au second checkpoint.
+One player, two weapons (rapier and greatsword), a slow, telegraphed boss — the Carousel
+Automaton — in a circular arena. Leaving the arena, a staircase leads down to the Lamplighters'
+Square (first checkpoint), hanging above the void; from there, a long path of bridges and
+platforms, guarded by dogs and puppets, leads to the second checkpoint.
 
-## Lancer
+## Running
 
 ```sh
-# Natif (le plus rapide pour itérer)
+# Native (fastest for iterating)
 cargo run --release
 
-# Natif avec rechargement à chaud des fichiers de tuning (assets/config/*.ron)
+# Native with hot reloading of the tuning files (assets/config/*.ron)
 cargo run --features dev
 
-# Navigateur : build dans dist/ (~5 min la première fois), puis http://127.0.0.1:8080
+# Browser: build into dist/ (~5 min the first time), then http://127.0.0.1:8080
 tools/build_web.sh
 tools/serve_web.sh
 ```
 
-Prérequis web : la cible `wasm32-unknown-unknown` et `wasm-bindgen-cli` **de la même version
-que `wasm-bindgen` dans `Cargo.lock`** (actuellement `cargo install wasm-bindgen-cli --version 0.2.129`).
-`wasm-opt` (binaryen) est utilisé s'il est installé. WASM : ~31 Mo, ~8 Mo une fois compressé.
-Blender 5.x et Python 3 ne servent qu'à régénérer les assets.
+Web requirements: the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` **of the same version
+as `wasm-bindgen` in `Cargo.lock`** (currently `cargo install wasm-bindgen-cli --version 0.2.129`).
+`wasm-opt` (binaryen) is used if installed. WASM: ~31 MB, ~8 MB compressed.
+Blender 5.x and Python 3 are only needed to regenerate the assets.
 
-## Contrôles
+## Controls
 
-| Action | Manette | Clavier / souris |
+| Action | Gamepad | Keyboard / mouse |
 |---|---|---|
-| Attaque légère | RB / R1 | Clic gauche |
-| Attaque lourde (maintenir = charge) | RT / R2 | Clic droit |
-| Garde (garde parfaite = au bon moment) | LB / L1 | Q ou Maj gauche |
-| Attaque spéciale de l'arme | LT / L2 | E |
-| Esquive (maintenir = sprint) | B / ○ | Espace |
-| Sprint (un clic, tant que le stick est poussé) | L3 | — |
-| Verrouillage | R3 | Tab ou clic molette |
-| Changer de cible (verrouillé) : point suivant à gauche / droite, plus haut / plus bas (la tête d'un grand boss) | stick droit ← → ↑ ↓ | souris ← → ↑ ↓ |
-| Changer d'arme | croix ↑ | R |
-| Attaque sautée (plus de dégâts, l'endurance du saut suffit presque) | RB / RT en l'air | clic en l'air |
-| Utiliser l'objet sélectionné | X / □ | F |
-| Objet suivant (emplacements rapides) | croix ↓ | C |
-| Interagir (ramasser, se reposer) ; sinon sauter | A / ✕ | G |
-| Déplacement / caméra | sticks | WASD / souris |
-| Menu | Start | Échap |
+| Light attack | RB / R1 | Left click |
+| Heavy attack (hold = charge) | RT / R2 | Right click |
+| Guard (perfect guard = right timing) | LB / L1 | Q or Left Shift |
+| Weapon special attack | LT / L2 | E |
+| Dodge (hold = sprint) | B / ○ | Space |
+| Sprint (one click, as long as the stick is pushed) | L3 | — |
+| Lock on | R3 | Tab or middle click |
+| Switch target (locked on): next point to the left / right, higher / lower (a large boss's head) | right stick ← → ↑ ↓ | mouse ← → ↑ ↓ |
+| Switch weapon | D-pad ↑ | R |
+| Jump attack (more damage, the jump's stamina almost covers it) | RB / RT in the air | click in the air |
+| Use the selected item | X / □ | F |
+| Next item (quick slots) | D-pad ↓ | C |
+| Interact (pick up, rest); otherwise jump | A / ✕ | G |
+| Move / camera | sticks | WASD / mouse |
+| Menu | Start | Esc |
 
-Les touches sont lues par position physique (disposition QWERTY/QWERTZ) : sur un clavier
-AZERTY, le déplacement est sur ZQSD et la garde sur A.
+Keys are read by physical position (QWERTY/QWERTZ layout): on an AZERTY keyboard, movement is
+on ZQSD and guard on A.
 
-Clic dans la fenêtre pour capturer la souris, Échap pour la libérer. La page **Aide** du menu
-pause rappelle les contrôles du dernier périphérique utilisé (manette, ou clavier et souris).
+Click in the window to capture the mouse, Esc to release it. The **Help** page of the pause
+menu shows the controls of the last device used (gamepad, or keyboard and mouse).
 
 ### Menus
 
-- **Écran titre** : le titre centré, sur un fond où montent des braises et des cendres
-  au-dessus d'une lueur de brasier. Nouvelle partie (demande confirmation si une sauvegarde
-  existe), Charger, Options, *Fork me* (ouvre la page du projet sur GitHub), Quitter.
-- **Pause** (Échap / Start) : deux icônes, Équipement (heaume) et Système (roue crantée :
-  Options, Aide, *Fork me*, Retour à l'écran titre, Quitter). Échap / (B) referme le menu. En
-  pause, les personnages et les sorts sont figés ; les particules continuent.
-- **Checkpoint** (en s'y reposant) : Partir (sélectionné par défaut), Voyager (vers une autre
-  brasier déjà ranimé, avec une vue du lieu), Choisir le boss, Monter de niveau (grisé, à venir),
-  Équipement, Ranimer le boss (s'il a été vaincu).
-- **Choisir le boss** : qui attend dans l'arène (il y apparaît aussitôt, en pleine forme), en
-  grille de portraits (`assets/ui/boss_<n>.png`, rendus par `tools/blender/boss_icons.py`). Les
-  rencontres sont dans `assets/config/bosses.ron` (en debug : `SOULS_BOSS=n`). Chaque boss a sa
-  couleur (`color`), celle de ses cercles au sol :
-  - l'Automate du Carrousel (`boss.ron`) ;
-  - la Wyverne de Cendre : immense, on verrouille sa tête (stick droit ↑), ses pattes ou sa
-    queue. Elle ne vise pas : elle avance à peu près vers sa proie, et finit par lui faire face.
-    Devant elle, coup de tête jusqu'au sol ou plaquage (elle se laisse tomber) ; sur son flanc,
-    elle pivote d'un quart de tour en fouettant de la queue ; derrière, la queue balaie ; de
-    loin, un jet de feu jusqu'au sol ; elle s'envole et retombe sur sa cible, ou s'élève hors
-    d'atteinte et crache trois boules de feu ; pluie de cendre en phase 2 ;
-  - le Boucher Cornu et ses deux chiens : couperets en diagonale (gauche puis droite),
-    tourbillon penché à hauteur d'homme, charge tête baissée, fendoir (onde de choc), couperet
-    lancé ; il bondit loin en arrière puis charge ou lance un couperet ; frénésie en phase 2.
-    Les chiens n'ont qu'une petite barre de vie et s'effondrent avec leur maître ;
-  - l'Allumeur et l'Enclume : l'allumeur est un magicien qui garde ses distances et ne reste
-    pas en place : il file régulièrement de côté (glissade), puis tire souvent de là (lueurs
-    qui suivent leur cible, salve de trois lueurs l'une après l'autre, fusées qui jaillissent
-    du sol, bond en arrière) ; le forgeron frappe lourd (marteau, revers, charge, séisme). Quand
-    l'un tombe, l'autre passe en phase 2 (anneaux de lumière, pluie de fusées ; traînée de braises) ;
-  - la Grande Marionnette (violette) : elle se sait vulnérable et bouge sans cesse : bonds de
-    côté ou en arrière, en jetant deux aiguilles (bras levés au-dessus d'elle : elles partent
-    de très haut, on les voit venir) ; gifle, chute sur sa cible,
-    pirouette, danse ; hissée à la verticale, elle retombe sur place (grande onde de choc) ;
-    envolée : hors d'atteinte, elle jette trois aiguilles puis se laisse tomber sur sa cible ;
-    fils qui s'abattent en phase 2 ;
-  - la Bête à l'Échine Creuse (le lézard, ventre à terre) : on verrouille sa tête ou son
-    arrière-train ; morsure, bras dorsaux, pivot et coup de queue, bond ; elle se dresse et
-    retombe : la glace jaillit devant elle ; frénésie et hurlement (cercles de glace) en phase 2 ;
-  - le Géant Porte-Flamme : colonne qui fend le sol en lançant une traînée de feu, piliers de
-    feu sous sa cible (qui ne tombent pas les uns sur les autres), trois boules de feu l'une
-    après l'autre, anneaux de flammes dont le premier à ses pieds ; collé à lui, on prend un
-    coup de pied qui fend le sol tout autour, ou la colonne qui fauche à hauteur de genou ;
-    trop près, il bondit aussi en arrière pour tirer de loin ; brasier, météores et vague de
-    feu en phase 2.
+- **Title screen**: the centred title, on a background of embers and ash rising above the glow
+  of a brazier. New game (asks for confirmation if a save exists), Load, Options, *Fork me*
+  (opens the project page on GitHub), Quit.
+- **Pause** (Esc / Start): two icons, Equipment (helm) and System (cogwheel: Options, Help,
+  *Fork me*, Return to title screen, Quit). Esc / (B) closes the menu. While paused,
+  characters and spells are frozen; particles keep going.
+- **Checkpoint** (when resting there): Leave (selected by default), Travel (to another brazier
+  already kindled, with a view of the place), Choose the boss, Level up (greyed out, coming
+  soon), Equipment, Revive the boss (if it has been defeated).
+- **Choose the boss**: who waits in the arena (it appears there at once, at full strength), as a
+  grid of portraits (`assets/ui/boss_<n>.png`, rendered by `tools/blender/boss_icons.py`). The
+  encounters are in `assets/config/bosses.ron` (in debug: `SOULS_BOSS=n`). Each boss has its
+  own colour (`color`), that of its ground circles:
+  - the Carousel Automaton (`boss.ron`);
+  - the Ash Wyrm: huge, you lock onto its head (right stick ↑), its legs or its tail. It
+    doesn't aim: it moves roughly towards its prey, and ends up facing it. In front of it, a
+    headbutt down to the ground or a body slam (it lets itself fall); on its flank, it pivots a
+    quarter turn whipping its tail; behind, the tail sweeps; from afar, a stream of fire down to
+    the ground; it takes flight and lands on its target, or rises out of reach and spits three
+    fireballs; ash rain in phase 2;
+  - the Horned Butcher and his two dogs: diagonal cleavers (left then right), leaning whirlwind
+    at head height, head-down charge, cleave (shockwave), thrown cleaver; he leaps far back
+    then charges or throws a cleaver; frenzy in phase 2. The dogs only have a small health bar
+    and collapse with their master;
+  - the Lamplighter and the Anvil: the lamplighter is a magician who keeps his distance and
+    never stays still: he regularly slides sideways (glide), then often shoots from there
+    (homing glows, a volley of three glows one after the other, rockets bursting from the
+    ground, back leap); the smith hits hard (hammer, backhand, charge, earthquake). When one
+    falls, the other enters phase 2 (rings of light, rain of rockets; trail of embers);
+  - the Great Marionette (violet): she knows she's vulnerable and never stops moving: hops to
+    the side or backwards, throwing two needles (arms raised above her: they start from very
+    high, you see them coming); slap, drop onto her target, pirouette, dance; hoisted straight
+    up, she drops back down on the spot (big shockwave); ascent: out of reach, she throws three
+    needles then drops onto her target; slashing strings in phase 2;
+  - the Hollow-Spined Beast (the lizard, belly to the ground): you lock onto its head or its
+    hindquarters; bite, dorsal arms, pivot and tail swipe, leap; it rears up and comes down:
+    ice bursts out in front of it; frenzy and howl (circles of ice) in phase 2;
+  - the Flame-Bearing Giant: a column that splits the ground sending out a trail of fire,
+    pillars of fire under its target (which don't land on top of each other), three fireballs
+    one after the other, rings of flames, the first one at his feet; stick to him and you take
+    a stomp that splits the ground all around, or the column mowing at knee height; too close,
+    he also leaps back to shoot from afar; brazier, meteors and a wave of fire in phase 2.
 
-  Modèles et animations : `tools/blender/trial_bosses.py`. Les sorts (projectiles et éruptions
-  annoncées au sol) d'une même attaque ne touchent qu'une fois. Un projectile qui s'écrase au
-  sol y brûle encore un moment (petite zone, moitié des dégâts, ni garde ni parade). Sorts,
-  ondes de choc et cercles sont tous à la couleur du boss (sauf le couperet, en fer).
-- **Équipement** (façon Dark Souls) : en haut les armes (montrées, on en change en jeu) et le
-  talisman, en dessous les cases des consommables, avec l'icône de l'objet équipé — 4
-  emplacements rapides pour les consommables (en jeu, croix ↓ / C passe à l'emplacement équipé
-  suivant) et un emplacement de talisman (le premier talisman ramassé est porté d'office).
-  Choisir une case ouvre la liste de ce qu'on possède (avec icônes et quantités) ; depuis le
-  menu pause ou un brasier.
+  Models and animations: `tools/blender/trial_bosses.py`. Spells (projectiles and eruptions
+  announced on the ground) from the same attack only hit once. A projectile that crashes on the
+  ground keeps burning there for a while (small area, half damage, neither guard nor parry).
+  Spells, shockwaves and circles are all in the boss's colour (except the cleaver, in iron).
+- **Equipment** (Dark Souls style): at the top the weapons (shown only, you switch them in
+  game) and the talisman, below them the consumable cells, with the icon of the equipped item —
+  4 quick slots for consumables (in game, D-pad ↓ / C moves to the next equipped slot) and a
+  talisman slot (the first talisman picked up is worn automatically). Choosing a cell opens the
+  list of what you own (with icons and quantities); from the pause menu or a brazier.
 
-Échap / (B) revient à la page précédente. Le jeu démarre en plein écran.
+Esc / (B) goes back to the previous page. The game starts in full screen.
 
-| Option | Valeurs |
+| Option | Values |
 |---|---|
-| Affichage | Plein écran (sans bordure) · Plein écran exclusif (sauf Wayland et navigateur) · Fenêtré |
-| Résolution | taille de la fenêtre, ou mode vidéo en exclusif (natif uniquement) |
-| Fréquence | fréquences proposées par l'écran, en exclusif (natif uniquement) |
-| Synchronisation verticale | activée / désactivée (natif uniquement) |
-| Résolution interne | 240p (PS1), 480p (moderne) |
-| Volume général, volume des effets | 0 à 100 % |
-| Sensibilité caméra, axe vertical inversé, tremblements de caméra | |
+| Display | Fullscreen (borderless) · Exclusive fullscreen (except Wayland and browser) · Windowed |
+| Resolution | window size, or video mode in exclusive (native only) |
+| Refresh rate | rates offered by the monitor, in exclusive (native only) |
+| Vertical sync | on / off (native only) |
+| Internal resolution | 240p (PS1), 480p (modern) |
+| Master volume, effects volume | 0 to 100% |
+| Camera sensitivity, inverted vertical axis, camera shake | |
 
-Sous **Wayland**, le plein écran exclusif n'existe pas (le protocole ne permet pas de changer de
-mode vidéo ; winit l'ignore) : l'option n'est pas proposée. Pour l'avoir quand même, lancer le jeu
-via XWayland avec `WAYLAND_DISPLAY= cargo run --release` (le compositeur émule alors le changement
-de mode).
+Under **Wayland**, exclusive full screen doesn't exist (the protocol doesn't allow changing video
+modes; winit ignores it): the option isn't offered. To get it anyway, run the game through
+XWayland with `WAYLAND_DISPLAY= cargo run --release` (the compositor then emulates the mode
+change).
 
-Langue : anglais ou français, demandée au premier lancement (anglais par défaut) et modifiable
-dans les options.
+Language: English or French, asked on first launch (English by default) and changeable in the
+options.
 
-Style graphique : PS1 (résolution interne 240p) ou moderne (480p), demandé au premier lancement
-juste après la langue, avec une capture de chaque (`assets/ui/style_*.png`). Modifiable dans les
-options (« Résolution interne »).
+Graphics style: PS1 (240p internal resolution) or modern (480p), asked on first launch right
+after the language, with a screenshot of each (`assets/ui/style_*.png`). Changeable in the
+options ("Internal resolution").
 
-Les options sont enregistrées dès qu'on les change et reprises au lancement suivant :
+Settings are saved as soon as they change and restored on the next launch:
 `~/.config/giants-flame/settings.ron` (Linux), `%APPDATA%\giants-flame\settings.ron` (Windows),
-`~/Library/Application Support/giants-flame/settings.ron` (macOS), `localStorage` dans le navigateur.
-Dans le navigateur, le plein écran s'active au premier clic ou à la première touche (le navigateur
-l'exige) ; Échap en fait sortir, une action en jeu y fait revenir.
+`~/Library/Application Support/giants-flame/settings.ron` (macOS), `localStorage` in the browser.
+In the browser, full screen turns on at the first click or key press (the browser requires it);
+Esc exits it, an action in game brings it back.
 
-### Outils de réglage
+### Tuning tools
 
-- **F1** : overlay d'état (action en cours au tick près, fenêtre de garde parfaite, stagger…)
-- **F2** : hitboxes (bleu = corps, orange = coup actif, rouge = furie, jaune = coup imminent)
-- **F3** : ralenti ×0,25 (les timings en ticks restent exacts)
-- **F4** : boss passif (il marche mais n'attaque plus)
-- **F5** : recréer les combattants (progression gardée, le boss repart de zéro)
+- **F1**: state overlay (current action to the tick, perfect guard window, stagger…)
+- **F2**: hitboxes (blue = body, orange = active hit, red = rage, yellow = imminent hit)
+- **F3**: slow motion ×0.25 (timings in ticks stay exact)
+- **F4**: passive boss (it walks but no longer attacks)
+- **F5**: respawn the fighters (progress kept, the boss starts over)
 
-## Mécaniques
+## Mechanics
 
-- **Garde parfaite** : appuyer sur garde au plus 8 ticks (~133 ms) avant l'impact. Aucun dégât,
-  stagger infligé au boss, jauge spéciale. Spammer la garde réduit la fenêtre.
-- **Garde normale** : 60 % des dégâts, convertis en **regain** (barre grise) qu'on récupère en
-  frappant le boss dans les 6 secondes. Plus d'endurance → garde brisée.
-- **Attaques furie** (le boss rougeoie) : la garde normale ne sert à rien, il faut une garde
-  parfaite ou une esquive. Le boss rougeoie aussi avant un coup imparable qu'aucun cercle
-  n'annonce (le jet de feu de la wyverne) : il faut fuir.
-- **Attaques de zone** (cercle au sol, à la couleur du boss, qui se remplit jusqu'à l'impact) :
-  ni garde ni garde parfaite. Le cercle apparaît au moins 40 ticks (⅔ s) avant l'impact et ne
-  bouge plus : dès qu'il s'affiche, le boss cesse de suivre sa cible (un saut qui retombe sur
-  elle la suit jusqu'au décollage, son vol sert d'alerte). L'*onde de choc* dure plus longtemps que les i-frames d'une roulade : il faut
-  sortir du cercle. Le *bond arrière* est souvent suivi du *saut écrasant*, qui retombe là où se
-  trouvait le joueur au décollage.
-- **Roulade** : ~3,5 m (pas en arrière : ~1,7 m).
-- **Groggy** : jauge de stagger du boss pleine (gardes parfaites, attaques lourdes chargées) →
-  il tombe à genoux ; attaque légère de face pour le **coup fatal**. La jauge n'est pas
-  affichée (F1 la montre).
-- **Attaque sautée** : attaquer (légère ou lourde) pendant un saut : estoc plongeant (rapière)
-  ou taille abattue (épée longue), plus de dégâts et de stagger qu'une attaque normale pour
-  très peu d'endurance (le saut l'a déjà payée) ; en l'air, on atteint aussi plus haut.
-- **Rapière** : combo de 4 estocs rapides ; lourde chargée en fente ; spéciale *Fente éclair*
-  (dash + rafale).
-- **Greatsword** : lente et lourde, grande allonge, hyperarmure pendant les coups ; 3 tailles
-  larges ; lourde verticale ; spéciale *Posture* (garde haute avec hyperarmure : un coup reçu
-  pendant la posture déclenche une riposte).
-- **Endurance** : il faut au moins 1 point pour attaquer, esquiver ou lancer la spéciale ; une
-  action peut faire passer l'endurance en négatif (jusqu'à -60), il faut alors attendre. Le coût
-  d'une attaque = ses dégâts × `stamina_per_damage` : à dégâts égaux, même coût pour les deux armes.
-- **Fiole de soin** (objet de l'inventaire) : 3 charges, rechargées au checkpoint et à la mort,
-  +40 % des PV ; on peut marcher lentement pendant. Touché avant que le soin s'applique : la
-  charge est perdue.
-- **Jauge spéciale** (barre dorée sous l'endurance) : se remplit en frappant et en garde
-  parfaite ; chaque attaque spéciale en consomme un tiers. Les coups de la spéciale ne rechargent pas la jauge,
-  et son coût d'endurance est fixe (pas proportionnel à ses gros dégâts).
-- **HUD** : en bas à gauche, l'arme équipée (icône ; croix ↑ / R pour changer) au-dessus de
-  l'objet rapide sélectionné.
-- **Boss** : 9 attaques en phase 1 (dont une furie et deux attaques de zone), 2 de plus en
-  phase 2 (sous 50 % de PV).
+- **Perfect guard**: press guard at most 8 ticks (~133 ms) before the impact. No damage,
+  stagger dealt to the boss, special gauge. Spamming guard shrinks the window.
+- **Normal guard**: 60% of the damage, converted into **regain** (grey bar) that you recover by
+  hitting the boss within 6 seconds. Out of stamina → guard broken.
+- **Rage attacks** (the boss glows red): normal guard is useless, you need a perfect guard or a
+  dodge. The boss also glows red before an unblockable hit that no circle announces (the
+  wyrm's fire stream): you have to flee.
+- **Area attacks** (a circle on the ground, in the boss's colour, filling up until the impact):
+  neither guard nor perfect guard. The circle appears at least 40 ticks (⅔ s) before the impact
+  and no longer moves: as soon as it's shown, the boss stops tracking its target (a jump that
+  lands on it tracks it until take-off, its flight serves as the warning). The *shockwave* lasts
+  longer than a roll's i-frames: you have to get out of the circle. The *back leap* is often
+  followed by the *crushing jump*, which lands where the player was at take-off.
+- **Roll**: ~3.5 m (backstep: ~1.7 m).
+- **Stagger**: boss stagger gauge full (perfect guards, charged heavy attacks) → it falls to its
+  knees; light attack from the front for the **fatal blow**. The gauge isn't shown (F1 shows
+  it).
+- **Jump attack**: attack (light or heavy) during a jump: plunging thrust (rapier) or
+  downward cut (longsword), more damage and stagger than a normal attack for very little
+  stamina (the jump already paid for it); in the air, you also reach higher.
+- **Rapier**: combo of 4 quick thrusts; charged heavy as a lunge; special *Lightning Lunge*
+  (dash + flurry).
+- **Greatsword**: slow and heavy, long reach, hyper armour during swings; 3 wide cuts;
+  vertical heavy; special *Stance* (high guard with hyper armour: a hit taken during the
+  stance triggers a riposte).
+- **Stamina**: at least 1 point is needed to attack, dodge or use the special; an action can
+  make stamina go negative (down to -60), you then have to wait. An attack's cost = its
+  damage × `stamina_per_damage`: for equal damage, the same cost for both weapons.
+- **Healing flask** (inventory item): 3 charges, refilled at the checkpoint and on death, +40%
+  HP; you can walk slowly meanwhile. Hit before the heal applies: the charge is lost.
+- **Special gauge** (gold bar under stamina): fills up by hitting and perfect guarding; each
+  special attack uses a third of it. Special attack hits don't recharge the gauge, and its
+  stamina cost is fixed (not proportional to its heavy damage).
+- **HUD**: bottom left, the equipped weapon (icon; D-pad ↑ / R to switch) above the selected
+  quick item.
+- **Boss**: 9 attacks in phase 1 (including one rage attack and two area attacks), 2 more in
+  phase 2 (below 50% HP).
 
-## Le chemin
+## The path
 
 ```
-              arène (boss)
-                   │ escalier
-        place des Allumeurs ◆ checkpoint ── pont ── jardin de la fontaine
-                   │ pont
-          kiosque à musique : 2 chiens endormis
-                   │ rampe
-   guichets : 2 pantins, 1 chien ── passerelle étroite ── corniche : chien ⤳ saut : éclat de fiole
-                   │ long pont : un pantin en travers
-   piste du colosse (unique) ── planche étroite ── corniche : plume de cimier
-                   │ escalier
-        belvédère brisé ◆ checkpoint ── pont effondré…
-                   ⤳ saut en courant : rocher isolé, broche de fer
+                 arena (boss)
+                   │ stairs
+       Lamplighters' Square ◆ checkpoint ── bridge ── fountain garden
+                   │ bridge
+          bandstand: 2 sleeping dogs
+                   │ ramp
+   ticket booths: 2 puppets, 1 dog ── narrow walkway ── ledge: dog ⤳ jump: flask shard
+                   │ long bridge: a puppet in the way
+   colossus's track (unique) ── narrow plank ── ledge: crest plume
+                   │ stairs
+        broken belvedere ◆ checkpoint ── collapsed bridge…
+                   ⤳ running jump: isolated rock, iron brooch
 ```
 
-- **Saut** (A / G quand il n'y a rien à ramasser ni de brasier à portée) : ~0,8 m de haut,
-  ~3,5 m franchis en courant (`jump` dans `player.ron`), 12 d'endurance. Retomber au-dessus
-  du vide, c'est la chute.
-- **Réapparition au brasier** : à côté du feu, tourné vers la suite du chemin (`look` dans
-  `level.ron`) ; une partie quittée au pied d'un brasier reprend de la même façon.
-- **Le vide** : hors de l'arène et de l'escalier, aucun garde-fou. Marcher, rouler ou être
-  repoussé au-delà d'un bord, c'est la chute, et la mort. En contrebas, il n'y a que le noir et,
-  au loin, quelques réverbères perdus sur des rochers flottants.
-- **Checkpoints** (brasiers) : une vasque de fer sur un socle, une vieille épée plantée dans
-  les braises. Éteint, il ne laisse échapper qu'un filet d'escarbilles ; s'y reposer le ranime
-  (« BRASIER RANIMÉ ») : une colonne de braises et de cendres monte alors au-dessus, visible de
-  loin. Il devient le point de réapparition et une destination de voyage. Se reposer rend PV,
-  endurance et fioles, mais **fait revenir tous les ennemis** ; impossible tant qu'un ennemi
-  est à vos trousses.
-- **Mort** : on réapparaît au dernier brasier **sans ses braises** : elles restent sur place,
-  avec votre cadavre nimbé de vert d'où montent des lueurs vertes, visibles de loin (au bord d'où l'on est tombé, après
-  une chute). Interagir près du cadavre les récupère ; mourir avant de l'avoir atteint les fait
-  perdre pour de bon.
-- **Ennemis** : endormis (on peut les approcher, mais ils sentent tout autour d'eux) ou aux
-  aguets (ils voient loin, devant eux). Un cri d'alerte réveille tout leur groupe. Trop loin
-  de leur poste, ils abandonnent, y retournent et se soignent. Vaincus, ils donnent des
-  braises ; ils reviennent au repos et à la mort, sauf le colosse.
-  - *Chien errant* : rapide, morsures et bond ; interrompu par chaque coup.
-  - *Pantin de foire* : maillet de « tête de Turc » (coup vertical en hyperarmure, revers,
-    estoc en avançant) ; il faut deux coups de rapière pour l'interrompre.
-  - *Colosse de la piste* : un pantin géant, unique, qui ne bronche presque jamais.
-  Les coups du joueur s'abaissent jusqu'aux adversaires plus petits qu'eux (un estoc porté à
-  hauteur de poitrine touche un chien).
-- **Objets au sol** : des lueurs blanches entourées d'étincelles qui tournoient en montant
-  (visibles à travers le brouillard) ; on ne sait ce que c'est qu'en les ramassant
-  (« Ramasser », fenêtre de l'objet obtenu). Chacun ne se ramasse qu'une fois.
-  - consommables (emplacements rapides, ne se rechargent pas) : *braise ternie* / *braise vive*
-    (à écraser pour gagner des braises), *mousse dorée* (régénère des PV), *résine ardente*
-    (+20 % de dégâts pendant une minute, la lame rougeoie) ;
-  - talismans : *broche de fer* (dégâts subis −15 %), *plume de cimier* (esquives −30 %
-    d'endurance) ;
-  - *éclat de fiole* : une charge de soin de plus, définitivement.
+- **Jump** (A / G when there's nothing to pick up and no brazier in range): ~0.8 m high,
+  ~3.5 m cleared at a run (`jump` in `player.ron`), 12 stamina. Coming down above the void
+  means falling.
+- **Respawning at a brazier**: next to the fire, facing the way forward (`look` in
+  `level.ron`); a game quit at the foot of a brazier resumes the same way.
+- **The void**: outside the arena and the stairs, there are no railings. Walking, rolling or
+  being pushed past an edge means falling, and death. Below there is only darkness and, far
+  off, a few street lamps lost on floating rocks.
+- **Checkpoints** (braziers): an iron bowl on a pedestal, an old sword planted in the embers.
+  Unlit, it only lets out a trickle of cinders; resting there kindles it ("BRAZIER KINDLED"):
+  a column of embers and ash then rises above it, visible from afar. It becomes the respawn
+  point and a travel destination. Resting restores HP, stamina and flasks, but **brings all
+  enemies back**; impossible while an enemy is on your heels.
+- **Death**: you respawn at the last brazier **without your embers**: they stay on the spot,
+  with your corpse bathed in green from which green glows rise, visible from afar (at the edge
+  you fell from, after a fall). Interacting near the corpse ("Recover") gets them back; dying
+  before reaching it loses them for good.
+- **Enemies**: asleep (you can get close, but they sense everything around them) or watching
+  (they see far, in front of them). An alert cry wakes their whole group. Too far from their
+  post, they give up, go back and heal. When defeated, they give embers; they come back on rest
+  and on death, except the colossus.
+  - *Stray dog*: fast, bites and pounce; staggered by every hit.
+  - *Fairground puppet*: "high striker" mallet (vertical blow with hyper armour, backhand,
+    advancing thrust); it takes two rapier hits to stagger it.
+  - *Colossus of the track*: a giant puppet, unique, that hardly ever flinches.
+  The player's hits lower down to opponents smaller than them (a thrust at chest height hits a
+  dog).
+- **Items on the ground**: white glows surrounded by sparks swirling upwards (visible through
+  the fog); you only find out what they are by picking them up ("Pick up", item obtained
+  popup). Each can only be picked up once.
+  - consumables (quick slots, don't refill): *faded ember* / *lively ember* (crush them to gain
+    embers), *golden moss* (regenerates HP), *ember resin* (+20% damage for a minute, the
+    blade glows red);
+  - talismans: *iron brooch* (damage taken −15%), *crest plume* (dodges −30% stamina);
+  - *flask shard*: one more healing charge, permanently.
 
-## Progression et sauvegarde
+## Progress and saving
 
-- On commence au **checkpoint** de la place, au pied de l'escalier de l'arène. S'y reposer
-  rend PV, endurance et objets.
-- Entrer dans l'arène réveille le boss et une **brume** ferme l'escalier jusqu'à la fin du combat.
-- Victoire : **+1000 braises** (`embers` dans `boss.ron`, icône de flamme), affichées en bas à droite au-dessus du
-  compteur, qui les absorbe avec un petit son ; le boss reste mort, on peut le ranimer depuis
-  le checkpoint.
-- Mort : « VOUS ÊTES MORT » (~4 s, l'écran s'assombrit puis passe au noir), puis retour au
-  dernier checkpoint où l'on s'est reposé (braises conservées), objets rechargés, boss et
-  ennemis réinitialisés.
-- **Sauvegarde automatique** façon Dark Souls (un seul emplacement) : à chaque événement important
-  (repos, entrée dans l'arène, victoire, ennemi vaincu, objet ramassé ou utilisé, chute, mort,
-  menu ouvert/fermé), toutes les 5 secondes et en quittant ; le fichier n'est réécrit que s'il a
-  changé. On reprend à l'endroit où on a quitté, sauf en plein combat de boss (on revient devant
-  la brume, le boss repart de zéro) ou en pleine chute (au dernier checkpoint). Les objets
-  ramassés, brasiers ranimés, ennemis uniques vaincus et braises laissées à la mort sont sauvegardés.
-  Fichier `save.ron` à côté de `settings.ron` (`localStorage` dans le navigateur).
+- You start at the square's **checkpoint**, at the foot of the arena stairs. Resting there
+  restores HP, stamina and items.
+- Entering the arena wakes the boss and a **fog** closes the stairs until the end of the fight.
+- Victory: **+1000 embers** (`embers` in `boss.ron`, flame icon), shown at the bottom right above
+  the counter, which absorbs them with a little sound; the boss stays dead, you can revive it
+  from the checkpoint.
+- Death: "YOU DIED" (~4 s, the screen darkens then goes black), then back to the last
+  checkpoint you rested at (embers kept), items refilled, boss and enemies reset.
+- **Autosave** Dark Souls style (a single slot): on every important event (rest, entering the
+  arena, victory, enemy defeated, item picked up or used, fall, death, menu opened/closed),
+  every 5 seconds and when quitting; the file is only rewritten if it changed. You resume where
+  you quit, except mid boss fight (you come back in front of the fog, the boss starts over) or
+  mid-fall (at the last checkpoint). Picked-up items, kindled braziers, defeated unique enemies
+  and embers dropped on death are saved. File `save.ron` next to `settings.ron`
+  (`localStorage` in the browser).
 
-## Régler le feel
+## Tuning the feel
 
-Toutes les valeurs de gameplay sont dans `assets/config/` et exprimées en **ticks** (60/s) :
+All gameplay values are in `assets/config/` and expressed in **ticks** (60/s):
 
-- `player.ron` : PV, endurance, vitesses, esquive (i-frames), garde parfaite, regain…
-- `weapons.ron` : chaque attaque (startup/actif/récupération, hitbox, dégâts, stagger, root motion)
-- `boss.ron` : PV, phases, stagger, pauses entre les attaques, chaque attaque et ses portées
-- `bosses.ron` : les autres boss (même format, plus modèle et échelle, parties verrouillables,
-  sorts) et les rencontres proposées au checkpoint
-- `arena.ron` : taille de l'arène, piliers, ouverture, apparition du boss
-- `level.ron` : le reste du niveau — sols (place, ponts, rampes, escaliers ; bords murés ou
-  ouverts sur le vide), checkpoints (nom, vue du menu de voyage), décor, ennemis, objets
-- `enemies.ron` : types d'ennemis (vision, poursuite, équilibre, braises, attaques)
+- `player.ron`: HP, stamina, speeds, dodge (i-frames), perfect guard, regain…
+- `weapons.ron`: each attack (startup/active/recovery, hitbox, damage, stagger, root motion)
+- `boss.ron`: HP, phases, stagger, pauses between attacks, each attack and its reach
+- `bosses.ron`: the other bosses (same format, plus model and scale, lockable parts, spells)
+  and the encounters offered at the checkpoint
+- `arena.ron`: arena size, pillars, opening, boss spawn
+- `level.ron`: the rest of the level — floors (square, bridges, ramps, stairs; walled edges or
+  open onto the void), checkpoints (name, travel menu view), decor, enemies, items
+- `enemies.ron`: enemy types (sight, chase, poise, embers, attacks)
 
-Avec `cargo run --features dev`, sauvegarder un fichier relance le combat avec les nouvelles
-valeurs. Les animations se recalent automatiquement si on modifie les fenêtres de frappe. Le
-décor est généré à partir de `arena.ron` et `level.ron` : après une modification de la
-géométrie, relancer `tools/build_assets.sh` pour que l'image corresponde aux collisions.
+With `cargo run --features dev`, saving a file restarts the fight with the new values.
+Animations are retimed automatically if you change the hit windows. The scenery is generated
+from `arena.ron` and `level.ron`: after changing the geometry, rerun `tools/build_assets.sh`
+so the visuals match the collisions.
 
 ## Architecture
 
 ```
-src/sim/      simulation déterministe à 60 Hz (aucune dépendance au rendu)
-  data.rs       types du tuning (frame data)
-  input.rs      PlayerInput : 7 octets par joueur et par tick (ce qui transitera sur le réseau)
-  player.rs     machine à états du joueur (combos, charge, garde, esquive, sprint…)
-  boss.rs       IA des boss (aggro multi-joueurs, choix pondéré, cooldowns, phases, duos,
-                points verrouillables des grands boss)
-  spell.rs      sorts des boss : projectiles, éruptions annoncées au sol
-  enemy.rs      IA des ennemis du chemin (poste, alerte de groupe, poursuite, abandon)
-  world.rs      sols praticables et hauteurs, bords murés ou ouverts (chute), obstacles
-  combat.rs     collisions, hitbox (capsules, balayages en arc), garde / parfaite / regain
-  encounter.rs  checkpoints, voyage, brume, victoire, mort/réapparition, progression, menus
-  items.rs      objets (consommables, talismans, objets clés), inventaire, emplacements rapides
-src/input.rs  clavier/souris/manette → PlayerInput (appuis verrouillés entre deux ticks)
-src/render/   rendu PS1, caméra, modèles et pilotage des animations par l'état de la sim,
-              aperçu des checkpoints (menu de voyage)
-src/fx.rs     sons, étincelles, tremblements déclenchés par les événements de la sim
-src/hud.rs    interface en jeu
-src/menu.rs   écran titre, pause, checkpoint, équipement, options, aide
-src/save.rs   sauvegarde automatique (storage.rs : fichiers / localStorage)
-tools/blender assets générés par script (modèles low-poly, animations calées sur les timings)
-tools/sfx.py  bruitages synthétisés
-tools/pixel_font.py  police bitmap de l'interface
-tests/sim.rs  tests de la simulation, dont le déterminisme
+src/sim/      deterministic simulation at 60 Hz (no dependency on rendering)
+  data.rs       tuning types (frame data)
+  input.rs      PlayerInput: 7 bytes per player per tick (what will go over the network)
+  player.rs     player state machine (combos, charge, guard, dodge, sprint…)
+  boss.rs       boss AI (multiplayer aggro, weighted choice, cooldowns, phases, duos,
+                lockable points of large bosses)
+  spell.rs      boss spells: projectiles, eruptions announced on the ground
+  enemy.rs      path enemy AI (post, group alert, chase, giving up)
+  world.rs      walkable floors and heights, walled or open edges (falling), obstacles
+  combat.rs     collisions, hitboxes (capsules, arc sweeps), guard / perfect / regain
+  encounter.rs  checkpoints, travel, fog, victory, death/respawn, progress, menus
+  items.rs      items (consumables, talismans, key items), inventory, quick slots
+src/input.rs  keyboard/mouse/gamepad → PlayerInput (presses latched between two ticks)
+src/render/   PS1 rendering, camera, models and animations driven by the sim state,
+              checkpoint previews (travel menu)
+src/fx.rs     sounds, sparks, shakes triggered by sim events
+src/hud.rs    in-game interface
+src/menu.rs   title screen, pause, checkpoint, equipment, options, help
+src/save.rs   autosave (storage.rs: files / localStorage)
+tools/blender script-generated assets (low-poly models, animations timed on the frame data)
+tools/sfx.py  synthesised sound effects
+tools/pixel_font.py  the interface's bitmap font
+tests/sim.rs  simulation tests, including determinism
 ```
 
-**Pensé pour le multijoueur en ligne (coop contre le boss).** La simulation ne lit que des
-`PlayerInput` et un compteur de ticks, utilise des maths `libm` et une RNG interne : rejouer
-les mêmes inputs donne exactement le même état (vérifié par `cargo test`). C'est la condition
-pour du rollback avec `bevy_ggrs` + `matchbox` (WebRTC pair-à-pair dans le navigateur) — la
-version de Bevy a été choisie pour être compatible avec ces deux crates. Le boss choisit déjà sa
-cible entre plusieurs joueurs.
+**Designed for online multiplayer (co-op against the boss).** The simulation only reads
+`PlayerInput`s and a tick counter, uses `libm` maths and an internal RNG: replaying the same
+inputs gives exactly the same state (checked by `cargo test`). That's the prerequisite for
+rollback with `bevy_ggrs` + `matchbox` (peer-to-peer WebRTC in the browser) — the Bevy version
+was chosen to be compatible with these two crates. The boss already picks its target among
+several players.
 
-## Régénérer les assets
+## Regenerating the assets
 
 ```sh
-tools/build_assets.sh   # timings et niveau → Blender (joueur, boss, armes, chien, pantin, décor) → bruitages → police
+tools/build_assets.sh   # timings and level → Blender (player, boss, weapons, dog, puppet, scenery) → sound effects → font
 ```
 
-Les fichiers `.blend` sont écrits dans `tools/blender/blend/` pour retouche manuelle (non versionnés :
-ils sont régénérés par `tools/build_assets.sh`). Les `.glb` produits, eux, sont versionnés.
-`tools/blender/preview.py` rend des planches de poses pour vérifier une animation :
+The `.blend` files are written to `tools/blender/blend/` for manual touch-ups (not versioned:
+they're regenerated by `tools/build_assets.sh`). The produced `.glb` files are versioned.
+`tools/blender/preview.py` renders contact sheets of poses to check an animation:
 
 ```sh
 PREVIEW_WEAPON=rapier blender -b tools/blender/blend/player.blend -P tools/blender/preview.py -- out.png rapier_light1:0 rapier_light1:8
 ```
 
-## Crédits
+## Credits
 
-Tout est généré par les scripts du dépôt : modèles, textures, animations, sons, et la police
-bitmap de l'interface (`tools/pixel_font.py`, cadratin de 12 pixels, accents français). L'interface
-est dessinée sur une grille de gros pixels (≈ 360 lignes, un nombre entier de pixels de l'écran
-par point) comme le jeu ; les icônes de touches (clavier, souris, manette Xbox) et d'objets sont
-dessinées en pixel art par `src/ui.rs` et `src/hud.rs`.
+Everything is generated by the repository's scripts: models, textures, animations, sounds, and
+the interface's bitmap font (`tools/pixel_font.py`, 12-pixel em, French accents). The interface
+is drawn on a grid of big pixels (≈ 360 rows, a whole number of screen pixels per dot) like the
+game; the key icons (keyboard, mouse, Xbox gamepad) and item icons are drawn as pixel art by
+`src/ui.rs` and `src/hud.rs`.

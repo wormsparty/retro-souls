@@ -1,5 +1,5 @@
-// Matériau « PS1 » : vertex snapping, texture affine, éclairage par sommet (Gouraud),
-// brouillard, couleur 15 bits avec dithering ordonné 4x4.
+// "PS1" material: vertex snapping, affine texturing, per-vertex lighting (Gouraud),
+// fog, 15-bit colour with 4x4 ordered dithering.
 
 #import bevy_pbr::{
     mesh_functions,
@@ -16,18 +16,18 @@ const MAX_LIGHTS: u32 = 4u;
 struct Ps1Params {
     base_color: vec4<f32>,
     emissive: vec4<f32>,
-    // rgb = couleur de teinte, a = intensité (flash d'impact, lueur furie).
+    // rgb = tint colour, a = intensity (hit flash, rage glow).
     tint: vec4<f32>,
-    // xyz = direction vers la lumière, w = intensité.
+    // xyz = direction towards the light, w = intensity.
     sun_dir: vec4<f32>,
     sun_color: vec4<f32>,
     ambient: vec4<f32>,
     fog_color: vec4<f32>,
-    // x = début, y = fin du brouillard, z = finesse de la grille de snapping, w = force du dithering.
+    // x = fog start, y = fog end, z = snapping grid fineness, w = dithering strength.
     fog: vec4<f32>,
-    // x = texture présente, y = non éclairé.
+    // x = has texture, y = unlit.
     misc: vec4<f32>,
-    // Triplets (position xyz + rayon, couleur rgb + intensité, vacillement a1 f1 a2 f2).
+    // Triplets (position xyz + radius, colour rgb + intensity, flicker a1 f1 a2 f2).
     lights: array<vec4<f32>, 12>,
 };
 
@@ -35,15 +35,15 @@ struct Ps1Params {
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var color_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var color_sampler: sampler;
 
-/// Hauteur sous laquelle le décor commence à se fondre dans le noir, et sur quelle épaisseur.
+/// Height below which the scenery starts fading into the black, and over what thickness.
 const ABYSS_TOP: f32 = -6.5;
 const ABYSS_DEPTH: f32 = 14.0;
-/// Couleur du fond (couleur d'effacement de la caméra, en linéaire) : l'abîme s'y fond exactement.
+/// Background colour (the camera's clear colour, linear): the abyss blends into it exactly.
 const ABYSS_COLOR: vec3<f32> = vec3<f32>(0.0039, 0.0035, 0.0061);
 
 struct Ps1Out {
     @builtin(position) position: vec4<f32>,
-    // uv * w et w : l'interpolation perspective de ce couple redonne une interpolation affine.
+    // uv * w and w: perspective interpolation of this pair gives back an affine interpolation.
     @location(0) uvw: vec3<f32>,
     @location(1) light: vec3<f32>,
     @location(2) fog: f32,
@@ -62,7 +62,7 @@ fn vertex(v: Vertex) -> Ps1Out {
     let wp = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(v.position, 1.0)).xyz;
     var clip = position_world_to_clip(wp);
 
-    // Vertex snapping sur une grille en espace écran.
+    // Vertex snapping on a screen-space grid.
     if clip.w > 0.0 {
         let grid = view.viewport.zw * 0.5 * m.fog.z;
         let ndc = clip.xy / clip.w;
@@ -103,7 +103,7 @@ fn vertex(v: Vertex) -> Ps1Out {
 
     let dist = length(wp - view.world_position);
     out.fog = clamp((dist - m.fog.x) / max(m.fog.y - m.fog.x, 0.001), 0.0, 1.0);
-    // L'abîme : sous les ruines, tout se fond dans le noir (seules les lueurs restent).
+    // The abyss: below the ruins, everything fades into the black (only the glows remain).
     out.abyss = clamp((ABYSS_TOP - wp.y) / ABYSS_DEPTH, 0.0, 1.0);
 
 #ifdef VERTEX_UVS_A
@@ -147,11 +147,11 @@ fn fragment(in: Ps1Out) -> @location(0) vec4<f32> {
     rgb = mix(rgb, m.tint.rgb, m.tint.a);
     rgb = mix(rgb, m.fog_color.rgb, in.fog);
     rgb = mix(rgb, ABYSS_COLOR, in.abyss);
-    // Les lueurs (feux, lanternes, réverbères) percent le brouillard et l'abîme : au loin dans
-    // le noir, il ne reste qu'elles.
+    // Glows (fires, lanterns, street lamps) pierce the fog and the abyss: far off in
+    // the black, only they remain.
     rgb += m.emissive.rgb * max(in.fog, in.abyss) * 0.7;
 
-    // Quantification 5 bits par canal (comme la PS1) en espace sRGB, avec dithering.
+    // 5-bit quantisation per channel (like the PS1) in sRGB space, with dithering.
     let d = (bayer4(vec2<u32>(in.position.xy)) - 0.5) * m.fog.w;
     var s = to_srgb(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)));
     s = floor(s * 31.0 + d + 0.5) / 31.0;

@@ -1,11 +1,11 @@
-//! Objets, inventaire et emplacements rapides (façon Lies of P) : les objets équipés dans les
-//! emplacements se choisissent en jeu (croix bas / C) et s'utilisent avec un seul bouton.
+//! Items, inventory and quick slots (Lies of P style): the items equipped in the
+//! slots are selected in game (D-pad down / C) and used with a single button.
 //!
-//! Trois familles, comme dans les souls-like :
-//! - consommables (emplacements rapides) : fiole de soin (rechargée au repos), braises à
-//!   écraser, mousse, résine ;
-//! - talismans (un emplacement dédié) : bonus permanents tant qu'ils sont portés ;
-//! - objets clés, appliqués dès qu'on les ramasse (éclat de fiole : une charge de plus).
+//! Three families, as in souls-likes:
+//! - consumables (quick slots): healing flask (refilled on rest), embers to
+//!   crush, moss, resin;
+//! - talismans (a dedicated slot): permanent bonuses while worn;
+//! - key items, applied as soon as they're picked up (flask shard: one more charge).
 
 use serde::{Deserialize, Serialize};
 
@@ -14,20 +14,20 @@ use super::data::Tuning;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Item {
     HealFlask,
-    /// Braise ternie : à écraser pour gagner des braises.
+    /// Faded ember: crush it to gain embers.
     FadedEmber,
-    /// Braise vive : comme la braise ternie, en mieux.
+    /// Lively ember: like the faded ember, but better.
     LivelyEmber,
-    /// Mousse dorée : régénère des PV pendant quelques secondes.
+    /// Golden moss: regenerates HP for a few seconds.
     GoldenMoss,
-    /// Résine ardente : l'arme fait plus de dégâts pendant une minute.
+    /// Ember resin: the weapon deals more damage for a minute.
     EmberResin,
-    /// Éclat de fiole : une charge de soin de plus, dès qu'on le ramasse.
+    /// Flask shard: one more healing charge, as soon as it's picked up.
     FlaskShard,
-    /// Talisman : dégâts subis réduits.
+    /// Talisman: reduced damage taken.
     IronBrooch,
-    /// Talisman : esquives moins coûteuses en endurance (`CarouselFeather` : son ancien nom,
-    /// dans les sauvegardes).
+    /// Talisman: dodges cost less stamina (`CarouselFeather`: its old name,
+    /// in save files).
     #[serde(alias = "CarouselFeather")]
     CrestPlume,
 }
@@ -39,18 +39,18 @@ pub enum Kind {
     Key,
 }
 
-/// Braises gagnées en écrasant une braise ternie / vive.
+/// Embers gained by crushing a faded / lively ember.
 pub const FADED_EMBERS: u32 = 200;
 pub const LIVELY_EMBERS: u32 = 600;
-/// Mousse dorée : PV rendus par seconde, et durée (ticks).
+/// Golden moss: HP restored per second, and duration (ticks).
 pub const MOSS_HP_PER_SEC: f32 = 6.0;
 pub const MOSS_TICKS: u32 = 25 * 60;
-/// Résine ardente : bonus de dégâts et durée (ticks).
+/// Ember resin: damage bonus and duration (ticks).
 pub const RESIN_DAMAGE: f32 = 1.2;
 pub const RESIN_TICKS: u32 = 60 * 60;
-/// Broche de fer : part des dégâts subis.
+/// Iron brooch: share of the damage taken.
 pub const BROOCH_DAMAGE: f32 = 0.85;
-/// Plume de cimier : part du coût d'endurance des esquives.
+/// Crest plume: share of the stamina cost of dodges.
 pub const FEATHER_DODGE: f32 = 0.7;
 
 impl Item {
@@ -87,7 +87,7 @@ impl Item {
         }
     }
 
-    /// Description courte (fenêtre d'objet ramassé, menu d'équipement).
+    /// Short description (picked-up item popup, equipment menu).
     pub fn description(self) -> &'static str {
         use crate::lang::tr;
         match self {
@@ -108,14 +108,14 @@ pub const QUICK_SLOTS: usize = 4;
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Inventory {
-    /// Objets possédés et leur quantité (une entrée par objet, dans l'ordre d'obtention).
+    /// Items owned and their quantity (one entry per item, in order of acquisition).
     pub items: Vec<(Item, u8)>,
     pub slots: [Option<Item>; QUICK_SLOTS],
-    /// Emplacement rapide sélectionné.
+    /// Selected quick slot.
     pub active: u8,
-    /// Talisman porté.
+    /// Worn talisman.
     pub talisman: Option<Item>,
-    /// Charges de soin gagnées avec les éclats de fiole.
+    /// Healing charges gained from flask shards.
     pub flask_bonus: u8,
 }
 
@@ -145,7 +145,7 @@ impl Inventory {
         self.slots.get(self.active as usize).copied().flatten()
     }
 
-    /// Quantité rendue au repos et à la mort (`None` : l'objet ne se recharge pas).
+    /// Quantity restored on rest and on death (`None`: the item doesn't refill).
     pub fn refill_amount(&self, item: Item, t: &Tuning) -> Option<u8> {
         match item {
             Item::HealFlask => Some(t.player.heal_charges + self.flask_bonus),
@@ -153,15 +153,15 @@ impl Inventory {
         }
     }
 
-    /// Ajoute des objets ramassés. Les objets clés s'appliquent tout de suite ; un nouveau
-    /// consommable va dans le premier emplacement rapide libre, un talisman est porté si on
-    /// n'en portait pas.
+    /// Adds picked-up items. Key items apply immediately; a new
+    /// consumable goes into the first free quick slot, a talisman is worn if none
+    /// was worn.
     pub fn add(&mut self, item: Item, n: u8) {
         match item.kind() {
             Kind::Key => {
                 if item == Item::FlaskShard {
                     self.flask_bonus = self.flask_bonus.saturating_add(n);
-                    // La charge gagnée est utilisable tout de suite.
+                    // The gained charge is usable immediately.
                     if let Some((_, c)) = self.items.iter_mut().find(|(i, _)| *i == Item::HealFlask) {
                         *c = c.saturating_add(n);
                     }
@@ -188,7 +188,7 @@ impl Inventory {
         }
     }
 
-    /// Retire un exemplaire ; faux s'il n'y en a plus.
+    /// Removes one; false if there are none left.
     pub fn consume(&mut self, item: Item) -> bool {
         match self.items.iter_mut().find(|(i, _)| *i == item) {
             Some((_, n)) if *n > 0 => {
@@ -199,7 +199,7 @@ impl Inventory {
         }
     }
 
-    /// Passe à l'emplacement équipé suivant (ne fait rien s'il n'y en a pas d'autre).
+    /// Switches to the next equipped slot (does nothing if there's no other).
     pub fn cycle(&mut self) {
         for k in 1..=QUICK_SLOTS {
             let i = (self.active as usize + k) % QUICK_SLOTS;
@@ -210,7 +210,7 @@ impl Inventory {
         }
     }
 
-    /// Équipe un consommable dans un emplacement (il quitte son ancien emplacement s'il en avait un).
+    /// Equips a consumable in a slot (it leaves its old slot if it had one).
     pub fn equip(&mut self, slot: usize, item: Option<Item>) {
         if slot >= QUICK_SLOTS || item.is_some_and(|i| !self.owns(i) || i.kind() != Kind::Consumable) {
             return;
@@ -238,7 +238,7 @@ impl Inventory {
         self.talisman == Some(item)
     }
 
-    /// Recharge les objets rechargeables (repos au checkpoint, mort).
+    /// Refills the refillable items (rest at the checkpoint, death).
     pub fn refill(&mut self, t: &Tuning) {
         let amounts: Vec<Option<u8>> = self.items.iter().map(|(i, _)| self.refill_amount(*i, t)).collect();
         for ((_, n), max) in self.items.iter_mut().zip(amounts) {
@@ -258,10 +258,10 @@ mod tests {
         let t = Tuning::builtin();
         let mut inv = Inventory::new_game(&t);
         assert_eq!(inv.active_item(), Some(Item::HealFlask));
-        // Un seul objet équipé : changer d'emplacement ne fait rien.
+        // A single equipped item: switching slots does nothing.
         inv.cycle();
         assert_eq!(inv.active, 0);
-        // Déplacer l'objet vers l'emplacement 3 libère le 1 et suit la sélection.
+        // Moving the item to slot 3 frees slot 1 and follows the selection.
         inv.equip(2, Some(Item::HealFlask));
         assert_eq!(inv.slots, [None, None, Some(Item::HealFlask), None]);
         assert_eq!(inv.active, 2);
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(inv.slots[1], Some(Item::GoldenMoss));
         inv.add(Item::GoldenMoss, 1);
         assert_eq!(inv.count(Item::GoldenMoss), 3);
-        // Un talisman ne va pas dans les emplacements rapides ; le premier est porté d'office.
+        // A talisman doesn't go into the quick slots; the first one is worn automatically.
         inv.add(Item::IronBrooch, 1);
         assert!(!inv.slots.contains(&Some(Item::IronBrooch)));
         assert!(inv.wears(Item::IronBrooch));
@@ -289,7 +289,7 @@ mod tests {
         assert!(inv.wears(Item::IronBrooch));
         inv.equip_talisman(Some(Item::CrestPlume));
         assert!(inv.wears(Item::CrestPlume));
-        // Éclat de fiole : une charge de plus, gardée au repos ; les consommables ne se rechargent pas.
+        // Flask shard: one more charge, kept on rest; consumables don't refill.
         inv.add(Item::FlaskShard, 1);
         assert!(!inv.owns(Item::FlaskShard));
         assert_eq!(inv.count(Item::HealFlask), t.player.heal_charges + 1);

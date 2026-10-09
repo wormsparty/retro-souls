@@ -1,8 +1,8 @@
-//! Prototype de combat souls-like style PS1.
+//! PS1-style souls-like combat prototype.
 //!
-//! - `sim` : simulation déterministe à 60 ticks/s (aucune dépendance au rendu) ;
-//! - `render`, `fx`, `hud` : présentation, qui ne fait que lire la simulation ;
-//! - `input` : périphériques → `PlayerInput`.
+//! - `sim`: deterministic simulation at 60 ticks/s (no dependency on rendering);
+//! - `render`, `fx`, `hud`: presentation, which only reads the simulation;
+//! - `input`: devices → `PlayerInput`.
 
 pub mod config;
 pub mod debug;
@@ -25,7 +25,7 @@ use bevy::window::WindowResolution;
 use render::AppState;
 
 pub fn run() {
-    // Options chargées avant de créer la fenêtre : on démarre directement dans le bon mode.
+    // Settings loaded before creating the window: start directly in the right mode.
     let settings = settings::Settings::load();
     let mut app = App::new();
     app.add_plugins(
@@ -40,7 +40,7 @@ pub fn run() {
                         let (w, h) = settings.resolution.unwrap_or((1280, 720));
                         WindowResolution::new(w, h)
                     },
-                    // Le mode exclusif précis est appliqué une fois l'écran connu.
+                    // The exact exclusive mode is applied once the monitor is known.
                     mode: settings.window_mode(None),
                     present_mode: settings.present_mode(),
                     ..default()
@@ -49,7 +49,7 @@ pub fn run() {
             })
             .set(ImagePlugin::default_nearest())
             .set(AssetPlugin {
-                // Pas de fichiers .meta : évite des requêtes 404 sur le web.
+                // No .meta files: avoids 404 requests on the web.
                 meta_check: AssetMetaCheck::Never,
                 ..default()
             }),

@@ -1,4 +1,4 @@
-"""Génère des bruitages simples (WAV mono 22 kHz) dans assets/audio/. Remplaçables à volonté.
+"""Generates simple sound effects (22 kHz mono WAV) in assets/audio/. Replace them at will.
 
 python3 tools/sfx.py
 """
@@ -84,7 +84,7 @@ write("fury", [s * (0.6 + 0.4 * math.sin(i / SR * 2 * math.pi * 9)) for i, s in 
 write("fatal", [a + b for a, b in zip(thud(1.2, 70, 30, 0.4, noise=1.5, alpha=0.1), metal(1.2, CLANG, 0.3, noise=0.2, pitch=0.5))])
 write("roar", [s * (0.5 + 0.5 * math.sin(i / SR * 2 * math.pi * 23)) for i, s in enumerate(thud(1.8, 90, 60, 0.9, noise=2.0, alpha=0.03))])
 write("switch", metal(0.25, [(2400, 0.6, 1), (3100, 0.4, 1)], 0.05, noise=0.4))
-# Soin : arpège doux montant.
+# Heal: soft rising arpeggio.
 heal = []
 for k, f in enumerate((523, 659, 784, 1046)):
     n = int(SR * 0.5)
@@ -99,7 +99,7 @@ write("heal", heal)
 
 
 def bark(f0, dur):
-    """Aboiement rauque : fondamentale qui chute vite, beaucoup de souffle."""
+    """Hoarse bark: fundamental that drops fast, lots of breath."""
     n = int(SR * dur)
     nz = noise_lp(n, 0.35)
     out, ph = [], 0.0
@@ -112,7 +112,7 @@ def bark(f0, dur):
     return out
 
 
-# Ennemis : deux aboiements, et le craquement d'un pantin qui se redresse.
+# Enemies: two barks, and the creak of a puppet getting back up.
 b1, b2 = bark(320, 0.16), bark(280, 0.2)
 write("bark", b1 + [0.0] * int(SR * 0.08) + b2 + [0.0] * int(SR * 0.05))
 creak = []
@@ -122,7 +122,7 @@ for i in range(int(SR * 0.7)):
     creak.append(tick * (0.5 + 0.5 * math.sin(2 * math.pi * 3 * t)) * env(t, 0.05, 0.3) * 0.5)
 creak = [a + b * 0.6 for a, b in zip(creak, noise_lp(len(creak), 0.08))]
 write("creak", creak)
-# Objet ramassé : deux notes claires.
+# Item picked up: two clear notes.
 pick = []
 for k, f in enumerate((880, 1318)):
     for i in range(int(SR * 0.35)):
@@ -132,13 +132,13 @@ for k, f in enumerate((880, 1318)):
             pick.append(0.0)
         pick[idx] += math.sin(2 * math.pi * f * t) * env(t, 0.004, 0.12) * 0.5
 write("pickup", pick)
-# Lanterne ranimée : souffle grave qui s'embrase, puis un accord de cloches.
+# Lantern rekindled: deep breath that flares up, then a chord of bells.
 kindle = whoosh(1.6, 0.01, 0.2, peak=0.3)
 for i in range(len(kindle)):
     t = i / SR
     bells = sum(a * math.sin(2 * math.pi * f * t) for f, a in ((392, 0.5), (587, 0.4), (784, 0.35), (1175, 0.2)))
     kindle[i] = kindle[i] * 0.8 + bells * env(max(t - 0.25, 0.0), 0.05, 0.6) * (0.0 if t < 0.25 else 0.5)
 write("kindle", kindle)
-# Chute : souffle qui s'éloigne et descend.
+# Fall: whoosh that fades and drops.
 write("fall", [s * (1.0 - i / int(SR * 1.4)) for i, s in enumerate(whoosh(1.4, 0.2, 0.01, peak=0.15))])
 print("sfx ok")

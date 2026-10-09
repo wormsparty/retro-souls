@@ -1,12 +1,12 @@
-//! Style d'interface PS1 : tout est dessiné sur une grille de gros pixels (« points »),
-//! comme les pixels du jeu : police bitmap maison (`tools/pixel_font.py`) avec ombre portée,
-//! et icônes de touches (clavier, souris, manette Xbox) en pixel art générées au démarrage.
+//! PS1 interface style: everything is drawn on a grid of big pixels ("dots"),
+//! like the game's pixels: home-made bitmap font (`tools/pixel_font.py`) with a drop shadow,
+//! and key icons (keyboard, mouse, Xbox gamepad) in pixel art generated at startup.
 //!
-//! Un point fait un nombre entier de pixels de l'écran (grille d'environ 360 lignes) : les
-//! tailles de police et d'icônes sont recalculées quand la fenêtre change de taille.
+//! A dot is a whole number of screen pixels (grid of about 360 rows): font
+//! and icon sizes are recomputed when the window is resized.
 //!
-//! Une ligne d'aide (`Hint`) mélange icônes et texte ; ses enfants sont reconstruits quand
-//! son contenu change. Un pixel d'icône = un point.
+//! A help line (`Hint`) mixes icons and text; its children are rebuilt when
+//! its content changes. One icon pixel = one dot.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -18,14 +18,14 @@ use bevy::text::{FontSmoothing, LineHeight};
 use bevy::window::PrimaryWindow;
 
 pub const FONT: &str = "fonts/giants-flame.ttf";
-/// Cadratin de la police, en points (voir `tools/pixel_font.py`).
+/// Font em size, in dots (see `tools/pixel_font.py`).
 const FONT_EM: f32 = 12.0;
-/// Nombre de lignes de points visé sur la hauteur de l'écran.
+/// Target number of dot rows over the screen height.
 const GRID_LINES: f32 = 360.0;
-/// Ombre portée des textes.
+/// Text drop shadow.
 const SHADOW: Color = Color::srgba(0.02, 0.015, 0.02, 0.9);
 
-/// Taille d'un point en unités d'UI (déjà multipliées par `UiScale`).
+/// Size of a dot in UI units (already multiplied by `UiScale`).
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct UiPixel(pub f32);
 
@@ -35,11 +35,11 @@ impl Default for UiPixel {
     }
 }
 
-/// Texte à l'échelle `n` de la police (1 = texte courant, 2 = titres…).
+/// Text at scale `n` of the font (1 = body text, 2 = titles…).
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct PixelText(pub u8);
 
-/// Nœud dimensionné en points (icônes, images).
+/// Node sized in dots (icons, images).
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct PixelSize(pub UVec2);
 
@@ -47,7 +47,7 @@ pub struct PixelSize(pub UVec2);
 pub struct UiFont(pub Handle<Font>);
 
 impl UiFont {
-    /// Police à l'échelle `n` : sa taille est ajustée à la grille par `fit_pixels`.
+    /// Font at scale `n`: its size is fitted to the grid by `fit_pixels`.
     pub fn at(&self, n: u8) -> impl Bundle + use<> {
         (
             TextFont {
@@ -67,10 +67,10 @@ impl UiFont {
     }
 }
 
-/// Icônes de touches.
+/// Key icons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Glyph {
-    /// Touche du clavier avec son libellé (lettres, chiffres, ↑↓←→↵, ou un mot court).
+    /// Keyboard key with its label (letters, digits, ↑↓←→↵, or a short word).
     Key(&'static str),
     MouseLeft,
     MouseRight,
@@ -88,17 +88,17 @@ pub enum Glyph {
     DpadDown,
     DpadLeft,
     DpadRight,
-    /// Croix entière (naviguer).
+    /// Whole D-pad (navigate).
     Dpad,
     StickL,
     StickR,
     StickL3,
     StickR3,
     PadMenu,
-    /// Flèches ‹ › des valeurs du menu.
+    /// ‹ › arrows of the menu values.
     ValueLeft,
     ValueRight,
-    /// Logo de GitHub (le chat dans un disque).
+    /// GitHub logo (the cat in a disc).
     GitHub,
 }
 
@@ -116,11 +116,11 @@ pub const fn i(g: Glyph) -> Seg {
     Seg::Icon(g)
 }
 
-/// Ligne « icônes + texte ». Changer `segs` reconstruit la ligne.
+/// "Icons + text" line. Changing `segs` rebuilds the line.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct Hint {
     pub segs: Vec<Seg>,
-    /// Échelle (comme `PixelText`).
+    /// Scale (like `PixelText`).
     pub scale: u8,
     pub color: Color,
 }
@@ -131,15 +131,15 @@ impl Hint {
     }
 }
 
-/// Remplace le contenu d'une ligne s'il a changé. Passe par `Mut` sans le déréférencer en
-/// écriture sinon : la ligne serait marquée modifiée, donc reconstruite, à chaque frame.
+/// Replaces the content of a line if it changed. Goes through `Mut` without dereferencing it for
+/// writing otherwise: the line would be marked changed, hence rebuilt, every frame.
 pub fn set_hint(h: &mut Mut<Hint>, segs: Vec<Seg>) {
     if h.segs != segs {
         h.segs = segs;
     }
 }
 
-/// Nœud d'une ligne d'aide (à poser avec `Hint`).
+/// Node of a help line (to be used with `Hint`).
 pub fn hint_node() -> Node {
     Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(4), ..default() }
 }
@@ -175,7 +175,7 @@ impl Plugin for UiPlugin {
     }
 }
 
-/// Taille d'un point : un nombre entier de pixels de l'écran, environ 1/360 de sa hauteur.
+/// Size of a dot: a whole number of screen pixels, about 1/360 of its height.
 fn pixel_grid(window: Single<&Window, With<PrimaryWindow>>, ui_scale: Res<UiScale>, mut px: ResMut<UiPixel>) {
     let physical = (window.physical_height() as f32 / GRID_LINES).round().max(1.0);
     let dot = physical / (ui_scale.0 * window.scale_factor()).max(1e-3);
@@ -184,7 +184,7 @@ fn pixel_grid(window: Single<&Window, With<PrimaryWindow>>, ui_scale: Res<UiScal
     }
 }
 
-/// Recale tailles de police et d'icônes sur la grille de points.
+/// Snaps font and icon sizes to the dot grid.
 fn fit_pixels(
     px: Res<UiPixel>,
     mut texts: Query<(Ref<PixelText>, &mut TextFont, &mut TextShadow)>,
@@ -205,7 +205,7 @@ fn fit_pixels(
     }
 }
 
-/// L'ombre portée suit la transparence du texte (fondus).
+/// The drop shadow follows the text's transparency (fades).
 fn shadow_alpha(mut q: Query<(&TextColor, &mut TextShadow), Changed<TextColor>>) {
     for (c, mut s) in &mut q {
         let a = SHADOW.alpha() * c.0.alpha();
@@ -215,13 +215,13 @@ fn shadow_alpha(mut q: Query<(&TextColor, &mut TextShadow), Changed<TextColor>>)
     }
 }
 
-/// Nœud image d'une icône, à l'échelle `n` (un pixel d'icône = `n` points).
+/// Image node of an icon, at scale `n` (one icon pixel = `n` dots).
 pub fn icon_bundle(icons: &mut Icons, images: &mut Assets<Image>, g: Glyph, n: u8) -> (ImageNode, Node, PixelSize) {
     let (h, s) = icons.get(g, images);
     image_bundle(h, s * n as u32)
 }
 
-/// Nœud image de `size` points.
+/// Image node of `size` dots.
 pub fn image_bundle(image: Handle<Image>, size: UVec2) -> (ImageNode, Node, PixelSize) {
     (ImageNode::new(image), Node { flex_shrink: 0.0, ..default() }, PixelSize(size))
 }
@@ -249,7 +249,7 @@ fn build_hints(
     }
 }
 
-// --- Dessin des icônes -------------------------------------------------------------------
+// --- Drawing the icons -------------------------------------------------------------------
 
 type Rgba = [u8; 4];
 
@@ -296,7 +296,7 @@ impl Canvas {
         }
     }
 
-    /// Rectangle aux coins coupés (un pixel).
+    /// Rectangle with cut corners (one pixel).
     fn rounded(&mut self, x0: i32, y0: i32, w: i32, h: i32, c: Rgba) {
         self.rect(x0 + 1, y0, w - 2, h, c);
         self.rect(x0, y0 + 1, 1, h - 2, c);
@@ -314,7 +314,7 @@ impl Canvas {
         }
     }
 
-    /// Contour sombre autour de tout ce qui est dessiné.
+    /// Dark outline around everything drawn.
     fn outline(&mut self) {
         let src: Vec<(i32, i32)> = (0..self.h)
             .flat_map(|y| (0..self.w).map(move |x| (x, y)))
@@ -357,7 +357,7 @@ fn text_width(s: &str) -> i32 {
     s.chars().count() as i32 * 6 - 1
 }
 
-/// Bouton rond de manette (corps sombre, lettre colorée).
+/// Round gamepad button (dark body, coloured letter).
 fn pad_round(label: &str, color: Rgba) -> Canvas {
     let mut c = Canvas::new(17, 17);
     c.disc(8.5, 8.5, 7.6, PAD_RIM);
@@ -472,7 +472,7 @@ fn draw(g: Glyph) -> Canvas {
             c
         }
         Glyph::GitHub => {
-            // Disque clair, chat découpé en sombre : tête et oreilles, cou, queue.
+            // Light disc, cat cut out in dark: head and ears, neck, tail.
             let (light, dark) = (PAD_TEXT, rgb(24, 22, 28));
             let mut c = Canvas::new(16, 16);
             c.disc(8.0, 8.0, 7.7, light);
@@ -509,7 +509,7 @@ fn draw(g: Glyph) -> Canvas {
     }
 }
 
-/// Police 5×7 des libellés d'icônes (majuscules, chiffres, flèches).
+/// 5×7 font for icon labels (capitals, digits, arrows).
 fn glyph5x7(c: char) -> Option<[&'static str; 7]> {
     Some(match c.to_ascii_uppercase() {
         'A' => [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
@@ -561,7 +561,7 @@ mod tests {
     fn all_icons_draw() {
         for g in [Glyph::Key("ESPACE"), Glyph::Key("↵"), Glyph::PadA, Glyph::PadLT, Glyph::StickR3, Glyph::DpadDown, Glyph::MouseMiddle, Glyph::ValueLeft] {
             let c = draw(g);
-            assert!(c.px.iter().any(|p| p[3] > 0), "{g:?} vide");
+            assert!(c.px.iter().any(|p| p[3] > 0), "{g:?} empty");
         }
     }
 }

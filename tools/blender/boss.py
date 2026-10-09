@@ -1,4 +1,4 @@
-"""Génère assets/models/boss.glb : l'Automate du Carrousel (~3,2 m) et sa hallebarde.
+"""Generates assets/models/boss.glb: the Carousel Automaton (~3.2 m) and its halberd.
 
 blender -b --factory-startup -P tools/blender/boss.py
 """
@@ -29,7 +29,7 @@ R, L = -1, 1
 
 def hips_geo(mb):
     mb.box((0, 0, 1.66), (0.5, 0.36, 0.26), WOOD)
-    # Jupe en lamelles de manège.
+    # Skirt of carousel slats.
     mb.box((0, 0, 1.35), (0.8, 0.62, 0.5), RED, taper=(0.66, 0.62))
     mb.box((0, 0, 1.62), (0.56, 0.42, 0.06), GOLD)
 
@@ -48,7 +48,7 @@ def head_geo(mb):
     mb.box((-0.07, -0.162, 2.98), (0.06, 0.016, 0.035), EYES)
     mb.box((0.07, -0.162, 2.98), (0.06, 0.016, 0.035), EYES)
     mb.box((0, -0.165, 2.86), (0.12, 0.016, 0.02), DARK)
-    # Chapeau chapiteau de manège.
+    # Carousel big-top hat.
     mb.cylinder((0, 0, 3.16), 0.42, 0.08, GOLD, sides=10)
     mb.cylinder((0, 0, 3.36), 0.4, 0.34, CANOPY, sides=10, radius_top=0.0, caps=True)
     mb.box((0, 0, 3.57), (0.05, 0.05, 0.12), GOLD)
@@ -92,11 +92,11 @@ def leg_geo(side):
 
 
 def halberd_geo(mb):
-    # Pivot à la poignée (main droite) ; hampe vers l'avant (-Y).
+    # Pivot at the grip (right hand); shaft pointing forward (-Y).
     mb.cylinder((-0.42, -0.5, 1.55), 0.035, 3.2, WOOD, sides=6, axis="Y")
     mb.box((-0.42, 1.1, 1.55), (0.08, 0.08, 0.1), GOLD)
     base_y = -2.1
-    # Fer de hache + crochet + pointe.
+    # Axe head + hook + spike.
     mb.box((-0.42, base_y, 1.73), (0.04, 0.42, 0.34), STEEL, taper=(1, 1.35))
     mb.box((-0.42, base_y, 1.4), (0.04, 0.18, 0.22), STEEL, taper=(1, 0.2))
     mb.seg((-0.42, base_y - 0.2, 1.55), (-0.42, base_y - 0.75, 1.55), 0.07, 0.04, STEEL, taper=0.1)
@@ -190,7 +190,7 @@ for t, (tr, tl, lift) in ((0, (-25, 20, -0.08)), (20, (0, 0, 0.0)), (40, (20, -2
     walk.append((t, merge(STANCE, legs(tr, sh_r, tl, sh_l, lift), {"chest": (10, 0, 10 + (tl - tr) * 0.1)})))
 anim("walk", walk, loop=True)
 
-# ----------------------------------------------------------------------------- attaques
+# ----------------------------------------------------------------------------- attacks
 w, a, b, f = swing(-70, 70)
 w2, a2, b2, f2 = swing(70, -70, low=True)
 anim("double_swing", [
@@ -233,7 +233,7 @@ anim("fury_leap", [
     ("h0", merge(SLAM, legs(-60, 80, 40, 60, -0.5))), ("h0e+40", merge(SLAM, legs(-60, 80, 40, 60, -0.5))),
     ("T", STANCE),
 ])
-# Zones d'effet et sauts.
+# Area effects and jumps.
 PLANTED = merge(SLAM, legs(-60, 80, 40, 60, -0.5))
 anim("ground_quake", [
     (0, STANCE), (24, with_hips(OVER, t=(0, 0, 0.06))),
@@ -268,7 +268,7 @@ anim("fury_thrust", [
     ("T", STANCE),
 ])
 
-# ----------------------------------------------------------------------------- états
+# ----------------------------------------------------------------------------- states
 anim("groggy", [
     (0, STANCE), (14, KNEEL), (100, merge(KNEEL, {"head": (45, 0, 10)})), (180, KNEEL),
     (196, merge(STANCE, legs(-40, 60, 30, 60, -0.35))), ("T", STANCE),
@@ -291,7 +291,7 @@ anim("death", [(0, STANCE), (30, merge(KNEEL, {"head": (-30, 0, 0), "chest": (-1
 
 missing = sorted(set(T) - set(markers))
 if missing:
-    raise SystemExit(f"animations manquantes : {missing}")
+    raise SystemExit(f"missing animations: {missing}")
 
 rest_pose(rig)
 export("boss", markers)

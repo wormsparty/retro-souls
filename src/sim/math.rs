@@ -1,5 +1,5 @@
-//! Maths déterministes : tout passe par `libm` pour obtenir des résultats identiques
-//! en natif et en WASM (requis pour le rollback réseau).
+//! Deterministic maths: everything goes through `libm` to get identical results
+//! on native and in WASM (required for network rollback).
 
 use bevy::math::Vec3;
 
@@ -16,22 +16,22 @@ pub fn sqrt(x: f32) -> f32 {
     libm::sqrtf(x)
 }
 
-/// Avant d'un combattant orienté selon `yaw` (rotation autour de Y, 0 = +Z).
+/// Forward of a fighter oriented by `yaw` (rotation around Y, 0 = +Z).
 pub fn forward(yaw: f32) -> Vec3 {
     Vec3::new(sin(yaw), 0.0, cos(yaw))
 }
 
-/// Droite d'un combattant orienté selon `yaw` (repère main droite, Y vers le haut).
+/// Right of a fighter oriented by `yaw` (right-handed frame, Y up).
 pub fn right(yaw: f32) -> Vec3 {
     Vec3::new(-cos(yaw), 0.0, sin(yaw))
 }
 
-/// Yaw correspondant à une direction horizontale.
+/// Yaw matching a horizontal direction.
 pub fn yaw_of(dir: Vec3) -> f32 {
     atan2(dir.x, dir.z)
 }
 
-/// Ramène un angle dans ]-π, π].
+/// Wraps an angle into ]-π, π].
 pub fn wrap(a: f32) -> f32 {
     use std::f32::consts::{PI, TAU};
     let mut a = a % TAU;
@@ -43,31 +43,31 @@ pub fn wrap(a: f32) -> f32 {
     a
 }
 
-/// Tourne `from` vers `to` d'au plus `max_step` radians.
+/// Turns `from` towards `to` by at most `max_step` radians.
 pub fn turn_towards(from: f32, to: f32, max_step: f32) -> f32 {
     let d = wrap(to - from);
     wrap(from + d.clamp(-max_step, max_step))
 }
 
-/// Longueur horizontale (XZ).
+/// Horizontal length (XZ).
 pub fn flat_len(v: Vec3) -> f32 {
     sqrt(v.x * v.x + v.z * v.z)
 }
 
-/// Convertit un point du repère local (x droite, y haut, z avant) en monde.
+/// Converts a point from the local frame (x right, y up, z forward) to world.
 pub fn local_to_world(pos: Vec3, yaw: f32, p: [f32; 3]) -> Vec3 {
     pos + right(yaw) * p[0] + Vec3::Y * p[1] + forward(yaw) * p[2]
 }
 
-/// Tourne un point local autour de Y (positif = vers la gauche).
+/// Rotates a local point around Y (positive = to the left).
 pub fn rotate_local(p: [f32; 3], deg: f32) -> [f32; 3] {
     let a = deg.to_radians();
-    // Gauche = -x dans notre repère : rotation qui envoie +z vers -x pour un angle positif.
+    // Left = -x in our frame: rotation that sends +z to -x for a positive angle.
     let (s, c) = (sin(a), cos(a));
     [p[0] * c - p[2] * s, p[1], p[0] * s + p[2] * c]
 }
 
-/// Distance minimale entre deux segments [p1,q1] et [p2,q2].
+/// Minimum distance between two segments [p1,q1] and [p2,q2].
 pub fn segment_distance(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> f32 {
     let d1 = q1 - p1;
     let d2 = q2 - p2;
@@ -120,14 +120,14 @@ mod tests {
         let f = forward(yaw);
         let r = right(yaw);
         assert!(f.dot(r).abs() < 1e-6);
-        // droite = avant × haut en repère main droite
+        // right = forward × up in a right-handed frame
         assert!((f.cross(Vec3::Y) - r).length() < 1e-6);
         assert!((yaw_of(f) - yaw).abs() < 1e-6);
     }
 
     #[test]
     fn rotate_left_is_positive() {
-        // Un point devant, tourné de 90° vers la gauche, doit se retrouver à gauche (x < 0).
+        // A point in front, rotated 90° to the left, must end up on the left (x < 0).
         let p = rotate_local([0.0, 0.0, 1.0], 90.0);
         assert!(p[0] < -0.99 && p[2].abs() < 1e-5);
     }

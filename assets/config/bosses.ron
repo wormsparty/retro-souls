@@ -1,29 +1,29 @@
-// Les autres boss (l'Automate est dans boss.ron), et les rencontres proposées au checkpoint.
-// Même format que boss.ron, avec en plus :
+// The other bosses (the Automaton is in boss.ron), and the encounters offered at the checkpoint.
+// Same format as boss.ron, plus:
 //
-// - model / scale / tint : modèle (assets/models/<model>.glb, tools/blender/trial_bosses.py),
-//   son échelle et une teinte. Toutes les distances (capsules, parties, sorts) sont en mètres
-//   dans le jeu, donc à l'échelle du modèle.
-// - minor : second rôle (les chiens du boucher) : petite barre au-dessus de lui, et sa mort
-//   n'est pas nécessaire à la victoire. Quand un premier rôle tombe, l'autre passe en phase 2.
-// - keep_away : en deçà, il recule (lanceur de sorts).
-// - parts : zones touchables en plus du corps, et points qu'on peut verrouiller (stick droit
-//   ou souris pour passer de l'un à l'autre). `bone` : l'objet du modèle que suit le réticule.
-// - spells : sorts lancés par les `casts` des attaques. Bolt : projectile (speed, homing en
-//   degrés/s, life en ticks, delay : ticks suspendu là où il apparaît avant de partir vers sa cible) ;
-//   s'il s'écrase au sol, il y brûle encore un moment. Eruption : colonne qui jaillit du sol après `delay` ticks
-//   d'alerte (zone marquée au sol), et dure `life` ticks ; ni garde ni parade.
-//   Beam : jet continu de la bouche jusqu'au sol, qu'il touche à `reach` (min, max) mètres
-//   devant la bouche selon la cible au lancer ; il suit le lanceur pendant `life` ticks.
-//   Les sorts d'une même attaque ne touchent qu'une fois.
-// - casts : (at: tick, spell, from: point de départ local, aim: Target | Forward | Ring,
-//   count, spread : éventail en degrés (projectiles) ou rayon en mètres (éruptions),
-//   step : écart des éruptions en ligne, delay_step : retard de chaque éruption sur la précédente).
-// - min_angle : attaque vers l'arrière (coup de queue) : la cible doit être au moins à cet angle.
-// - side : Left | Right, côté où doit se trouver la cible (pivots).
-// - motion.turn : rotation sur place pendant le segment (degrés, positif = vers la gauche).
-// - heading_slack : grande bête qui ne vise pas exactement sa cible (degrés de tolérance) ;
-//   elle ne se tourne que quand la cible sort de ce cône, et n'avance que face à elle.
+// - model / scale / tint: model (assets/models/<model>.glb, tools/blender/trial_bosses.py),
+//   its scale and a tint. All distances (capsules, parts, spells) are in metres
+//   in the game, so at the model's scale.
+// - minor: supporting role (the butcher's dogs): small bar above it, and its death
+//   isn't required for victory. When one lead falls, the other enters phase 2.
+// - keep_away: within this distance, it backs away (spellcaster).
+// - parts: hittable zones on top of the body, and lockable points (right stick
+//   or mouse to switch between them). `bone`: the model object followed by the reticle.
+// - spells: spells cast by the attacks' `casts`. Bolt: projectile (speed, homing in
+//   degrees/s, life in ticks, delay: ticks hanging where it appears before heading for its target);
+//   if it crashes on the ground, it keeps burning there for a while. Eruption: column bursting from the ground after `delay` ticks
+//   of warning (area marked on the ground), lasting `life` ticks; neither guard nor parry.
+//   Beam: continuous stream from the mouth to the ground, which it hits `reach` (min, max) metres
+//   in front of the mouth depending on the target at cast time; it follows the caster for `life` ticks.
+//   Spells from the same attack only hit once.
+// - casts: (at: tick, spell, from: local starting point, aim: Target | Forward | Ring,
+//   count, spread: fan in degrees (projectiles) or radius in metres (eruptions),
+//   step: spacing of eruptions in a line, delay_step: delay of each eruption after the previous one).
+// - min_angle: backwards attack (tail swipe): the target must be at least at this angle.
+// - side: Left | Right, side where the target must be (pivots).
+// - motion.turn: rotation in place during the segment (degrees, positive = to the left).
+// - heading_slack: large beast that doesn't aim exactly at its target (degrees of tolerance);
+//   it only turns when the target leaves this cone, and only advances when facing it.
 (
     encounters: [
         (name: (en: "The Ash Wyrm", fr: "La Wyverne de Cendre"), embers: 2400,
@@ -41,11 +41,11 @@
     ],
 
     bosses: [
-        // ================================================================= wyverne de cendre
-        // Immense : on verrouille sa tête, ses pattes ou sa queue. Elle ne vise pas : c'est une
-        // grosse bête qui avance à peu près vers sa proie. Devant elle, coup de tête ou plaquage ;
-        // sur son flanc, elle pivote d'un quart de tour en fouettant de la queue ; derrière, la
-        // queue balaie. De loin, un jet de feu ; en phase 2, elle s'envole.
+        // ================================================================= ash wyvern
+        // Huge: you lock onto its head, legs or tail. It doesn't aim: it's a
+        // big beast that moves roughly towards its prey. In front of it, headbutt or body slam;
+        // on its flank, it pivots a quarter turn whipping its tail; behind, the
+        // tail sweeps. From afar, a fire stream; in phase 2, it takes flight.
         (
             key: "dragon", model: "dragon", scale: 1.5,
             name: (en: "The Ash Wyrm", fr: "La Wyverne de Cendre"),
@@ -78,8 +78,8 @@
             ],
             attacks: [
                 (
-                    // La tête se dresse, puis s'abat jusqu'au sol devant elle. Elle ne fait pas face
-                    // à sa cible (heading_slack) : elle se tourne vers elle en se dressant.
+                    // The head rears, then slams down to the ground in front of it. It doesn't face
+                    // its target (heading_slack): it turns towards it while rearing.
                     name: "coup_de_tete",
                     min_range: 0, max_range: 8.5, max_angle: 35, weight: 3, cooldown: 150, phases: [1, 2],
                     mv: (
@@ -90,7 +90,7 @@
                     ),
                 ),
                 (
-                    // Se dresse et se laisse tomber de tout son poids devant elle : on fuit sur le côté.
+                    // Rears up and lets itself fall with all its weight in front of it: flee to the side.
                     name: "plaquage",
                     min_range: 0, max_range: 7.5, max_angle: 45, weight: 3, cooldown: 320, phases: [1, 2],
                     mv: (
@@ -101,8 +101,8 @@
                     ),
                 ),
                 (
-                    // Cible sur son flanc gauche : elle pivote d'un quart de tour vers la droite, et
-                    // la queue balaie tout ce côté.
+                    // Target on its left flank: it pivots a quarter turn to the right, and
+                    // the tail sweeps that whole side.
                     name: "pivot_gauche",
                     min_range: 0, max_range: 10, min_angle: 60, max_angle: 140, side: Left, weight: 2, cooldown: 300,
                     phases: [1, 2],
@@ -125,7 +125,7 @@
                     ),
                 ),
                 (
-                    // Pour qui se cache derrière : la queue balaie tout l'arrière.
+                    // For those hiding behind: the tail sweeps the whole rear.
                     name: "queue",
                     min_range: 0, max_range: 12, max_angle: 180, min_angle: 130, weight: 2, cooldown: 320, phases: [1, 2],
                     mv: (
@@ -135,7 +135,7 @@
                     ),
                 ),
                 (
-                    // Un seul flot de feu, de sa gueule jusqu'au sol, qui ne suit sa cible que lentement.
+                    // A single stream of fire, from its maw to the ground, that only follows its target slowly.
                     name: "souffle",
                     min_range: 4, max_range: 15, max_angle: 25, weight: 3, cooldown: 420, phases: [1, 2],
                     mv: (
@@ -144,7 +144,7 @@
                     ),
                 ),
                 (
-                    // S'envole et retombe là où se tenait sa cible au décollage.
+                    // Takes flight and lands where its target stood at take-off.
                     name: "envol",
                     min_range: 5, max_range: 22, max_angle: 120, weight: 2, cooldown: 600, phases: [1, 2],
                     mv: (
@@ -155,7 +155,7 @@
                     ),
                 ),
                 (
-                    // S'élève hors d'atteinte et crache trois boules de feu sur sa cible, puis se pose.
+                    // Rises out of reach and spits three fireballs at its target, then lands.
                     name: "vol_de_feu",
                     min_range: 0, max_range: 24, max_angle: 180, weight: 2, cooldown: 720, phases: [1, 2],
                     mv: (
@@ -170,7 +170,7 @@
                 ),
                 // ---- Phase 2
                 (
-                    // Rugit vers le ciel : une pluie de braises s'abat autour de sa cible.
+                    // Roars at the sky: a rain of embers falls around its target.
                     name: "pluie_de_cendre",
                     min_range: 0, max_range: 22, max_angle: 180, weight: 2, cooldown: 720, phases: [2],
                     mv: (
@@ -181,7 +181,7 @@
             ],
         ),
 
-        // ================================================================= boucher cornu
+        // ================================================================= horned butcher
         (
             key: "butcher", model: "horned_butcher", scale: 1.15,
             name: (en: "The Horned Butcher", fr: "Le Boucher Cornu"),
@@ -205,7 +205,7 @@
                     mv: (
                         anim: "double_chop", total: 118, track_until: 60, track_rate: 110,
                         motion: [(start: 34, end: 42, speed: 1.8), (start: 64, end: 72, speed: 1.8)],
-                        // En diagonale : de l'épaule jusqu'au sol devant lui, en travers.
+                        // Diagonal: from the shoulder down to the ground in front of him, across.
                         hits: [
                             (start: 40, end: 46, damage: 95, hitstop: 5, arc: (-12, 14),
                              capsule: (a: (1.1, 2.6, 0.6), b: (-0.5, 0.4, 3.2), r: 0.4)),
@@ -221,13 +221,13 @@
                     mv: (
                         anim: "whirl", total: 130, track_until: 30, track_rate: 90,
                         motion: [(start: 46, end: 76, speed: 1.5)],
-                        // Penché, les couperets tendus à hauteur d'homme.
+                        // Leaning, cleavers held out at head height.
                         hits: [(start: 48, end: 76, damage: 110, hitstop: 5, arc: (-200, 200),
                                 capsule: (a: (0.0, 1.5, 0.8), b: (0.0, 1.2, 3.4), r: 0.4))],
                     ),
                 ),
                 (
-                    // Charge tête baissée, cornes en avant.
+                    // Charges head down, horns forward.
                     name: "charge",
                     min_range: 4.5, max_range: 13, max_angle: 30, weight: 3, cooldown: 300, phases: [1, 2],
                     mv: (
@@ -238,7 +238,7 @@
                     ),
                 ),
                 (
-                    // Les deux couperets ensemble, de tout son poids : le sol se fend.
+                    // Both cleavers together, with all his weight: the ground splits.
                     name: "fendoir",
                     min_range: 0, max_range: 4.2, max_angle: 40, weight: 2, cooldown: 420, phases: [1, 2],
                     mv: (
@@ -252,7 +252,7 @@
                     ),
                 ),
                 (
-                    // Bondit loin en arrière… puis charge, ou lance un couperet.
+                    // Leaps far back… then charges, or throws a cleaver.
                     name: "bond_arriere",
                     min_range: 0, max_range: 4.5, max_angle: 180, weight: 2, cooldown: 420, phases: [1, 2],
                     mv: (
@@ -262,7 +262,7 @@
                     next: [("charge", 0.5), ("lancer", 0.5)],
                 ),
                 (
-                    // Lance un couperet qui file vers sa cible (et revient à sa main).
+                    // Throws a cleaver that flies towards its target (and returns to his hand).
                     name: "lancer",
                     min_range: 6, max_range: 16, max_angle: 30, weight: 3, cooldown: 240, phases: [1, 2],
                     mv: (
@@ -292,7 +292,7 @@
             ],
         ),
         (
-            // Ses chiens : les mêmes que ceux du chemin, plus gros et plus hargneux.
+            // His dogs: the same as on the path, bigger and nastier.
             key: "butcher_hound", model: "hound", scale: 1.5, minor: true,
             name: (en: "Butcher's Hound", fr: "Chien du boucher"),
             max_hp: 300, phase2_at: 0, radius: 0.62, height: 1.35, mass: 1.6,
@@ -339,15 +339,15 @@
             ],
         ),
 
-        // ================================================================= l'allumeur et l'enclume
+        // ================================================================= the lamplighter and the anvil
         (
-            // Le magicien du duo : il garde ses distances et lance des lueurs.
+            // The duo's magician: he keeps his distance and throws glows.
             key: "lamplighter", model: "lamplighter",
             name: (en: "The Lamplighter", fr: "L'Allumeur"),
             max_hp: 1400, phase2_at: 0.4, radius: 0.55, height: 3.0, mass: 4,
             walk_speed: 1.9, strafe_speed: 2.0, turn_rate: 160, preferred_range: 8, keep_away: 5,
             stagger_max: 70, stagger_delay: 150, stagger_decay: 8, idle_ticks: (40, 90), aggro_ticks: 200,
-            embers: 0, color: (1.0, 0.58, 0.1),
+            embers: 0, color: (1.0, 0.84, 0.22),
             groggy: (anim: "groggy", total: 190),
             fatal_received: (anim: "fatal_received", total: 120),
             roar: (anim: "roar", total: 100, hyperarmor: (0, 100)),
@@ -370,7 +370,7 @@
                     ),
                 ),
                 (
-                    // Trois lueurs, l'une après l'autre : chacune vise là où se trouve sa cible.
+                    // Three glows, one after the other: each aims where its target is.
                     name: "salve",
                     min_range: 4, max_range: 22, max_angle: 40, weight: 2, cooldown: 260, phases: [1, 2],
                     mv: (
@@ -383,7 +383,7 @@
                     ),
                 ),
                 (
-                    // Plante sa perche : des fusées de lumière jaillissent sous sa cible.
+                    // Plants his pole: rockets of light burst out under his target.
                     name: "fusees",
                     min_range: 3, max_range: 22, max_angle: 180, weight: 2, cooldown: 300, phases: [1, 2],
                     mv: (
@@ -402,7 +402,7 @@
                     next: [("eclipse", 0.6)],
                 ),
                 (
-                    // S'éclipse en arrière d'un bond, puis tire.
+                    // Slips away with a leap backwards, then shoots.
                     name: "eclipse",
                     min_range: 0, max_range: 4.5, max_angle: 180, weight: 3, cooldown: 300, phases: [1, 2],
                     mv: (
@@ -412,7 +412,7 @@
                     next: [("trait", 0.7)],
                 ),
                 (
-                    // Il ne reste pas en place : il file de côté, puis tire souvent de là.
+                    // He doesn't stay still: he slides sideways, then often shoots from there.
                     name: "glissade_gauche",
                     min_range: 0, max_range: 24, max_angle: 180, weight: 2, cooldown: 200, phases: [1, 2],
                     mv: (
@@ -430,9 +430,9 @@
                     ),
                     next: [("trait", 0.5), ("fusees", 0.2)],
                 ),
-                // ---- Phase 2 (seul, ou blessé)
+                // ---- Phase 2 (alone, or wounded)
                 (
-                    // Lève sa lanterne : un cercle de lumière éclate autour de lui.
+                    // Raises his lantern: a circle of light bursts around him.
                     name: "nova",
                     min_range: 0, max_range: 6, max_angle: 180, weight: 3, cooldown: 360, phases: [2],
                     mv: (
@@ -452,13 +452,13 @@
             ],
         ),
         (
-            // Le forgeron : lent et massif, son marteau-enclume fend le sol.
+            // The smith: slow and massive, his anvil-hammer splits the ground.
             key: "anvil", model: "anvil",
             name: (en: "The Anvil", fr: "L'Enclume"),
             max_hp: 1800, phase2_at: 0.4, radius: 1.1, height: 3.2, mass: 14,
             walk_speed: 1.5, strafe_speed: 0.8, turn_rate: 100, preferred_range: 2.8,
             stagger_max: 120, stagger_delay: 180, stagger_decay: 7, idle_ticks: (40, 90), aggro_ticks: 240,
-            embers: 0, color: (1.0, 0.58, 0.1),
+            embers: 0, color: (1.0, 0.84, 0.22),
             groggy: (anim: "groggy", total: 200),
             fatal_received: (anim: "fatal_received", total: 120),
             roar: (anim: "roar", total: 110, hyperarmor: (0, 110)),
@@ -507,9 +507,9 @@
                                 capsule: (a: (0.0, 0.3, 1.0), b: (0.0, 0.3, 1.0), r: 5.0))],
                     ),
                 ),
-                // ---- Phase 2 (seul, ou blessé)
+                // ---- Phase 2 (alone, or wounded)
                 (
-                    // Le marteau frappe le sol : une traînée de braises file vers la cible.
+                    // The hammer strikes the ground: a trail of embers races towards the target.
                     name: "forge",
                     min_range: 2, max_range: 13, max_angle: 30, weight: 3, cooldown: 300, phases: [2],
                     mv: (
@@ -522,7 +522,7 @@
             ],
         ),
 
-        // ================================================================= grande marionnette
+        // ================================================================= great marionette
         (
             key: "marionette", model: "marionette", scale: 1.3,
             name: (en: "The Great Marionette", fr: "La Grande Marionnette"),
@@ -538,8 +538,8 @@
             spells: [
                 (name: "fil", kind: Eruption, element: Light, damage: 110, radius: 1.1, reaction: Heavy,
                  delay: 40, life: 14, hitstop: 5),
-                // Lancées de bras levés, bien au-dessus d'elle : elles restent un instant
-                // suspendues (on les voit venir), puis partent vers leur cible.
+                // Thrown with arms raised, well above her: they hang for a moment
+                // (you see them coming), then head for their target.
                 (name: "aiguille", kind: Bolt, element: Light, damage: 95, radius: 0.5, reaction: Heavy, speed: 12,
                  homing: 22, delay: 30, life: 150, hitstop: 4),
             ],
@@ -556,7 +556,7 @@
                     next: [("danse", 0.3)],
                 ),
                 (
-                    // Les fils la hissent, et la lâchent sur sa cible.
+                    // The strings hoist her, and drop her on her target.
                     name: "chute",
                     min_range: 4, max_range: 14, max_angle: 60, weight: 3, cooldown: 420, phases: [1, 2],
                     mv: (
@@ -590,8 +590,8 @@
                     ),
                 ),
                 (
-                    // Ses fils la hissent à la verticale, puis la lâchent de tout son poids : le sol
-                    // tremble tout autour d'elle.
+                    // Her strings hoist her straight up, then drop her with all her weight: the ground
+                    // shakes all around her.
                     name: "hissee",
                     min_range: 0, max_range: 5.5, max_angle: 180, weight: 3, cooldown: 380, phases: [1, 2],
                     mv: (
@@ -601,7 +601,7 @@
                     ),
                 ),
                 (
-                    // Elle se sait vulnérable : un bond de côté, en jetant deux aiguilles.
+                    // She knows she's vulnerable: a side hop, throwing two needles.
                     name: "bond_gauche",
                     min_range: 0, max_range: 12, max_angle: 180, weight: 3, cooldown: 260, phases: [1, 2],
                     mv: (
@@ -620,7 +620,7 @@
                     ),
                 ),
                 (
-                    // Un bond en arrière, loin de sa cible, en jetant deux aiguilles.
+                    // A leap backwards, away from her target, throwing two needles.
                     name: "bond_arriere",
                     min_range: 0, max_range: 12, max_angle: 180, weight: 3, cooldown: 260, phases: [1, 2],
                     mv: (
@@ -630,8 +630,8 @@
                     ),
                 ),
                 (
-                    // Ses fils la hissent tout là-haut (hors d'atteinte) : elle jette trois aiguilles
-                    // l'une après l'autre, puis se laisse tomber sur sa cible.
+                    // Her strings hoist her way up (out of reach): she throws three needles
+                    // one after the other, then drops onto her target.
                     name: "envolee",
                     min_range: 5, max_range: 18, max_angle: 180, weight: 2, cooldown: 720, phases: [1, 2],
                     mv: (
@@ -649,7 +649,7 @@
                 ),
                 // ---- Phase 2
                 (
-                    // Elle tire sur ses propres fils : ils s'abattent comme des lames autour de sa cible.
+                    // She pulls on her own strings: they slash down like blades around her target.
                     name: "fils",
                     min_range: 0, max_range: 20, max_angle: 180, weight: 3, cooldown: 400, phases: [2],
                     mv: (
@@ -660,10 +660,10 @@
             ],
         ),
 
-        // ================================================================= bête à l'échine creuse
+        // ================================================================= hollow-spined beast
         (
-            // Un lézard démesuré, ventre à terre : bras dorsaux, bonds, une queue pour qui tourne
-            // autour. Parfois elle se dresse et retombe : la glace jaillit du sol.
+            // An oversized lizard, belly to the ground: dorsal arms, leaps, a tail for those who circle
+            // around it. Sometimes it rears up and comes down: ice bursts from the ground.
             key: "spine_beast", model: "spine_beast", scale: 1.7,
             name: (en: "The Hollow-Spined Beast", fr: "La Bête à l'Échine Creuse"),
             max_hp: 4200, phase2_at: 0.5, radius: 2.0, height: 3.0, mass: 24,
@@ -676,7 +676,7 @@
             death: (anim: "death", total: 190),
             parts: [
                 (at: (0, 1.9, 4.6), r: 0.9, bone: "lock_head"),
-                // Verrouillage à la tête et à l'arrière-train (la queue bouge trop, le dos sert peu).
+                // Lock-on at the head and the hindquarters (the tail moves too much, the back is of little use).
                 (at: (0, 1.5, -2.4), r: 0.9, bone: "lock_hips"),
                 (at: (0, 2.7, 0.2), r: 1.0, lock: false),
                 (at: (0, 1.0, -5.5), r: 0.8, lock: false),
@@ -702,7 +702,7 @@
                     ),
                 ),
                 (
-                    // Les bras qui sortent du dos frappent l'un après l'autre.
+                    // The arms coming out of the back strike one after the other.
                     name: "griffes_dorsales",
                     min_range: 0, max_range: 6.5, max_angle: 60, weight: 3, cooldown: 140, phases: [1, 2],
                     mv: (
@@ -716,7 +716,7 @@
                     ),
                 ),
                 (
-                    // Cible sur son flanc : elle pivote d'un quart de tour, la queue fouette ce côté.
+                    // Target on its flank: it pivots a quarter turn, the tail whips that side.
                     name: "pivot_gauche",
                     min_range: 0, max_range: 9, min_angle: 45, max_angle: 140, side: Left, weight: 4, cooldown: 150,
                     phases: [1, 2],
@@ -759,7 +759,7 @@
                     next: [("morsure", 0.35)],
                 ),
                 (
-                    // Elle se dresse sur ses pattes arrière et retombe : la glace jaillit droit devant.
+                    // It rears on its hind legs and comes down: ice bursts straight ahead.
                     name: "fracas",
                     min_range: 0, max_range: 13, max_angle: 30, weight: 3, cooldown: 360, phases: [1, 2],
                     mv: (
@@ -789,7 +789,7 @@
                     ),
                 ),
                 (
-                    // Elle se dresse et hurle, retombe : deux cercles de glace jaillissent autour d'elle.
+                    // It rears up and howls, comes down: two circles of ice burst around it.
                     name: "hurlement",
                     min_range: 0, max_range: 9, max_angle: 180, weight: 2, cooldown: 600, phases: [2],
                     mv: (
@@ -803,9 +803,9 @@
             ],
         ),
 
-        // ================================================================= géant porte-flamme
+        // ================================================================= flame-bearing giant
         (
-            // La flamme qui brûle dans sa poitrine : piliers de feu, boules, vagues et anneaux.
+            // The flame burning in his chest: pillars of fire, balls, waves and rings.
             key: "giant", model: "giant", scale: 1.1,
             name: (en: "The Flame-Bearing Giant", fr: "Le Géant Porte-Flamme"),
             max_hp: 5000, phase2_at: 0.5, radius: 1.7, height: 6.4, mass: 30,
@@ -832,7 +832,7 @@
             ],
             attacks: [
                 (
-                    // La colonne s'abat, et le feu file droit devant.
+                    // The column comes down, and the fire races straight ahead.
                     name: "colonne",
                     min_range: 0, max_range: 6.0, max_angle: 40, weight: 3, cooldown: 160, phases: [1, 2],
                     mv: (
@@ -843,7 +843,7 @@
                     ),
                 ),
                 (
-                    // Trop près de lui : il bondit en arrière, puis jette le feu de sa poitrine.
+                    // Too close to him: he leaps back, then throws the fire from his chest.
                     name: "recul",
                     min_range: 0, max_range: 6.5, max_angle: 180, weight: 2, cooldown: 480, phases: [1, 2],
                     mv: (
@@ -853,7 +853,7 @@
                     next: [("boules", 0.8)],
                 ),
                 (
-                    // Lève la main : des piliers de feu jaillissent sous sa cible.
+                    // Raises his hand: pillars of fire burst out under his target.
                     name: "piliers",
                     min_range: 3, max_range: 24, max_angle: 180, weight: 3, cooldown: 300, phases: [1, 2],
                     mv: (
@@ -862,7 +862,7 @@
                     ),
                 ),
                 (
-                    // Arrache le feu de sa poitrine et le jette, trois fois de suite.
+                    // Tears the fire from his chest and throws it, three times in a row.
                     name: "boules",
                     min_range: 5, max_range: 24, max_angle: 40, weight: 3, cooldown: 280, phases: [1, 2],
                     mv: (
@@ -875,18 +875,18 @@
                     ),
                 ),
                 (
-                    // Frappe le sol du pied : deux anneaux de flammes autour de lui.
+                    // Stamps the ground: two rings of flames around him.
                     name: "anneaux",
                     min_range: 0, max_range: 6.5, max_angle: 180, weight: 2, cooldown: 420, phases: [1, 2],
                     mv: (
                         anim: "stomp", total: 132, track_until: 20, track_rate: 60, hyperarmor: (20, 90),
-                        // Le premier anneau est à ses pieds : on ne reste pas collé à lui.
+                        // The first ring is at his feet: don't stay glued to him.
                         casts: [(at: 58, spell: "flammes", aim: Ring, count: 7, spread: 2.2),
                                 (at: 72, spell: "flammes", aim: Ring, count: 13, spread: 4.8)],
                     ),
                 ),
                 (
-                    // Qui reste collé à lui : il lève le pied et l'abat, le sol se fend tout autour.
+                    // For those who stay glued to him: he raises his foot and brings it down, the ground splits all around.
                     name: "pietinement",
                     min_range: 0, max_range: 4.5, max_angle: 180, weight: 4, cooldown: 220, phases: [1, 2],
                     mv: (
@@ -896,7 +896,7 @@
                     ),
                 ),
                 (
-                    // La colonne balaie le sol devant lui, à hauteur de genou.
+                    // The column sweeps the ground in front of him, at knee height.
                     name: "balayage",
                     min_range: 0, max_range: 6.0, max_angle: 120, weight: 3, cooldown: 200, phases: [1, 2],
                     mv: (
@@ -907,7 +907,7 @@
                 ),
                 // ---- Phase 2
                 (
-                    // Le brasier de sa poitrine explose : flammes tout autour, puis jusqu'au mur.
+                    // The brazier in his chest explodes: flames all around, then up to the wall.
                     name: "brasier",
                     min_range: 0, max_range: 9, max_angle: 180, weight: 3, cooldown: 600, phases: [2],
                     mv: (
@@ -928,7 +928,7 @@
                     ),
                 ),
                 (
-                    // Une vague de flammes file droit vers sa cible.
+                    // A wave of flames races straight towards its target.
                     name: "vague",
                     min_range: 3, max_range: 18, max_angle: 30, weight: 3, cooldown: 300, phases: [2],
                     mv: (

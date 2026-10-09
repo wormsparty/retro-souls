@@ -1,8 +1,8 @@
-//! Langue de l'interface (anglais par défaut, français).
+//! Interface language (English by default, French).
 //!
-//! La langue courante est globale : les textes se traduisent là où ils sont affichés avec
-//! `tr("English", "Français")`, sans avoir à faire circuler les options partout. Elle suit
-//! `Settings::language` (voir `settings::apply_settings`).
+//! The current language is global: texts are translated where they're displayed with
+//! `tr("English", "Français")`, without having to pass the settings around everywhere. It follows
+//! `Settings::language` (see `settings::apply_settings`).
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -19,7 +19,7 @@ pub enum Lang {
 impl Lang {
     pub const ALL: [Lang; 2] = [Lang::En, Lang::Fr];
 
-    /// Nom de la langue dans cette langue (identique quelle que soit la langue courante).
+    /// Name of the language in that language (the same whatever the current language).
     pub fn native_name(self) -> &'static str {
         match self {
             Lang::En => "English",
@@ -41,7 +41,7 @@ pub fn set(l: Lang) {
     CURRENT.store(l as u8, Ordering::Relaxed);
 }
 
-/// Choisit le texte de la langue courante.
+/// Picks the text for the current language.
 pub fn tr(en: &'static str, fr: &'static str) -> &'static str {
     match current() {
         Lang::En => en,
@@ -49,7 +49,7 @@ pub fn tr(en: &'static str, fr: &'static str) -> &'static str {
     }
 }
 
-/// Texte des fichiers de données : une chaîne unique, ou une par langue
+/// Text from data files: a single string, or one per language
 /// (`name: (en: "Rapier", fr: "Rapière")`).
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
@@ -70,7 +70,7 @@ impl LText {
     }
 }
 
-/// Texte fixe d'un nœud d'interface, retraduit quand la langue change.
+/// Fixed text of a UI node, re-translated when the language changes.
 #[derive(Component, Clone)]
 pub struct Localized(pub LText);
 
@@ -84,7 +84,7 @@ pub struct LangPlugin;
 
 impl Plugin for LangPlugin {
     fn build(&self, app: &mut App) {
-        // Après `apply_settings` (PostUpdate), qui fixe la langue.
+        // After `apply_settings` (PostUpdate), which sets the language.
         app.add_systems(Last, update_localized);
     }
 }

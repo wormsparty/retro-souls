@@ -1,4 +1,4 @@
-//! Outils de réglage : overlay d'état, hitboxes, ralenti, boss passif.
+//! Tuning tools: state overlay, hitboxes, slow motion, passive boss.
 
 use bevy::prelude::*;
 
@@ -46,7 +46,7 @@ fn keys(
     mut reset: ResMut<crate::sim::ResetFight>,
 ) {
     if input.just_pressed(KeyCode::F5) {
-        // Recrée les combattants en gardant la progression (le boss repart de zéro).
+        // Respawns the fighters while keeping the progress (the boss starts over).
         reset.requested = true;
     }
     if input.just_pressed(KeyCode::F1) {
@@ -57,7 +57,7 @@ fn keys(
     }
     if input.just_pressed(KeyCode::F3) {
         ui.slow = !ui.slow;
-        // Ralenti : la sim tourne à 15 ticks/s, les timings en ticks restent identiques.
+        // Slow motion: the sim runs at 15 ticks/s, timings in ticks stay the same.
         fixed.set_timestep_hz(if ui.slow { TICK_HZ / 4.0 } else { TICK_HZ });
     }
     if input.just_pressed(KeyCode::F4) {
@@ -80,13 +80,13 @@ fn overlay(
         }
         return;
     }
-    let mut s = format!("tick {}{}{}\n", tick.0, if ui.slow { "  [RALENTI x0.25]" } else { "" }, if sim.boss_passive { "  [BOSS PASSIF]" } else { "" });
+    let mut s = format!("tick {}{}{}\n", tick.0, if ui.slow { "  [SLOW x0.25]" } else { "" }, if sim.boss_passive { "  [PASSIVE BOSS]" } else { "" });
     if let Ok((p, a)) = players.single() {
         let window = p.perfect_window(&tuning);
         let since = tick.0.saturating_sub(p.guard_start);
         let in_perfect = matches!(p.state, PState::Guard) && since <= window;
         s += &format!(
-            "joueur  {:?}  {:?} t{}\nendurance {:.0}  regain {:.0}  spéciale {:.0}\ngarde parfaite: fenêtre {} ticks (spam {}) {}\n",
+            "player  {:?}  {:?} t{}\nstamina {:.0}  regain {:.0}  special {:.0}\nperfect guard: window {} ticks (spam {}) {}\n",
             p.state,
             a.mv,
             a.tick,
@@ -102,7 +102,7 @@ fn overlay(
         let def: Option<&MoveDef> = a.def(&tuning);
         let next_hit = def.and_then(|d| d.hits.iter().find(|h| h.end > a.tick)).map(|h| h.start as i64 - a.tick as i64);
         s += &format!(
-            "boss  phase {}  {:?} t{}/{}  coup dans {:?}\nstagger {:.0}/{:.0}  pause {}\n",
+            "boss  phase {}  {:?} t{}/{}  hit in {:?}\nstagger {:.0}/{:.0}  pause {}\n",
             b.phase,
             a.mv,
             a.tick,
@@ -151,7 +151,7 @@ fn hitboxes(ui: Res<DebugUi>, tuning: Res<Tuning>, q: Query<(&Body, &Action)>, m
     }
 }
 
-/// Captures d'écran automatiques et pilote automatique, pour vérifier le rendu sans jouer :
+/// Automatic screenshots and autopilot, to check the rendering without playing:
 /// `SOULS_SHOTS=3,6,9 SOULS_SHOT_DIR=/tmp SOULS_AUTOPILOT=1 cargo run`
 pub struct AutoShotPlugin;
 
@@ -164,7 +164,7 @@ struct AutoShots {
 
 impl Plugin for AutoShotPlugin {
     fn build(&self, app: &mut App) {
-        // `SOULS_PERF=1` : temps de frame moyen et pire frame, chaque seconde, dans la console.
+        // `SOULS_PERF=1`: average frame time and worst frame, every second, in the console.
         if std::env::var("SOULS_PERF").is_ok() {
             app.init_resource::<PerfClock>()
                 .add_systems(First, |mut c: ResMut<PerfClock>| c.start = Some(std::time::Instant::now()))
@@ -175,17 +175,17 @@ impl Plugin for AutoShotPlugin {
         let dir = std::env::var("SOULS_SHOT_DIR").unwrap_or_else(|_| ".".into());
         app.insert_resource(AutoShots { times, dir, done: 0 })
             .add_systems(Update, autoshot.run_if(not(in_state(AppState::Loading))));
-        // `SOULS_PAD=1` : libellés manette.
+        // `SOULS_PAD=1`: gamepad labels.
         if std::env::var("SOULS_PAD").is_ok() {
             app.add_systems(PostStartup, |mut d: ResMut<crate::input::Device>| *d = crate::input::Device::Gamepad);
         }
-        // Pas d'écriture de sauvegarde pendant les captures ; `SOULS_TITLE` reste sur l'écran titre.
+        // No save writes during screenshots; `SOULS_TITLE` stays on the title screen.
         app.add_systems(PostStartup, |mut slot: ResMut<crate::save::SaveSlot>| slot.disabled = true);
         if std::env::var("SOULS_TITLE").is_err() {
             app.add_systems(OnEnter(AppState::Title), (|mut commands: Commands| {
                 commands.queue(|w: &mut World| {
                     crate::menu::launch(w, crate::menu::Launch::New);
-                    // Position de départ optionnelle : SOULS_START=x,z[,yaw en degrés].
+                    // Optional starting position: SOULS_START=x,z[,yaw in degrees].
                     let start = std::env::var("SOULS_START").ok().map(|s| {
                         s.split(',').filter_map(|p| p.trim().parse().ok()).collect::<Vec<f32>>()
                     });
@@ -194,14 +194,14 @@ impl Plugin for AutoShotPlugin {
                     {
                         p.pos = Some([v[0], v[1], v.get(2).copied().unwrap_or(0.0).to_radians()]);
                     }
-                    // Braises de départ optionnelles : SOULS_EMBERS=500 (braises laissées à la mort).
+                    // Optional starting embers: SOULS_EMBERS=500 (embers dropped on death).
                     if let (Some(n), Some(p)) = (
                         std::env::var("SOULS_EMBERS").ok().and_then(|h| h.parse().ok()),
                         w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
                     ) {
                         p.embers = n;
                     }
-                    // Braises laissées à la mort : SOULS_DROP=x,z,braises (cadavre).
+                    // Embers dropped on death: SOULS_DROP=x,z,embers (corpse).
                     let drop = std::env::var("SOULS_DROP").ok().map(|s| {
                         s.split(',').filter_map(|p| p.trim().parse().ok()).collect::<Vec<f32>>()
                     });
@@ -212,14 +212,14 @@ impl Plugin for AutoShotPlugin {
                             p.dropped = Some(crate::sim::encounter::Dropped { at: [x, y, z], embers: n as u32 });
                         }
                     }
-                    // Boss à l'essai dans l'arène : SOULS_BOSS=n (index dans `roster::ROSTER`).
+                    // Trial boss in the arena: SOULS_BOSS=n (index in `roster::ROSTER`).
                     if let (Some(n), Some(p)) = (
                         std::env::var("SOULS_BOSS").ok().and_then(|h| h.parse().ok()),
                         w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
                     ) {
                         p.boss_choice = n;
                     }
-                    // PV de départ optionnels : SOULS_HP=1 (vérifier la mort et la réapparition).
+                    // Optional starting HP: SOULS_HP=1 (check death and respawn).
                     if let (Some(hp), Some(p)) = (
                         std::env::var("SOULS_HP").ok().and_then(|h| h.parse().ok()),
                         w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
@@ -230,7 +230,7 @@ impl Plugin for AutoShotPlugin {
             })
             .after(crate::menu::enter_title));
         }
-        // `SOULS_REST=1` : appuie sur « interagir » une seconde après le début (repos au checkpoint).
+        // `SOULS_REST=1`: presses "interact" one second after the start (rest at the checkpoint).
         if std::env::var("SOULS_REST").is_ok() {
             app.add_systems(
                 FixedUpdate,
@@ -244,7 +244,7 @@ impl Plugin for AutoShotPlugin {
                 .run_if(in_state(AppState::Playing)),
             );
         }
-        // `SOULS_ATTACK=nom` : le boss qui la connaît enchaîne cette attaque dès qu'il est libre.
+        // `SOULS_ATTACK=name`: the boss that knows it chains this attack as soon as it's free.
         if let Ok(name) = std::env::var("SOULS_ATTACK") {
             app.add_systems(
                 FixedUpdate,
@@ -277,13 +277,13 @@ impl Plugin for AutoShotPlugin {
     }
 }
 
-/// Début de la frame (pour mesurer le temps CPU du monde principal).
+/// Start of the frame (to measure the main world's CPU time).
 #[derive(Resource, Default)]
 struct PerfClock {
     start: Option<std::time::Instant>,
-    /// Temps écoulé, pire frame, temps CPU cumulé du monde principal, frames.
+    /// Elapsed time, worst frame, cumulative CPU time of the main world, frames.
     acc: (f32, f32, f32, u32),
-    /// Frames de plus de 20 ms (saccades).
+    /// Frames over 20 ms (stutters).
     slow: u32,
 }
 
@@ -296,7 +296,7 @@ fn perf_log(time: Res<Time<Real>>, mut clock: ResMut<PerfClock>, entities: Query
     let (total, worst, main, frames) = clock.acc;
     if total >= 1.0 {
         info!(
-            "perf: {:.2} ms/frame en moyenne ({:.0} i/s), pire {:.2} ms ({} > 20 ms), monde principal {:.2} ms, {} entités",
+            "perf: {:.2} ms/frame on average ({:.0} fps), worst {:.2} ms ({} > 20 ms), main world {:.2} ms, {} entities",
             total / frames as f32 * 1000.0,
             frames as f32 / total,
             worst * 1000.0,

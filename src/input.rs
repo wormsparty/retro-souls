@@ -1,7 +1,7 @@
-//! Périphériques (clavier/souris, manette) → `PlayerInput` de la simulation.
+//! Devices (keyboard/mouse, gamepad) → the simulation's `PlayerInput`.
 //!
-//! Les appuis sont « verrouillés » entre deux ticks : un appui très bref, relâché entre deux
-//! ticks de simulation (écran 144 Hz…), n'est jamais perdu.
+//! Presses are "latched" between two ticks: a very short press, released between two
+//! simulation ticks (144 Hz screen…), is never lost.
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
@@ -14,16 +14,16 @@ use crate::settings::Settings;
 use crate::sim::input::{PlayerInput, PlayerInputs, btn};
 use crate::sim::player::Player;
 
-/// Boutons pressés depuis le dernier tick de simulation.
+/// Buttons pressed since the last simulation tick.
 #[derive(Resource, Default)]
 pub struct InputLatch {
     pressed: u16,
-    /// Boutons tenus à la fermeture d'un menu : ignorés jusqu'à ce qu'on les relâche
-    /// (le (A) qui valide le menu ne doit pas aussi agir en jeu).
+    /// Buttons held when a menu closes: ignored until they're released
+    /// (the (A) that confirms the menu must not also act in game).
     suppressed: u16,
 }
 
-/// Dernier périphérique utilisé (libellés du HUD, page d'aide).
+/// Last device used (HUD labels, help page).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Device {
     #[default]
@@ -31,7 +31,7 @@ pub enum Device {
     Gamepad,
 }
 
-/// Valeurs de caméra fournies par la souris / le stick droit pendant la frame.
+/// Camera values provided by the mouse / right stick during the frame.
 #[derive(Resource, Default)]
 pub struct LookInput {
     pub delta: Vec2,
@@ -50,7 +50,7 @@ impl Plugin for InputPlugin {
     }
 }
 
-/// `mouse` vaut `None` quand le curseur n'est pas capturé (le clic sert alors à le capturer).
+/// `mouse` is `None` when the cursor isn't captured (the click then captures it).
 fn keyboard_buttons(
     keys: &ButtonInput<KeyCode>,
     mouse: Option<&ButtonInput<MouseButton>>,
@@ -133,7 +133,7 @@ fn gamepad_buttons(g: &Gamepad, pressed: bool) -> u16 {
     b
 }
 
-/// Retient le dernier périphérique utilisé, en jeu comme dans les menus.
+/// Remembers the last device used, in game as in the menus.
 fn track_device(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -159,17 +159,17 @@ fn track_device(
     }
 }
 
-/// Changement de cible : un coup de stick droit (ou de souris) dans une des quatre directions.
+/// Target switching: a flick of the right stick (or mouse) in one of four directions.
 #[derive(Default)]
 struct Flick {
-    /// Le stick est revenu au centre depuis le dernier changement.
+    /// The stick has returned to the centre since the last switch.
     armed: bool,
-    /// Déplacement de la souris accumulé, et temps depuis le dernier changement.
+    /// Accumulated mouse movement, and time since the last switch.
     mouse: Vec2,
     cooldown: f32,
 }
 
-/// Seuils : stick poussé, stick revenu au centre, élan de souris (pixels).
+/// Thresholds: stick pushed, stick back at centre, mouse flick (pixels).
 const FLICK_ON: f32 = 0.65;
 const FLICK_OFF: f32 = 0.3;
 const FLICK_MOUSE: f32 = 90.0;
@@ -188,7 +188,7 @@ fn latch_presses(
     mut flick: Local<Flick>,
 ) {
     if menu.open {
-        // Les touches du menu ne doivent pas se retrouver dans le jeu à la fermeture.
+        // Menu keys must not leak into the game when it closes.
         latch.pressed = 0;
         latch.suppressed = u16::MAX;
         return;
@@ -199,7 +199,7 @@ fn latch_presses(
         latch.pressed |= gamepad_buttons(g, true);
     }
 
-    // Verrouillé, le stick droit et la souris ne tournent plus la caméra : ils changent de cible.
+    // Locked on, the right stick and the mouse no longer turn the camera: they switch targets.
     let locked = players.single().is_ok_and(|p| p.lock.is_some());
     flick.cooldown = (flick.cooldown - time.delta_secs()).max(0.0);
     let stick = gamepads.iter().map(|g| g.right_stick()).max_by(|a, b| a.length().total_cmp(&b.length())).unwrap_or(Vec2::ZERO);
@@ -210,14 +210,14 @@ fn latch_presses(
         flick.mouse = Vec2::ZERO;
         return;
     }
-    // Direction franche (y = vers le haut) : la plus marquée des deux composantes.
+    // Clear direction (y = up): the stronger of the two components.
     let mut dir = Vec2::ZERO;
     if flick.armed && stick.length() > FLICK_ON {
         flick.armed = false;
         dir = stick;
     }
     if grabbed {
-        // L'élan de la souris retombe s'il n'est pas assez franc (souris vers le haut : y < 0).
+        // The mouse flick decays if it isn't decisive enough (mouse upwards: y < 0).
         let delta = Vec2::new(motion.delta.x, -motion.delta.y);
         flick.mouse = flick.mouse * (-6.0 * time.delta_secs()).exp() + delta;
         if flick.mouse.max_element().max(-flick.mouse.min_element()) > FLICK_MOUSE && flick.cooldown <= 0.0 {
@@ -239,7 +239,7 @@ fn latch_presses(
     }
 }
 
-/// Construit l'input du joueur local pour le tick de simulation à venir.
+/// Builds the local player's input for the upcoming simulation tick.
 pub fn collect_local_input(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -316,7 +316,7 @@ fn read_look(
     look.delta = d;
 }
 
-/// Clic dans le jeu : capture la souris (Échap ouvre le menu, qui la libère).
+/// Click in the game: captures the mouse (Esc opens the menu, which releases it).
 fn grab_cursor(
     mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
     mouse: Res<ButtonInput<MouseButton>>,

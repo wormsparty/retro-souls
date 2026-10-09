@@ -1,7 +1,7 @@
-//! Petits fichiers texte persistants (options, sauvegarde) :
-//! - natif : `<nom>.ron` dans le dossier de config de l'OS
+//! Small persistent text files (settings, save):
+//! - native: `<name>.ron` in the OS config directory
 //!   (`~/.config/giants-flame/`, `%APPDATA%\giants-flame\`, `~/Library/Application Support/giants-flame/`) ;
-//! - web : `localStorage` du navigateur, clé `giants-flame.<nom>`.
+//! - web: the browser's `localStorage`, key `giants-flame.<name>`.
 
 #[cfg(target_arch = "wasm32")]
 fn local() -> Option<web_sys::Storage> {
@@ -41,7 +41,7 @@ pub fn read(name: &str) -> Option<String> {
     std::fs::read_to_string(path(name)?).ok()
 }
 
-/// Écrit via un fichier temporaire puis renomme : un arrêt brutal ne laisse pas de fichier tronqué.
+/// Writes through a temporary file then renames it: a hard shutdown never leaves a truncated file.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn write(name: &str, s: &str) {
     let Some(p) = path(name) else { return };
@@ -50,6 +50,6 @@ pub fn write(name: &str, s: &str) {
     }
     let tmp = p.with_extension("ron.tmp");
     if let Err(e) = std::fs::write(&tmp, s).and_then(|_| std::fs::rename(&tmp, &p)) {
-        bevy::log::warn!("impossible d'écrire {}: {e}", p.display());
+        bevy::log::warn!("cannot write {}: {e}", p.display());
     }
 }

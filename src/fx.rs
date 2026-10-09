@@ -1,6 +1,6 @@
-//! Retours sensoriels déclenchés par les événements de la simulation : sons, étincelles,
-//! tremblement de caméra, flash du boss, alertes au sol des attaques de zone. Et des particules
-//! d'ambiance : braises et cendres des brasiers, braises laissées à la mort, eau de la fontaine.
+//! Sensory feedback triggered by simulation events: sounds, sparks,
+//! camera shake, boss flash, ground warnings for area attacks. And ambient
+//! particles: embers and ash from braziers, embers dropped on death, fountain water.
 
 use bevy::prelude::*;
 
@@ -17,7 +17,7 @@ use crate::sim::items::Item;
 use crate::sim::{SimEvent, SimEvents, encounter, world};
 
 #[derive(Resource)]
-/// Sons chargés, et volume des effets (copié depuis les options à chaque frame).
+/// Loaded sounds, and effects volume (copied from the settings every frame).
 pub struct Sounds(std::collections::HashMap<&'static str, Handle<AudioSource>>, f32);
 
 #[derive(Resource)]
@@ -28,32 +28,32 @@ pub struct SparkAssets {
     hit: Handle<Ps1Material>,
     fury: Handle<Ps1Material>,
     heal: Handle<Ps1Material>,
-    /// Braises qui s'envolent (ennemi vaincu, checkpoint découvert).
+    /// Embers flying off (enemy defeated, checkpoint discovered).
     ember: Handle<Ps1Material>,
-    /// Braises d'ambiance : elles brillent à travers le brouillard.
+    /// Ambient embers: they shine through the fog.
     glow: Handle<Ps1Material>,
     ash: Handle<Ps1Material>,
     water: Handle<Ps1Material>,
-    /// Lueurs vertes du cadavre (braises perdues), lumière pâle des objets au sol : elles
-    /// brillent à travers le brouillard.
+    /// Green glows of the corpse (lost embers), pale light of items on the ground: they
+    /// shine through the fog.
     soul: Handle<Ps1Material>,
     wisp: Handle<Ps1Material>,
-    /// Anneau de rayon 1 couché au sol (onde de choc).
+    /// Ring of radius 1 lying on the ground (shockwave).
     ring: Handle<Mesh>,
-    /// Disque de rayon 1 couché au sol (alerte des éruptions).
+    /// Disc of radius 1 lying on the ground (eruption warning).
     disc: Handle<Mesh>,
-    /// Projectile (sphère de rayon 1), colonne d'éruption (cylindre de rayon 1, haut de 1).
+    /// Projectile (sphere of radius 1), eruption column (cylinder of radius 1, height 1).
     orb: Handle<Mesh>,
     column: Handle<Mesh>,
-    /// Matériaux des sorts, par élément : cœur lumineux, étincelles, alerte au sol.
+    /// Spell materials, per element: bright core, sparks, ground warning.
     spell: std::collections::HashMap<Element, SpellMats>,
-    /// Les mêmes à la couleur de chaque boss (index de sa définition) : ses sorts, ses ondes
-    /// de choc et ses alertes sont tous de sa couleur.
+    /// The same in each boss's colour (index of its definition): its spells, its
+    /// shockwaves and its warnings are all in its colour.
     boss: Vec<SpellMats>,
 }
 
 impl SparkAssets {
-    /// Matériaux d'un sort : la couleur de son lanceur, sauf le fer (couperet) qui reste du fer.
+    /// Materials of a spell: its caster's colour, except iron (cleaver) which stays iron.
     fn spell_mats(&self, element: Element, boss: u8) -> Option<&SpellMats> {
         if element == Element::Iron {
             return self.spell.get(&element);
@@ -64,35 +64,35 @@ impl SparkAssets {
 
 #[derive(Clone)]
 struct SpellMats {
-    /// Cœur éclatant, halo translucide autour.
+    /// Bright core, translucent halo around it.
     core: Handle<Ps1Material>,
     halo: Handle<Ps1Material>,
     spark: Handle<Ps1Material>,
-    /// Onde de choc (anneau opaque).
+    /// Shockwave (opaque ring).
     shock: Handle<Ps1Material>,
 }
 
-/// Rendu d'un sort (posé sur l'entité de simulation).
+/// Rendering of a spell (put on the simulation entity).
 #[derive(Component)]
 struct SpellVisual {
-    /// Éruption : contour et disque d'alerte, colonne (halo, cœur). Projectile : sphère (cœur),
-    /// halo ou lame (colonne), et la flaque qui brûle où il s'écrase (disque).
+    /// Eruption: warning outline and disc, column (halo, core). Projectile: sphere (core),
+    /// halo or blade (column), and the burning puddle where it crashes (disc).
     ring: Option<Entity>,
     fill: Option<Entity>,
     column: Option<Entity>,
     inner: Option<Entity>,
-    /// Étincelles émises (projectiles) : reliquat entre deux frames.
+    /// Emitted sparks (projectiles): remainder between two frames.
     trail: f32,
 }
 
-/// Alerte au sol d'une attaque de zone : contour du cercle (`fill: false`) et disque qui
-/// grandit jusqu'à l'impact (`fill: true`).
+/// Ground warning of an area attack: circle outline (`fill: false`) and disc that
+/// grows until the impact (`fill: true`).
 #[derive(Component)]
 struct AoeMarker {
     fill: bool,
 }
 
-/// Anneau de l'onde de choc, qui s'élargit et s'efface après l'impact.
+/// Shockwave ring, which widens and fades after the impact.
 #[derive(Component)]
 struct Shock {
     radius: f32,
@@ -107,12 +107,12 @@ struct Particle {
     life: f32,
     max: f32,
     gravity: f32,
-    /// Hauteur du sol sous le point d'émission (les étincelles y rebondissent).
+    /// Ground height under the emission point (sparks bounce there).
     floor: f32,
-    /// Oscillation horizontale (m/s) : cendres et braises qui dansent en montant.
+    /// Horizontal oscillation (m/s): ash and embers dancing as they rise.
     sway: f32,
     phase: f32,
-    /// Disparaît en touchant le sol (gouttes d'eau) au lieu de rebondir.
+    /// Disappears when touching the ground (water drops) instead of bouncing.
     splash: bool,
 }
 
@@ -122,12 +122,12 @@ impl Particle {
     }
 }
 
-/// Événements récents, consultables par le HUD (bannière, flash…).
+/// Recent events, readable by the HUD (banner, flash…).
 #[derive(Resource, Default)]
 pub struct FxState {
     pub perfect_flash: f32,
     pub fury_flash: f32,
-    /// Clignotement de la barre d'endurance quand une action est refusée.
+    /// Stamina bar blinking when an action is refused.
     pub no_stamina: f32,
     pub last: Vec<SimEvent>,
 }
@@ -163,7 +163,7 @@ fn setup(
         SOUNDS.iter().map(|s| (*s, server.load(format!("audio/{s}.wav")))).collect(),
         1.0,
     ));
-    // Disques et anneaux de rayon 1, couchés au sol (mis à l'échelle du rayon de la zone).
+    // Discs and rings of radius 1, lying on the ground (scaled to the area's radius).
     let flat = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
     let ring = meshes.add(Annulus::new(0.93, 1.0).mesh().resolution(40));
     let disc = meshes.add(Circle::new(1.0).mesh().resolution(40));
@@ -205,7 +205,7 @@ fn setup(
         .into_iter()
         .map(|(el, c, glow, halo)| (el, spell_mats(&mut mats, c, glow, halo)))
         .collect(),
-        // Cœur pâli vers le blanc, halo et lueur de la couleur du boss.
+        // Core paled towards white, halo and glow in the boss's colour.
         boss: tuning
             .bosses
             .iter()
@@ -235,7 +235,7 @@ fn setup(
     }
 }
 
-/// Matériaux d'un sort : cœur `c` qui luit de `glow`, halo translucide, étincelles, onde de choc.
+/// Materials of a spell: core `c` glowing with `glow`, translucent halo, sparks, shockwave.
 fn spell_mats(mats: &mut Assets<Ps1Material>, c: (f32, f32, f32), glow: (f32, f32, f32), halo: Color) -> SpellMats {
     let core = mats.add({
         let mut m = Ps1Material::unlit(Color::srgb(c.0, c.1, c.2));
@@ -271,7 +271,7 @@ pub fn play(commands: &mut Commands, sounds: &Sounds, name: &str, volume: f32) {
     }
 }
 
-/// Gerbe d'étincelles. `rise` : braises qui montent doucement au lieu de retomber.
+/// Burst of sparks. `rise`: embers that rise gently instead of falling back.
 #[allow(clippy::too_many_arguments)]
 fn burst(commands: &mut Commands, sp: &SparkAssets, mat: &Handle<Ps1Material>, pos: Vec3, n: usize, speed: f32, seed: u32, floor: f32) {
     spray(commands, sp, mat, pos, n, speed, seed, floor, false);
@@ -280,7 +280,7 @@ fn burst(commands: &mut Commands, sp: &SparkAssets, mat: &Handle<Ps1Material>, p
 #[allow(clippy::too_many_arguments)]
 fn spray(commands: &mut Commands, sp: &SparkAssets, mat: &Handle<Ps1Material>, pos: Vec3, n: usize, speed: f32, seed: u32, floor: f32, rise: bool) {
     for i in 0..n {
-        // Pseudo-aléatoire local (purement visuel, hors simulation).
+        // Local pseudo-random (purely visual, outside the simulation).
         let h = |k: u32| {
             let x = seed.wrapping_mul(747796405).wrapping_add((i as u32).wrapping_mul(2891336453)).wrapping_add(k.wrapping_mul(1013904223)) >> 9;
             (x & 0xffff) as f32 / 65535.0 * 2.0 - 1.0
@@ -317,7 +317,7 @@ pub fn consume_events(
     mut heard: Local<Vec<u32>>,
 ) {
     let floor = |p: Vec3| world::floor_at(&tuning, p.x, p.z, p.y - 1.0).unwrap_or(-1000.0);
-    // Un seul bruit par attaque, quel que soit son nombre de sorts.
+    // A single sound per attack, whatever its number of spells.
     let mut first = |key: u32| {
         let new = !heard.contains(&key);
         if new {
@@ -360,7 +360,7 @@ pub fn consume_events(
                 burst(&mut commands, &sparks, &sparks.hit, pos, if heavy { 16 } else { 8 }, 3.0, seed, floor(pos));
                 rig.shake = rig.shake.max(if on_player { 0.8 } else if heavy { 0.5 } else { 0.2 });
                 if !on_player {
-                    // Flash blanc sur le boss touché le plus proche du point d'impact.
+                    // White flash on the hit boss closest to the impact point.
                     if let Some((_, mut f)) = flashes
                         .iter_mut()
                         .min_by(|a, b| a.0.translation().distance(pos).total_cmp(&b.0.translation().distance(pos)))
@@ -462,7 +462,7 @@ pub fn consume_events(
             SimEvent::Shockwave { pos, radius, boss } => {
                 play(&mut commands, &sounds, "slam", 1.0);
                 rig.shake = rig.shake.max(1.0);
-                // À la couleur du boss, comme son cercle d'alerte.
+                // In the boss's colour, like its warning circle.
                 let m = sparks.boss.get(boss as usize);
                 let (ring, debris) = m.map_or((&sparks.fury, &sparks.guard), |m| (&m.shock, &m.spark));
                 commands.spawn((
@@ -473,7 +473,7 @@ pub fn consume_events(
                         .with_scale(Vec3::splat(0.3)),
                     Shock { radius, life: SHOCK_LIFE },
                 ));
-                // Gerbe de débris tout autour du cercle.
+                // Burst of debris all around the circle.
                 let n = (radius * 8.0) as usize;
                 for i in 0..n {
                     let a = i as f32 / n as f32 * std::f32::consts::TAU;
@@ -512,14 +512,14 @@ pub fn consume_events(
                     burst(&mut commands, &sparks, &m.spark, pos + Vec3::Y * 0.2, n, 5.0, seed ^ 0x5bd1, floor(pos));
                 }
             }
-            // Nouveaux combattants : la caméra se recale derrière le joueur.
+            // New fighters: the camera snaps back behind the player.
             SimEvent::Respawned => rig.initialized = false,
         }
     }
 }
 
-/// Place l'alerte au sol de la prochaine attaque de zone du boss (contour fixe, disque qui
-/// se remplit jusqu'à l'impact, clignotement à l'approche).
+/// Places the ground warning of the boss's next area attack (fixed outline, disc that
+/// fills up until the impact, blinking as it approaches).
 fn aoe_markers(
     tuning: Res<Tuning>,
     time: Res<Time>,
@@ -529,7 +529,7 @@ fn aoe_markers(
     mut locked: Local<Option<(Entity, u32, Vec3)>>,
 ) {
     let tele = bosses.iter().find_map(|(e, boss, b, a)| aoe_telegraph(b, a, &tuning).map(|t| (e, a.seq, boss.def(&tuning).color, t)));
-    // L'endroit est figé dès qu'il s'affiche : le cercle ne bouge plus jusqu'à l'impact.
+    // The spot is frozen as soon as it's shown: the circle no longer moves until the impact.
     let tele = tele.map(|(e, seq, color, (pos, r, k))| {
         let pos = match *locked {
             Some((le, ls, lp)) if le == e && ls == seq => lp,
@@ -602,36 +602,36 @@ fn update_particles(mut commands: Commands, time: Res<Time>, mut q: Query<(Entit
     }
 }
 
-/// Hauteur des braises d'un brasier de checkpoint au-dessus du sol (`tools/blender/arena.py`).
+/// Height of a checkpoint brazier's embers above the ground (`tools/blender/arena.py`).
 const COALS: f32 = 1.0;
-/// Fontaine (`tools/blender/arena.py`) : surface du bassin, vasque haute (rayon, hauteur de
-/// l'eau) et bec.
+/// Fountain (`tools/blender/arena.py`): basin surface, upper bowl (radius, water
+/// height) and spout.
 const FOUNTAIN_WATER: f32 = 0.42;
 const FOUNTAIN_BOWL: (f32, f32) = (0.78, 1.93);
 const FOUNTAIN_SPOUT: f32 = 2.2;
-/// Au-delà, le brouillard cache tout : pas de particules.
+/// Beyond this, the fog hides everything: no particles.
 const AMBIENT_RANGE: f32 = 50.0;
 
 #[derive(Clone, Copy)]
 enum Ambient {
-    /// Braises qui montent en dansant.
+    /// Embers rising and dancing.
     Ember,
-    /// Flocons de cendre, plus haut et plus lents.
+    /// Ash flakes, higher and slower.
     Ash,
-    /// Jet de la fontaine : il monte puis retombe dans la vasque.
+    /// Fountain jet: it rises then falls back into the bowl.
     Jet,
-    /// Eau qui déborde de la vasque et tombe en pluie dans le bassin.
+    /// Water overflowing the bowl and raining down into the basin.
     Spill,
-    /// Lueurs vertes qui montent du cadavre (braises perdues, à récupérer).
+    /// Green glows rising from the corpse (lost embers, to be recovered).
     Soul,
-    /// Étincelles pâles qui tournoient au-dessus d'un objet à ramasser.
+    /// Pale sparks swirling above an item to pick up.
     Wisp,
 }
 
-/// Particules d'ambiance, émises en continu (débit par seconde) près de la caméra : brasiers des
-/// checkpoints (un filet de braises tant qu'ils ne sont pas ranimés, puis une colonne de braises
-/// et de cendres visible de loin), braises laissées à la mort (vertes, comme les taches de sang
-/// des souls-like), objets à ramasser, fontaine.
+/// Ambient particles, emitted continuously (rate per second) near the camera: checkpoint
+/// braziers (a trickle of embers until they're rekindled, then a column of embers
+/// and ash visible from afar), embers dropped on death (green, like the bloodstains
+/// of souls-likes), items to pick up, fountain.
 #[allow(clippy::too_many_arguments)]
 fn ambient(
     mut commands: Commands,
@@ -679,7 +679,7 @@ fn ambient(
             acc[k] -= 1.0;
             *seed = seed.wrapping_add(1);
             let s = *seed;
-            // Pseudo-aléatoire local (purement visuel), dans [-1, 1].
+            // Local pseudo-random (purely visual), in [-1, 1].
             let h = |n: u32| {
                 let x = s.wrapping_mul(747796405).wrapping_add(n.wrapping_mul(2891336453)) ^ (k as u32).wrapping_mul(1013904223);
                 let x = (x ^ (x >> 15)).wrapping_mul(2246822519);
@@ -707,7 +707,7 @@ fn ambient(
                     (&sparks.soul, start, Particle::new(vel, 1.4 + h(7).abs() * 1.4, -0.2, -1000.0), 0.9 + h(8).abs() * 0.9)
                 }
                 Ambient::Wisp => {
-                    // Autour de la lueur, sur un petit cercle, elles montent en tournoyant.
+                    // Around the glow, on a small circle, they rise swirling.
                     let a = h(1) * std::f32::consts::PI;
                     let start = pos + Vec3::new(a.cos() * 0.18, h(2) * 0.1, a.sin() * 0.18);
                     let vel = Vec3::new(-a.sin() * 0.25, 0.45 + h(3).abs() * 0.4, a.cos() * 0.25);
@@ -736,11 +736,11 @@ fn ambient(
     }
 }
 
-/// Hauteur d'une colonne d'éruption, selon son rayon.
+/// Height of an eruption column, according to its radius.
 const COLUMN_HEIGHT: f32 = 3.2;
 
-/// Sorts : projectiles lumineux et leur traînée ; éruptions annoncées par un cercle au sol qui
-/// se remplit, puis une colonne qui jaillit et retombe.
+/// Spells: glowing projectiles and their trail; eruptions announced by a ground circle that
+/// fills up, then a column that bursts out and falls back.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn spell_visuals(
     mut commands: Commands,
@@ -754,7 +754,7 @@ fn spell_visuals(
     mut roots: Query<&mut Transform, With<Spell>>,
 ) {
     let t = &*tuning;
-    // Les sorts s'arrêtent en pause (leurs étincelles, non).
+    // Spells stop when paused (their sparks don't).
     let over = clock.over;
     let dt = time.delta_secs();
     let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
@@ -763,7 +763,7 @@ fn spell_visuals(
         let Some(m) = sparks.spell_mats(sd.element, s.boss) else { continue };
         let pos = s.prev.lerp(s.pos, over);
         let Some(mut vis) = vis else {
-            // Nouveau sort : son rendu.
+            // New spell: its rendering.
             let mut ec = commands.entity(e);
             ec.insert((Transform::from_translation(pos), Visibility::default()));
             let mut v = SpellVisual { ring: None, fill: None, column: None, inner: None, trail: 0.0 };
@@ -777,7 +777,7 @@ fn spell_visuals(
                             .spawn((Mesh3d(sparks.orb.clone()), MeshMaterial3d(m.halo.clone()), Transform::from_scale(Vec3::splat(sd.radius * 1.05)), ChildOf(e)))
                             .id()
                     } else {
-                        // Le couperet : une lame plate qui tournoie.
+                        // The cleaver: a flat spinning blade.
                         commands
                             .spawn((
                                 Mesh3d(sparks.mesh.clone()),
@@ -787,7 +787,7 @@ fn spell_visuals(
                             ))
                             .id()
                     };
-                    // La flaque qui brûle là où il s'écrase (cachée en vol).
+                    // The puddle burning where it crashes (hidden in flight).
                     let pool = commands
                         .spawn((
                             Mesh3d(sparks.disc.clone()),
@@ -804,7 +804,7 @@ fn spell_visuals(
                     (v.column, v.inner) = (Some(col(&m.halo)), Some(col(&m.core)));
                 }
                 SpellKind::Eruption => {
-                    // L'alerte au sol prend la couleur du boss lanceur (comme la colonne).
+                    // The ground warning takes the casting boss's colour (like the column).
                     let [r, g, b] = t.bosses[s.boss as usize].color;
                     let warn = Color::srgba(r, g, b, 0.9);
                     let blend = |c: Color| {
@@ -849,18 +849,18 @@ fn spell_visuals(
         if let Ok(mut tf) = roots.get_mut(e) {
             tf.translation = pos;
             if sd.kind == SpellKind::Bolt && sd.delay > 0 {
-                // Projectile suspendu avant de partir : il grossit sur place.
+                // Projectile hanging before launching: it grows on the spot.
                 let grow = ((s.age as f32 + over) / (sd.delay as f32 * 0.6)).clamp(0.05, 1.0);
                 tf.scale = Vec3::splat(grow);
             }
             if sd.kind == SpellKind::Bolt && s.landed.is_none() {
-                // Le couperet tournoie, les boules de feu roulent.
+                // The cleaver spins, the fireballs roll.
                 tf.rotate_y(clock.dt * if sd.element == Element::Iron { 22.0 } else { 6.0 });
             }
         }
         match sd.kind {
             SpellKind::Bolt if s.landed.is_some() => {
-                // Écrasé au sol : le projectile disparaît, une flaque brûle puis s'éteint.
+                // Crashed on the ground: the projectile disappears, a puddle burns then dies out.
                 for id in [vis.inner, vis.column].into_iter().flatten() {
                     if let Ok((_, mut v, _)) = parts.get_mut(id) {
                         *v = Visibility::Hidden;
@@ -896,7 +896,7 @@ fn spell_visuals(
                 }
             }
             SpellKind::Beam => {
-                // Un flot épais de la bouche jusqu'au sol, qui s'y étale en gerbes.
+                // A thick stream from the mouth to the ground, spreading there in bursts.
                 let d = s.end - pos;
                 let len = d.length().max(0.01);
                 let rot = Quat::from_rotation_arc(Vec3::Y, d / len);
@@ -942,7 +942,7 @@ fn spell_visuals(
                 if since < 0.0 {
                     continue;
                 }
-                // Jaillit d'un coup, puis s'amincit et retombe ; le cœur, plus fin, monte plus haut.
+                // Bursts out at once, then thins and falls back; the core, thinner, rises higher.
                 let life = sd.life.max(1) as f32;
                 let f = (since / life).clamp(0.0, 1.0);
                 let h = COLUMN_HEIGHT * (sd.radius * 0.6 + 0.5) * (1.0 - f * f) * (since / 3.0).min(1.0);

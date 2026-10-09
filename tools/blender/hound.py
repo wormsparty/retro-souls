@@ -1,8 +1,8 @@
-"""Génère assets/models/hound.glb : chien errant famélique (~0,9 m au garrot) + animations.
+"""Generates assets/models/hound.glb: a starving stray dog (~0.9 m at the withers) + animations.
 
 blender -b --factory-startup -P tools/blender/hound.py
 
-Les attaques sont calées sur les timings de assets/config/enemies.ron (type « hound »).
+Attacks are timed on the timings in assets/config/enemies.ron (type "hound").
 """
 
 import os
@@ -27,11 +27,11 @@ R, L = -1, 1
 
 
 def body_geo(mb):
-    # Poitrail haut et profond, ventre creusé, croupe plus basse : silhouette de lévrier affamé.
+    # High, deep chest, hollow belly, lower rump: silhouette of a starving greyhound.
     mb.box((0, -0.2, 0.58), (0.26, 0.42, 0.34), RIBS, taper=(0.9, 1.0))
     mb.box((0, 0.2, 0.6), (0.22, 0.4, 0.22), FUR, taper=(1.0, 1.0), shift_top=(0, 0.02))
     mb.box((0, 0.42, 0.6), (0.24, 0.16, 0.24), FUR)
-    # Échine saillante.
+    # Protruding spine.
     for i in range(6):
         mb.box((0, -0.3 + i * 0.14, 0.77 - abs(i - 2) * 0.01), (0.05, 0.06, 0.05), BONE)
     mb.box((0, -0.36, 0.7), (0.29, 0.1, 0.12), COLLAR)
@@ -84,11 +84,11 @@ for side, s in (("R", R), ("L", L)):
         rig.part(f"{end}_low_{side}", (s * 0.1, y, mid), f"{end}_{side}", build=lo)
 
 # ----------------------------------------------------------------------------- poses
-# Rotation X positive : une patte pendante part vers l'arrière ; le corps, la tête piquent du nez.
+# Positive X rotation: a hanging leg swings backwards; the body and head dip forward.
 
 
 def legs(fr=0, fl=0, hr=0, hl=0, bend=(0, 0, 0, 0)):
-    """Angles des quatre pattes (avant droite, avant gauche, arrière droite, arrière gauche)."""
+    """Angles of the four legs (front right, front left, back right, back left)."""
     br, bl, hbr, hbl = bend
     return {
         "front_R": (fr, 0, 0), "front_low_R": (br, 0, 0),
@@ -103,7 +103,7 @@ def body(r=(0, 0, 0), t=(0, 0, 0)):
 
 
 STAND = merge(legs(-4, -4, 6, 6, (6, 6, -14, -14)), {"neck": (-8, 0, 0), "head": (14, 0, 0), "tail": (10, 0, 0)})
-# Tête basse, babines retroussées : il grogne.
+# Head low, lips curled back: it growls.
 GROWL = merge(STAND, body((6, 0, 0), (0, 0.04, -0.04)), {"neck": (14, 0, 0), "head": (0, 0, 0), "jaw": (12, 0, 0)},
               legs(-14, -4, 18, 8, (14, 6, -24, -18)))
 markers = {}
@@ -125,12 +125,12 @@ for k in range(5):
                                body((0, 0, 4 * ph), (0, 0, -0.01 * abs(ph))))))
 anim("walk", walk, loop=True)
 
-# Galop : les pattes avant ensemble, puis les arrière ; le corps se cambre et s'étire.
+# Gallop: front legs together, then the hind ones; the body arches and stretches.
 GATHER = merge(STAND, legs(30, 24, -40, -34, (40, 36, -50, -44)), body((-6, 0, 0), (0, 0, -0.05)), {"head": (24, 0, 0), "tail": (-10, 0, 0)})
 STRETCH = merge(STAND, legs(-50, -44, 46, 40, (10, 8, -10, -8)), body((6, 0, 0), (0, 0, 0.06)), {"head": (6, 0, 0), "tail": (30, 0, 0)})
 anim("run", [(0, GATHER), (8, merge(STRETCH, body((2, 0, 0), (0, 0, 0.1)))), (16, STRETCH), (24, GATHER)], loop=True)
 
-# Endormi : couché en boule, la tête sur les pattes ; il respire.
+# Asleep: curled up in a ball, head on its paws; it breathes.
 LYING = merge(legs(-80, -76, 70, 74, (100, 96, -120, -116)), body((0, 4, 0), (0, 0, -0.36)),
               {"neck": (14, 0, 0), "head": (20, 0, -8), "tail": (60, 0, 50)})
 anim("sleep", [(0, LYING), (60, merge(LYING, body((-2, 4, 0), (0, 0, -0.345)))), (120, LYING)], loop=True)
@@ -168,7 +168,7 @@ anim("death", [(0, GROWL), (6, RECOIL), (22, merge(SIDE, body((0, 50, 0), (0, 0.
 
 missing = sorted(set(T) - set(markers))
 if missing:
-    raise SystemExit(f"animations manquantes : {missing}")
+    raise SystemExit(f"missing animations: {missing}")
 
 rest_pose(rig)
 export("hound", markers)

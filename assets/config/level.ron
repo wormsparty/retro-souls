@@ -1,53 +1,53 @@
-// Le niveau autour de l'arène : des ruines suspendues au-dessus du vide.
+// The level around the arena: ruins hanging above the void.
 //
-// Repère : x, z au sol (l'arène est centrée en (0, 0), son ouverture regarde vers -z), y = hauteur.
-// - floors : sols praticables. `Ellipse` (place, plates-formes) ou `Strip` (bande droite de
-//   `from` à `to`, en (x, z, y) : pont, rampe, escalier). `walled` : bords murés (on y bute) ;
-//   sinon, au-delà du bord, c'est le vide et la chute. `arena` : interdit aux ennemis du chemin.
-//   Les bandes doivent entrer dans les sols qu'elles relient, à la même hauteur.
-// - checkpoints : brasiers. La première est le point de départ d'une nouvelle partie. `look` :
-//   point vers lequel on regarde en y réapparaissant (la suite du chemin).
-// - props : décor (les collisions sont définies dans le code, `Prop::colliders`).
-// - enemies : types définis dans enemies.ron. Ils réapparaissent au repos et à la mort, sauf
-//   les `unique`. `group` : ils donnent l'alerte ensemble.
-// - pickups : objets qui brillent au sol, ramassés une fois pour toutes.
+// Frame: x, z on the ground (the arena is centred on (0, 0), its opening faces -z), y = height.
+// - floors: walkable floors. `Ellipse` (square, platforms) or `Strip` (straight strip from
+//   `from` to `to`, in (x, z, y): bridge, ramp, stairs). `walled`: walled edges (you bump into them);
+//   otherwise, past the edge, it's the void and the fall. `arena`: off-limits to path enemies.
+//   Strips must go into the floors they connect, at the same height.
+// - checkpoints: braziers. The first one is the starting point of a new game. `look`:
+//   point you face when respawning there (the way forward).
+// - props: decor (collisions are defined in code, `Prop::colliders`).
+// - enemies: types defined in enemies.ron. They respawn on rest and on death, except
+//   the `unique` ones. `group`: they raise the alarm together.
+// - pickups: items glowing on the ground, picked up once and for all.
 //
-// Le décor (tools/blender/arena.py) est généré à partir de ce fichier : relancer
-// tools/build_assets.sh après une modification de la géométrie.
+// The scenery (tools/blender/arena.py) is generated from this file: rerun
+// tools/build_assets.sh after changing the geometry.
 (
     floors: [
-        // Palier devant l'ouverture de l'arène, puis escalier vers la place.
+        // Landing in front of the arena opening, then stairs down to the square.
         (shape: Strip(from: (0, -15.0, 0), to: (0, -18.6, 0), half_width: 1.6), walled: true, arena: true),
         (shape: Strip(from: (0, -18.6, 0), to: (0, -23.4, -2.4), half_width: 1.6), walled: true, steps: 8),
-        // Palier au pied de l'escalier : plus large que lui (ses balustrades y reposent), il
-        // commence sous la dernière marche ; sinon il reste un coin de vide entre le bout des
-        // balustrades et le bord de la place.
+        // Landing at the foot of the stairs: wider than them (their balustrades rest on it), it
+        // starts under the last step; otherwise a corner of void remains between the end of the
+        // balustrades and the edge of the square.
         (shape: Strip(from: (0, -23.0, -2.4), to: (0, -25.0, -2.4), half_width: 2.4)),
-        // Place des Allumeurs.
+        // Lamplighters' Square.
         (shape: Ellipse(center: (0, -31.5), radii: (10, 8), y: -2.4)),
-        // Pont vers le jardin de la fontaine (cul-de-sac à l'est de la place).
+        // Bridge to the fountain garden (dead end east of the square).
         (shape: Strip(from: (8.5, -33.0, -2.4), to: (14.8, -33.6, -2.4), half_width: 1.2), style: Bridge),
         (shape: Ellipse(center: (18.6, -33.8), radii: (4.4, 4.4), y: -2.4)),
-        // Pont vers le kiosque à musique.
+        // Bridge to the bandstand.
         (shape: Strip(from: (-3.5, -36.5, -2.4), to: (-9.6, -51.5, -2.4), half_width: 1.3), style: Bridge),
         (shape: Ellipse(center: (-10.5, -55), radii: (5, 5), y: -2.4)),
-        // Rampe vers les guichets.
+        // Ramp to the ticket booths.
         (shape: Strip(from: (-8, -58.5, -2.4), to: (-1.4, -67, -4.0), half_width: 1.6), style: Bridge),
         (shape: Ellipse(center: (1, -71), radii: (7, 5.5), y: -4.0)),
-        // Passerelle étroite vers une corniche, puis un saut vers un rocher (éclat de fiole).
+        // Narrow walkway to a ledge, then a jump to a rock (flask shard).
         (shape: Strip(from: (6.5, -70.5, -4.0), to: (14.5, -68, -4.0), half_width: 0.55), style: Planks),
         (shape: Ellipse(center: (16.5, -67.5), radii: (2.2, 2.2), y: -4.0)),
         (shape: Ellipse(center: (21.4, -66.6), radii: (1.3, 1.3), y: -4.0)),
-        // Long pont vers la piste.
+        // Long bridge to the track.
         (shape: Strip(from: (0.5, -75.5, -4.0), to: (5.7, -94.2, -5.2), half_width: 1.2), style: Bridge),
         (shape: Ellipse(center: (6.5, -99.5), radii: (6.5, 6.5), y: -5.2)),
-        // Planche étroite vers une corniche (talisman).
+        // Narrow plank to a ledge (talisman).
         (shape: Strip(from: (0.3, -101, -5.2), to: (-5.5, -103.5, -5.2), half_width: 0.4), style: Planks),
         (shape: Ellipse(center: (-7, -104), radii: (1.8, 1.8), y: -5.2)),
-        // Escalier vers le belvédère (second checkpoint), et le pont effondré au-delà.
+        // Stairs to the belvedere (second checkpoint), and the collapsed bridge beyond.
         (shape: Strip(from: (8, -105.5, -5.2), to: (9.5, -112, -3.4), half_width: 1.4), steps: 7),
         (shape: Ellipse(center: (10, -116), radii: (4.2, 4.2), y: -3.4)),
-        // Un rocher isolé à l'est du belvédère : il faut y sauter en courant (talisman).
+        // An isolated rock east of the belvedere: you have to jump to it at a run (talisman).
         (shape: Ellipse(center: (18.4, -115.2), radii: (1.6, 1.6), y: -3.4)),
         (shape: Strip(from: (10.5, -119.8, -3.4), to: (11.5, -124.5, -3.4), half_width: 1.2), style: Bridge),
     ],
@@ -55,58 +55,58 @@
     checkpoints: [
         (
             name: (en: "Lamplighters' Square", fr: "Place des Allumeurs"),
-            // On regarde l'escalier et la porte de l'arène.
+            // Facing the stairs and the arena gate.
             pos: (-4.8, -29.0), look: (0, -17.0),
             view: ((-8.5, -0.3, -24.8), (-4.0, -1.4, -30.0)),
         ),
         (
             name: (en: "Broken Belvedere", fr: "Belvédère brisé"),
-            // On regarde le pont effondré, au-delà.
+            // Facing the collapsed bridge, beyond.
             pos: (8.6, -115.2), look: (11.5, -124.5),
             view: ((6.0, -1.4, -109.5), (9.6, -2.6, -116.5)),
         ),
     ],
 
     props: [
-        // Place : deux réverbères au pied de l'escalier de l'arène, un au départ du pont.
+        // Square: two street lamps at the foot of the arena stairs, one at the start of the bridge.
         (kind: Lamp, pos: (4.3, -25.6)), (kind: Lamp, pos: (-4.3, -25.6)), (kind: Lamp, pos: (0, -38.3)),
         (kind: DeadLamp, pos: (-8.31, -29.74), yaw: -50),
         (kind: Bench, pos: (1.5, -37.8)), (kind: Bench, pos: (7.6, -29.2), yaw: -90),
-        // Jardin de la fontaine.
+        // Fountain garden.
         (kind: Fountain, pos: (19.0, -33.6)),
         (kind: Bench, pos: (17.0, -30.3), yaw: 180),
         (kind: DeadLamp, pos: (21.2, -31.0), yaw: 120),
-        // Kiosque à musique.
+        // Bandstand.
         (kind: Column, pos: (-6.7, -55.0)), (kind: Column, pos: (-7.81, -52.31)), (kind: Column, pos: (-13.19, -52.31)),
         (kind: Column, pos: (-14.3, -55.0)), (kind: Column, pos: (-13.19, -57.69)), (kind: Column, pos: (-10.5, -58.8)),
         (kind: Crates, pos: (-12.8, -52.2), yaw: 20),
         (kind: Lamp, pos: (-3.75, -62.0)),
-        // Guichets.
+        // Ticket booths.
         (kind: Booth, pos: (-2.8, -69.0), yaw: 30), (kind: Booth, pos: (3.2, -68.4), yaw: -20), (kind: Booth, pos: (-1.5, -74.0), yaw: 160),
         (kind: Lamp, pos: (5.5, -74.2)), (kind: Lamp, pos: (-4.8, -71.5)),
-        // Pont.
+        // Bridge.
         (kind: DeadLamp, pos: (1.1, -81.4), yaw: -60),
-        // Piste.
+        // Track.
         (kind: Lamp, pos: (11.35, -96.7)), (kind: Lamp, pos: (1.65, -96.7)), (kind: Lamp, pos: (1.65, -102.3)), (kind: Lamp, pos: (11.35, -102.3)),
         (kind: Crates, pos: (10.0, -95.0), yaw: -30),
-        // Belvédère.
+        // Belvedere.
         (kind: Lamp, pos: (12.8, -114.0)),
         (kind: Bench, pos: (11.8, -117.6), yaw: 160),
     ],
 
     enemies: [
-        // Kiosque : deux chiens endormis.
+        // Bandstand: two sleeping dogs.
         (kind: "hound", pos: (-11.5, -54.0), yaw: 20, asleep: true, group: 1),
         (kind: "hound", pos: (-9.5, -56.5), yaw: 200, asleep: true, group: 1),
-        // Guichets : un pantin qui guette, un pantin affaissé et un chien.
+        // Ticket booths: a watching puppet, a slumped puppet and a dog.
         (kind: "puppet", pos: (2.0, -70.5), yaw: 0, group: 2),
         (kind: "puppet", pos: (-3.0, -72.5), yaw: 30, asleep: true, group: 2),
         (kind: "hound", pos: (4.5, -72.8), yaw: -20, asleep: true, group: 2),
-        // Corniche de l'éclat de fiole : le chien attend qu'on soit sur la passerelle.
+        // Flask shard ledge: the dog waits until you're on the walkway.
         (kind: "hound", pos: (17.2, -67.0), yaw: 100, asleep: true, group: 3),
-        // Au milieu du long pont.
+        // In the middle of the long bridge.
         (kind: "puppet", pos: (3.1, -84.85), yaw: -15.5),
-        // Piste : le colosse.
+        // Track: the colossus.
         (kind: "colossus", pos: (6.5, -99.0), yaw: -10, unique: true),
     ],
 

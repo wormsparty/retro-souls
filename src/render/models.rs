@@ -1,5 +1,5 @@
-//! Chargement des modèles, création des visuels des combattants et pilotage des animations
-//! à partir de l'état de la simulation.
+//! Model loading, creation of the fighters' visuals and driving of the animations
+//! from the simulation state.
 
 use std::collections::HashMap;
 
@@ -19,17 +19,17 @@ use crate::sim::fighter::{Action, Body, Health, Hitstop, PrevBody};
 use crate::sim::player::{PState, Player};
 use crate::sim::{SimEntity, math, world};
 
-/// Noms des armes, dans l'ordre de `weapons.ron` (suffixe des clips et nom des modèles).
+/// Weapon names, in the order of `weapons.ron` (clip suffix and model name).
 pub const WEAPON_MODELS: [&str; 2] = ["rapier", "greatsword"];
 
-/// Modèles des ennemis (`EnemyDef::model`) et leurs marqueurs d'animation.
+/// Enemy models (`EnemyDef::model`) and their animation markers.
 pub const ENEMY_MODELS: [(&str, &str); 2] = [
     ("hound", include_str!("../../assets/models/hound.anim.json")),
     ("puppet", include_str!("../../assets/models/puppet.anim.json")),
 ];
 
-/// Modèles des autres boss (`bosses.ron`), en plus de l'Automate (`boss`) et des modèles
-/// d'ennemis (qu'un boss peut réutiliser : les chiens du boucher).
+/// Models of the other bosses (`bosses.ron`), in addition to the Automaton (`boss`) and the enemy
+/// models (which a boss can reuse: the butcher's dogs).
 pub const BOSS_MODELS: [(&str, &str); 7] = [
     ("dragon", include_str!("../../assets/models/dragon.anim.json")),
     ("horned_butcher", include_str!("../../assets/models/horned_butcher.anim.json")),
@@ -59,7 +59,7 @@ pub struct GameAssets {
 }
 
 impl GameAssets {
-    /// Modèle d'un boss (l'Automate, un modèle propre, ou un modèle d'ennemi réutilisé).
+    /// A boss's model (the Automaton, its own model, or a reused enemy model).
     fn boss_model(&self, model: &str) -> Option<&Handle<Gltf>> {
         if model == "boss" {
             return Some(&self.boss);
@@ -68,7 +68,7 @@ impl GameAssets {
     }
 }
 
-/// Graphe d'animation d'un modèle + correspondance nom de clip → nœud.
+/// Animation graph of a model + mapping from clip name → node.
 pub struct ModelAnims {
     pub graph: Handle<AnimationGraph>,
     pub nodes: HashMap<String, AnimationNodeIndex>,
@@ -99,18 +99,18 @@ pub enum VisualKind {
     Enemy,
     Weapon,
     Arena,
-    /// Cadavre du joueur, là où il a laissé ses braises.
+    /// The player's corpse, where they left their embers.
     Corpse,
 }
 
-/// Racine d'une scène glTF instanciée, et l'entité de simulation qu'elle représente.
+/// Root of an instantiated glTF scene, and the simulation entity it represents.
 #[derive(Component, Clone, Copy)]
 pub struct VisualScene {
     pub owner: Entity,
     pub kind: VisualKind,
 }
 
-/// État du pilotage d'animation, posé sur l'entité de simulation.
+/// Animation driving state, put on the simulation entity.
 #[derive(Component, Default)]
 pub struct AnimDriver {
     pub player: Option<Entity>,
@@ -124,7 +124,7 @@ pub struct WeaponVisual {
     pub index: u8,
 }
 
-/// Flash de teinte (impact) sur le boss et les ennemis.
+/// Tint flash (impact) on the boss and the enemies.
 #[derive(Component, Default)]
 pub struct TintFlash {
     pub white: f32,
@@ -133,29 +133,29 @@ pub struct TintFlash {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LightKind {
     Brazier,
-    /// Brasier du checkpoint (index) : une braise rougeoyante tant qu'il n'est pas ranimé.
+    /// Checkpoint brazier (index): a glowing ember until it's rekindled.
     Checkpoint(u8),
-    /// Réverbère.
+    /// Street lamp.
     Lamp,
 }
 
-/// Lumières de la scène (repérées par les empties `light_*` du décor).
+/// Scene lights (located by the scenery's `light_*` empties).
 #[derive(Resource, Default)]
 pub struct SceneLights(pub Vec<(Vec3, LightKind)>);
 
-/// Lueur d'un objet à ramasser (`level.pickups[i]`).
+/// Glow of an item to pick up (`level.pickups[i]`).
 #[derive(Component)]
 struct PickupGlow(usize);
 
-/// Braises d'un brasier de checkpoint (index) : éteintes tant qu'il n'est pas ranimé.
+/// Embers of a checkpoint brazier (index): unlit until it's rekindled.
 #[derive(Component)]
 struct CheckpointCoals(u8);
 
-/// Cadavre du joueur local, posé sur ses braises perdues (position et orientation).
+/// The local player's corpse, lying on their lost embers (position and orientation).
 #[derive(Component)]
 struct Corpse(Vec3);
 
-/// Brume qui ferme l'arène pendant le combat.
+/// Fog that closes the arena during the fight.
 #[derive(Component)]
 struct FogGate;
 
@@ -249,7 +249,7 @@ fn wait_for_assets(
 }
 
 fn scene_of(gltfs: &Assets<Gltf>, h: &Handle<Gltf>) -> Handle<bevy::world_serialization::WorldAsset> {
-    gltfs.get(h).and_then(|g| g.default_scene.clone()).expect("scène glTF manquante")
+    gltfs.get(h).and_then(|g| g.default_scene.clone()).expect("missing glTF scene")
 }
 
 fn spawn_arena(mut commands: Commands, assets: Res<GameAssets>, gltfs: Res<Assets<Gltf>>) {
@@ -261,7 +261,7 @@ fn spawn_arena(mut commands: Commands, assets: Res<GameAssets>, gltfs: Res<Asset
     ));
 }
 
-/// Ajoute les visuels aux entités de simulation nouvellement créées.
+/// Adds the visuals to newly created simulation entities.
 #[allow(clippy::type_complexity)]
 fn attach_visuals(
     mut commands: Commands,
@@ -326,7 +326,7 @@ fn on_scene_ready(
     let Ok(vs) = scenes.get(root) else { return };
     let Some(models) = models else { return };
     for d in children.iter_descendants(root) {
-        // Le décor est aussi filmé par la caméra d'aperçu du menu de voyage.
+        // The scenery is also filmed by the travel menu's preview camera.
         if vs.kind == VisualKind::Arena && meshes.contains(d) {
             commands.entity(d).insert(RenderLayers::from_layers(&[0, super::preview::PREVIEW_LAYER]));
         }
@@ -351,7 +351,7 @@ fn on_scene_ready(
             }
         }
         let Ok(name) = names.get(d) else { continue };
-        // Points verrouillables d'un grand boss qui suivent l'animation (tête, pattes…).
+        // Lockable points of a large boss that follow the animation (head, legs…).
         if vs.kind == VisualKind::Boss
             && let Ok(b) = bosses.get(vs.owner)
             && let Some(i) = b.def(&tuning).parts.iter().filter(|p| p.lock).position(|p| p.bone.as_deref() == Some(name.as_str()))
@@ -389,8 +389,8 @@ fn on_scene_ready(
     }
 }
 
-/// Convertit un tick de simulation en temps d'animation, en recalant les marqueurs
-/// (début/fin des coups) si le tuning a changé depuis la génération des animations.
+/// Converts a simulation tick to animation time, retiming the markers
+/// (start/end of hits) if the tuning has changed since the animations were generated.
 fn action_time(def: &MoveDef, tick: f32, m: &Marker) -> f32 {
     let mut sim = vec![0.0];
     for h in &def.hits {
@@ -464,11 +464,11 @@ fn drive_player_anims(
         let over = if hitstop.0 > 0 { 0.0 } else { clock.over };
         let speed = math::flat_len(body.pos - prev.pos) * 60.0;
         let (name, tm): (String, f32) = match p.state {
-            // Chute : bras écartés, figé au début de la réaction aux gros coups.
+            // Fall: arms spread, frozen at the start of the heavy-hit reaction.
             PState::Falling => ("hit_heavy".into(), 0.12),
             PState::Acting | PState::Dead => {
                 let Some(def) = action.def(t) else {
-                    // Mort : rester sur la dernière frame.
+                    // Death: stay on the last frame.
                     let m = &anims.markers["death"];
                     set_clip(&mut drv, anims, &mut players, "death", m.frames / 60.0);
                     continue;
@@ -531,17 +531,17 @@ fn drive_boss_anims(
             let m = anims.markers.get(&def.anim);
             (def.anim.clone(), m.map(|m| action_time(def, tick, m)).unwrap_or(tick / 60.0))
         } else {
-            // Vitesse ramenée à l'échelle du modèle (les pas sont animés à l'échelle 1).
+            // Speed brought to the model's scale (steps are animated at scale 1).
             let speed = math::flat_len(body.pos - prev.pos) * 60.0 / bd.scale;
             let walk = bd.walk_speed / bd.scale;
-            // Pivot sur place (radians/s) : il piétine en se tournant.
+            // Pivoting in place (radians/s): it shuffles its feet while turning.
             let turn = math::wrap(body.yaw - prev.yaw).abs() * 60.0;
             if speed > 2.5 && anims.nodes.contains_key("run") {
-                // Au galop (les chiens) : le cycle de course est animé pour ~4,5 m/s.
+                // Galloping (the dogs): the run cycle is animated for ~4.5 m/s.
                 ("run".to_string(), loop_time(&mut drv, anims, "run", dt, speed / 4.5))
             } else if speed > 0.2 || turn > 0.5 {
-                // Les pas reculés (lanceur de sorts) jouent la marche à l'envers ; de côté (ou en
-                // pivotant sur place), à l'endroit : sinon le sens bascule d'une frame à l'autre.
+                // Backward steps (spellcaster) play the walk in reverse; sideways (or when
+                // pivoting in place), forwards: otherwise the direction flips from one frame to the next.
                 let step = body.pos - prev.pos;
                 let back = math::forward(body.yaw).dot(step) < -0.7 * math::flat_len(step);
                 let rate = (speed / walk.max(0.1)).max(turn * 0.6);
@@ -601,9 +601,9 @@ fn weapon_visibility(owners: Query<&Player>, mut q: Query<(&WeaponVisual, &mut V
     }
 }
 
-/// Teinte des adversaires : lueur rouge pendant l'anticipation d'un coup imparable qu'aucun
-/// cercle n'annonce (attaque furie, jet de feu), teinte propre à certains ennemis, flash blanc
-/// à l'impact.
+/// Opponent tint: red glow during the wind-up of an unblockable hit that no
+/// circle announces (rage attack, fire stream), tint specific to some enemies, white flash
+/// on impact.
 #[allow(clippy::type_complexity)]
 fn foe_tint(
     mut commands: Commands,
@@ -636,7 +636,7 @@ fn foe_tint(
     }
 }
 
-/// Résine ardente : la lame rougeoie tant que l'effet dure.
+/// Ember resin: the blade glows red while the effect lasts.
 fn weapon_glow(
     mut commands: Commands,
     time: Res<Time>,
@@ -650,7 +650,7 @@ fn weapon_glow(
     for (e, w) in &weapons {
         let resin = owners.get(w.owner).map_or(0, |p| p.resin_ticks);
         let tint = if resin > 0 {
-            // Les dernières secondes, la lueur vacille.
+            // In the last seconds, the glow flickers.
             let fading = resin < 300 && (t * 8.0).sin() < 0.0;
             Vec4::new(1.0, 0.45, 0.1, if fading { 0.15 } else { 0.4 + 0.1 * (t * 11.0).sin() })
         } else {
@@ -660,9 +660,9 @@ fn weapon_glow(
     }
 }
 
-/// Lumières ponctuelles : le shader n'en gère que 4, on garde les plus proches de la caméra.
-/// Le vacillement est calculé par le shader : la liste ne change que si les lumières retenues
-/// changent (et seulement alors, tous les matériaux sont mis à jour).
+/// Point lights: the shader only handles 4, keep the ones closest to the camera.
+/// The flicker is computed by the shader: the list only changes if the kept lights
+/// change (and only then are all materials updated).
 fn flicker(
     scene: Res<SceneLights>,
     rig: Res<super::camera::CameraRig>,
@@ -675,13 +675,13 @@ fn flicker(
         .iter()
         .map(|(p, kind)| {
             let (radius, color, intensity, flicker) = match kind {
-                // Brasier ranimé : lumière dorée qui « respire » lentement. Sinon, une
-                // braise rouge à peine visible.
+                // Rekindled brazier: golden light that slowly "breathes". Otherwise, a
+                // barely visible red ember.
                 LightKind::Checkpoint(c) if found & (1 << c) != 0 => {
                     (8.0, Vec3::new(1.0, 0.82, 0.45), 1.2, Vec4::new(0.15, 1.6, 0.0, 0.0))
                 }
                 LightKind::Checkpoint(_) => (3.0, Vec3::new(1.0, 0.3, 0.1), 0.5, Vec4::new(0.2, 0.9, 0.0, 0.0)),
-                // Réverbère : lumière de gaz pâle, presque fixe.
+                // Street lamp: pale gas light, almost steady.
                 LightKind::Lamp => (7.5, Vec3::new(0.95, 0.88, 0.62), 0.95, Vec4::new(0.04, 3.0, 0.0, 0.0)),
                 LightKind::Brazier => (9.0, Vec3::new(1.0, 0.55, 0.22), 1.1, Vec4::new(0.15, 9.0, 0.1, 23.0)),
             };
@@ -690,7 +690,7 @@ fn flicker(
         .collect();
     lights.sort_by(|a, b| a.pos.distance_squared(rig.focus).total_cmp(&b.pos.distance_squared(rig.focus)));
     lights.truncate(4);
-    // Ordre stable : la liste ne change que si les lumières retenues changent.
+    // Stable order: the list only changes if the kept lights change.
     lights.sort_by(|a, b| (a.pos.x, a.pos.z).partial_cmp(&(b.pos.x, b.pos.z)).unwrap_or(std::cmp::Ordering::Equal));
     if lighting.lights != lights {
         lighting.lights = lights;
@@ -706,7 +706,7 @@ fn spawn_fog_gate(
     let a = &tuning.arena;
     let mut m = Ps1Material::unlit(Color::srgba(0.55, 0.58, 0.68, 0.3));
     m.alpha_mode = AlphaMode::Blend;
-    // Deux voiles légèrement décalés, pour un peu d'épaisseur.
+    // Two slightly offset veils, for a bit of thickness.
     let mesh = meshes.add(Rectangle::new(a.gate_half_width * 2.0 + 0.6, 4.2));
     let center = world::fog_gate(a) + Vec3::Y * 2.1;
     for (dz, flip) in [(0.0, false), (-0.25, true)] {
@@ -721,7 +721,7 @@ fn spawn_fog_gate(
     }
 }
 
-/// La brume n'apparaît que pendant le combat, et ondule doucement.
+/// The fog only appears during the fight, and ripples gently.
 fn fog_gate(
     time: Res<Time>,
     enc: Res<crate::sim::encounter::Encounter>,
@@ -742,10 +742,10 @@ fn fog_gate(
     }
 }
 
-/// Objets à ramasser : une lueur blanche qui palpite au ras du sol, comme dans les souls-like
-/// (on ne sait pas ce que c'est avant de l'avoir ramassé) : un cœur brillant dans un halo, et
-/// des étincelles qui tournoient en montant (`fx`). Tout brille à travers le brouillard : on
-/// les repère de loin.
+/// Items to pick up: a white glow pulsing just above the ground, as in souls-likes
+/// (you don't know what it is until you've picked it up): a bright core in a halo, and
+/// sparks swirling upwards (`fx`). Everything shines through the fog: you
+/// spot them from afar.
 fn spawn_pickups(
     mut commands: Commands,
     tuning: Res<Tuning>,
@@ -796,7 +796,7 @@ fn pickup_glows(
     }
 }
 
-/// Les braises d'un brasier pas encore ranimé ne sont qu'un tas de charbon à peine rougeoyant.
+/// The embers of a brazier not yet rekindled are just a barely glowing heap of coal.
 fn checkpoint_coals(
     mut commands: Commands,
     players: Query<&Player, With<LocalPlayer>>,
@@ -812,9 +812,9 @@ fn checkpoint_coals(
     }
 }
 
-/// Le cadavre du joueur : son modèle figé à la fin de l'animation de mort, nimbé de vert, là où il a
-/// laissé ses braises (les braises qui en montent sont dans `fx`). Il disparaît quand on les
-/// récupère, ou quand on meurt avant (elles sont alors perdues).
+/// The player's corpse: their model frozen at the end of the death animation, bathed in green, where they
+/// left their embers (the embers rising from it are in `fx`). It disappears when they're
+/// recovered, or when you die before that (they're then lost).
 #[allow(clippy::too_many_arguments)]
 fn corpse(
     mut commands: Commands,
@@ -841,14 +841,14 @@ fn corpse(
         if let Some(m) = anims.markers.get("death") {
             set_clip(&mut drv, anims, &mut anim_players, "death", m.frames / 60.0);
         }
-        // Une lueur verte qui palpite, comme les taches de sang des souls-like : on le repère
-        // de loin (les lueurs qui en montent sont dans `fx`).
+        // A pulsing green glow, like the bloodstains of souls-likes: you spot it
+        // from afar (the glows rising from it are in `fx`).
         let glow = 0.5 + 0.5 * (time.elapsed_secs() * 2.2).sin();
         let tint = Vec4::new(0.1, 0.55, 0.18, 0.7).lerp(Vec4::new(0.4, 1.0, 0.45, 0.8), glow);
         set_tint(&mut commands, e, tint, &children, &mut meshes, &mut materials);
     }
     if let (Some(pos), false) = (want, have) {
-        // Orientation pseudo-aléatoire mais stable (dépend de l'endroit).
+        // Pseudo-random but stable orientation (depends on the location).
         let yaw = (pos.x * 12.9898 + pos.z * 78.233).sin() * std::f32::consts::PI;
         let e = commands.spawn_empty().id();
         commands

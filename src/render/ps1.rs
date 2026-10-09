@@ -1,4 +1,4 @@
-//! Rendu « PS1 » : matériau dédié + rendu dans une petite texture agrandie sans filtrage.
+//! "PS1" rendering: dedicated material + rendering into a small texture upscaled without filtering.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::RenderTarget;
@@ -27,7 +27,7 @@ pub struct Ps1Params {
     pub fog_color: Vec4,
     pub fog: Vec4,
     pub misc: Vec4,
-    /// Par lumière : position + rayon, couleur + intensité, vacillement (voir `PointLightPs1`).
+    /// Per light: position + radius, colour + intensity, flicker (see `PointLightPs1`).
     pub lights: [Vec4; 12],
 }
 
@@ -59,20 +59,20 @@ impl Material for Ps1Material {
     }
 }
 
-/// Lumière ponctuelle (brasero) prise en compte par le matériau PS1.
+/// Point light (brazier) taken into account by the PS1 material.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PointLightPs1 {
     pub pos: Vec3,
     pub radius: f32,
     pub color: Vec3,
     pub intensity: f32,
-    /// Vacillement calculé par le shader (l'éclairage ne change donc pas à chaque frame) :
-    /// intensité + a1·sin(f1·t + φ) + a2·sin(f2·t + 2φ), φ dépendant de la position.
+    /// Flicker computed by the shader (so the lighting doesn't change every frame):
+    /// intensity + a1·sin(f1·t + φ) + a2·sin(f2·t + 2φ), with φ depending on the position.
     /// (a1, f1, a2, f2).
     pub flicker: Vec4,
 }
 
-/// Éclairage global, recopié dans tous les matériaux PS1 à chaque frame.
+/// Global lighting, copied into all PS1 materials every frame.
 #[derive(Resource, Clone, Debug)]
 pub struct Ps1Lighting {
     pub sun_dir: Vec3,
@@ -82,7 +82,7 @@ pub struct Ps1Lighting {
     pub fog_color: Vec3,
     pub fog_start: f32,
     pub fog_end: f32,
-    /// 1.0 = grille au pixel près ; plus petit = sommets plus « tremblants ».
+    /// 1.0 = pixel-exact grid; smaller = more "wobbly" vertices.
     pub snap: f32,
     pub dither: f32,
     pub lights: Vec<PointLightPs1>,
@@ -156,11 +156,11 @@ impl Ps1Material {
     }
 }
 
-/// Caméra 3D qui rend dans la texture basse résolution.
+/// 3D camera that renders into the low-resolution texture.
 #[derive(Component)]
 pub struct WorldCamera;
 
-/// Image plein écran qui affiche la texture basse résolution.
+/// Full-screen image that displays the low-resolution texture.
 #[derive(Component)]
 pub struct LowResScreen;
 
@@ -181,7 +181,7 @@ impl Plugin for Ps1Plugin {
     }
 }
 
-/// Taille de la résolution interne : hauteur choisie dans les options, largeur selon le ratio.
+/// Size of the internal resolution: height chosen in the settings, width from the aspect ratio.
 fn low_res_size(window: &Window, height: u32) -> UVec2 {
     let aspect = (window.width() / window.height().max(1.0)).clamp(1.0, 3.0);
     UVec2::new((height as f32 * aspect).round() as u32, height)
@@ -226,7 +226,7 @@ fn setup_low_res(
         Transform::from_xyz(0.0, 4.0, -16.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // Caméra d'affichage : l'image basse résolution + le HUD en pleine résolution.
+    // Display camera: the low-resolution image + the HUD at full resolution.
     commands.spawn((
         Camera2d,
         Camera { order: 0, clear_color: ClearColorConfig::Custom(Color::BLACK), ..default() },
@@ -268,9 +268,9 @@ fn resize_low_res(
     }
 }
 
-/// Recopie l'éclairage dans les matériaux : tous quand il change (rarement : le vacillement est
-/// calculé par le shader), sinon seulement les nouveaux. Réécrire chaque matériau à chaque
-/// frame force Bevy à tous les re-préparer, ce qui coûte très cher.
+/// Copies the lighting into the materials: all of them when it changes (rarely: the flicker is
+/// computed by the shader), otherwise only the new ones. Rewriting every material every
+/// frame forces Bevy to re-prepare them all, which is very expensive.
 fn sync_lighting(
     lighting: Res<Ps1Lighting>,
     mut events: MessageReader<AssetEvent<Ps1Material>>,
@@ -297,10 +297,10 @@ fn sync_lighting(
     }
 }
 
-/// Remplace les `StandardMaterial` (créés par le chargeur glTF) par des matériaux PS1, partagés
-/// par tous les meshes d'un même matériau d'origine : peu de matériaux à préparer, et des
-/// meshes dessinés ensemble. Un mesh à teinter (flash d'impact…) reçoit sa propre copie le
-/// temps de la teinte (`set_tint`).
+/// Replaces the `StandardMaterial`s (created by the glTF loader) with PS1 materials, shared
+/// by all meshes with the same original material: few materials to prepare, and meshes
+/// drawn together. A mesh to be tinted (hit flash…) gets its own copy for the
+/// duration of the tint (`set_tint`).
 fn swap_standard_materials(
     mut commands: Commands,
     q: Query<(Entity, &MeshMaterial3d<StandardMaterial>)>,
@@ -326,15 +326,15 @@ fn swap_standard_materials(
     }
 }
 
-/// Copie propre d'un matériau partagé, créée à la première teinte et gardée pour la suivante.
+/// Own copy of a shared material, created on the first tint and kept for the next one.
 #[derive(Component)]
 pub struct OwnMaterial(Handle<Ps1Material>);
 
-/// Meshes d'un modèle, pour `set_tint`.
+/// Meshes of a model, for `set_tint`.
 pub type TintMeshes<'w, 's> =
     Query<'w, 's, (&'static mut MeshMaterial3d<Ps1Material>, &'static Ps1Swapped, Option<&'static OwnMaterial>)>;
 
-/// Teinte tous les meshes sous `root`. Sans teinte, ils reviennent au matériau partagé.
+/// Tints all meshes under `root`. Without a tint, they go back to the shared material.
 pub fn set_tint(
     commands: &mut Commands,
     root: Entity,
@@ -372,6 +372,6 @@ pub fn set_tint(
     }
 }
 
-/// Marqueur posé sur les meshes dont le matériau a été converti (avec le matériau partagé).
+/// Marker put on meshes whose material has been converted (with the shared material).
 #[derive(Component)]
 pub struct Ps1Swapped(pub Handle<Ps1Material>);

@@ -1,6 +1,6 @@
-//! Exporte les timings des actions (tirés des RON) en JSON pour les scripts Blender,
-//! afin que les animations soient calées sur les frame data, ainsi que l'arène et le niveau
-//! (le décor est construit à partir des mêmes données que les collisions).
+//! Exports action timings (taken from the RONs) as JSON for the Blender scripts,
+//! so that animations line up with the frame data, along with the arena and the level
+//! (the scenery is built from the same data as the collisions).
 //!
 //! `cargo run --bin export_timings > tools/blender/timings.json`
 
@@ -42,8 +42,8 @@ fn main() {
     for a in &b.attacks {
         boss.insert(a.mv.anim.clone(), mv(&a.mv));
     }
-    // Autres boss : par modèle (sauf ceux qui réutilisent un modèle d'ennemi), le premier qui
-    // utilise une animation en donne les timings.
+    // Other bosses: per model (except those reusing an enemy model), the first one that
+    // uses an animation provides its timings.
     let mut bosses = Map::new();
     for b in t.bosses.iter().skip(1).filter(|b| !t.enemies.iter().any(|k| k.model == b.model)) {
         let Value::Object(m) = bosses.entry(b.model.clone()).or_insert_with(|| json!({})) else { continue };
@@ -51,8 +51,8 @@ fn main() {
             m.entry(d.anim.clone()).or_insert_with(|| mv(d));
         }
     }
-    // Ennemis : par modèle, le premier type qui l'utilise donne les timings des animations
-    // (les autres s'y recalent à l'exécution).
+    // Enemies: per model, the first type using it provides the animation timings
+    // (the others are retimed to them at runtime).
     let mut enemies = Map::new();
     for k in &t.enemies {
         let Value::Object(m) = enemies.entry(k.model.clone()).or_insert_with(|| json!({})) else { continue };
@@ -60,7 +60,7 @@ fn main() {
             m.entry(d.anim.clone()).or_insert_with(|| mv(d));
         }
     }
-    // Rencontres (portraits du menu) : modèle, échelle et décalage de chaque membre.
+    // Encounters (menu portraits): model, scale and offset of each member.
     let encounters: Vec<Value> = t
         .encounters
         .iter()

@@ -1,5 +1,5 @@
-//! Vue d'un checkpoint pour le menu de voyage : une seconde caméra filme le décor seul
-//! (calque `PREVIEW_LAYER`, sans les combattants) dans une petite image, avec le rendu PS1.
+//! Checkpoint view for the travel menu: a second camera films only the scenery
+//! (layer `PREVIEW_LAYER`, without the fighters) into a small image, with the PS1 rendering.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::RenderTarget;
@@ -11,17 +11,17 @@ use bevy::render::render_resource::TextureFormat;
 
 use crate::sim::data::Tuning;
 
-/// Calque de rendu du décor vu par la caméra d'aperçu (le décor est aussi sur le calque 0).
+/// Render layer of the scenery seen by the preview camera (the scenery is also on layer 0).
 pub const PREVIEW_LAYER: usize = 2;
-/// Taille de l'image d'aperçu, en pixels.
+/// Preview image size, in pixels.
 pub const PREVIEW_SIZE: UVec2 = UVec2::new(160, 120);
 
 #[derive(Resource)]
 pub struct CheckpointPreview {
     pub image: Handle<Image>,
-    /// Aperçu affiché : la caméra ne rend que dans ce cas.
+    /// Preview shown: the camera only renders in that case.
     pub shown: bool,
-    /// Checkpoint montré.
+    /// Checkpoint shown.
     pub index: usize,
 }
 

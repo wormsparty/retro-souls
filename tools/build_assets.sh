@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Régénère tous les assets : timings et niveau → modèles Blender → bruitages.
+# Regenerates all assets: timings and level → Blender models → sound effects.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo run -q --bin export_timings > tools/blender/timings.json

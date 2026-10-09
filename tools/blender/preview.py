@@ -1,4 +1,4 @@
-"""Rend une planche de poses pour vérifier les animations.
+"""Renders a contact sheet of poses to check the animations.
 
 blender -b tools/blender/blend/player.blend -P tools/blender/preview.py -- out.png anim:frame anim:frame ...
 """
@@ -67,7 +67,7 @@ for i, spec in enumerate(specs):
     bpy.ops.render.render(write_still=True)
     tiles.append(path)
 
-# Assemble une planche horizontale.
+# Assemble a horizontal contact sheet.
 imgs = [bpy.data.images.load(p) for p in tiles]
 w, hgt = imgs[0].size
 sheet = bpy.data.images.new("sheet", w * len(imgs), hgt)

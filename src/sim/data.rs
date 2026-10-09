@@ -1,8 +1,8 @@
-//! Données de tuning chargées depuis `assets/config/*.ron`.
+//! Tuning data loaded from `assets/config/*.ron`.
 //!
-//! Toutes les durées sont en **ticks** (60 par seconde). Les distances sont en mètres,
-//! les vitesses en m/s, les angles en degrés.
-//! Repère local d'un combattant : x = droite, y = haut, z = avant.
+//! All durations are in **ticks** (60 per second). Distances are in metres,
+//! speeds in m/s, angles in degrees.
+//! A fighter's local frame: x = right, y = up, z = forward.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::lang::LText;
 use super::items::Item;
 
-/// Capsule en repère local (segment `a`–`b` de rayon `r`).
+/// Capsule in the local frame (segment `a`–`b` of radius `r`).
 #[derive(Deserialize, Clone, Copy, Debug)]
 pub struct Capsule {
     pub a: [f32; 3],
@@ -20,37 +20,37 @@ pub struct Capsule {
 
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Reaction {
-    /// Petite interruption.
+    /// Small stagger.
     #[default]
     Light,
-    /// Mise au sol.
+    /// Knockdown.
     Heavy,
 }
 
-/// Fenêtre de frappe active pendant `[start, end)`.
+/// Hit window active during `[start, end)`.
 #[derive(Deserialize, Clone, Debug)]
 pub struct HitWindow {
     pub start: u32,
     pub end: u32,
     pub capsule: Capsule,
-    /// Rotation de la capsule autour de l'axe vertical pendant la fenêtre (degrés,
-    /// début → fin). Positif = vers la gauche. Sert aux tailles horizontales et aux balayages.
+    /// Rotation of the capsule around the vertical axis during the window (degrees,
+    /// start → end). Positive = to the left. Used for horizontal cuts and sweeps.
     #[serde(default)]
     pub arc: Option<[f32; 2]>,
     pub damage: f32,
-    /// Dégâts infligés à la jauge de stagger de la cible.
+    /// Damage dealt to the target's stagger gauge.
     #[serde(default)]
     pub stagger: f32,
     #[serde(default)]
     pub reaction: Reaction,
-    /// Attaque furie : imparable en garde normale.
+    /// Rage attack: can't be blocked with a normal guard.
     #[serde(default)]
     pub fury: bool,
-    /// Zone d'effet (onde de choc) : ni garde ni garde parfaite, seulement la fuite ou les
-    /// i-frames. La capsule est affichée au sol pendant l'anticipation.
+    /// Area effect (shockwave): neither guard nor perfect guard, only fleeing or
+    /// i-frames. The capsule is shown on the ground during the wind-up.
     #[serde(default)]
     pub aoe: bool,
-    /// Ticks de hitstop appliqués aux deux combattants à l'impact.
+    /// Hitstop ticks applied to both fighters on impact.
     #[serde(default = "default_hitstop")]
     pub hitstop: u8,
 }
@@ -59,70 +59,70 @@ fn default_hitstop() -> u8 {
     4
 }
 
-/// Déplacement « root motion » pendant `[start, end)`.
+/// "Root motion" movement during `[start, end)`.
 #[derive(Deserialize, Clone, Debug)]
 pub struct Motion {
     pub start: u32,
     pub end: u32,
-    /// Vitesse vers l'avant (négatif = recul).
+    /// Forward speed (negative = backwards).
     #[serde(default)]
     pub speed: f32,
-    /// Si vrai, la vitesse est calculée pour atterrir à `stop_dist` de la cible
-    /// (distance figée au début de l'action), plafonnée par `speed`.
+    /// If true, the speed is computed to land at `stop_dist` from the target
+    /// (distance frozen at the start of the action), capped by `speed`.
     #[serde(default)]
     pub to_target: bool,
     #[serde(default)]
     pub stop_dist: f32,
-    /// Avec `to_target` : la distance est re-mesurée à chaque tick jusqu'au début du
-    /// mouvement (et non figée au début de l'action). Sert aux sauts qui retombent sur la cible.
+    /// With `to_target`: the distance is re-measured every tick until the start of the
+    /// movement (rather than frozen at the start of the action). Used for jumps that land on the target.
     #[serde(default)]
     pub retarget: bool,
-    /// Rotation sur place pendant le segment (degrés au total, positif = vers la gauche) :
-    /// un grand boss qui pivote en donnant un coup de queue.
+    /// Rotation in place during the segment (total degrees, positive = to the left):
+    /// a large boss pivoting while delivering a tail swipe.
     #[serde(default)]
     pub turn: f32,
-    /// Vitesse latérale (m/s, positif = vers la droite) : un bond de côté.
+    /// Lateral speed (m/s, positive = to the right): a side hop.
     #[serde(default)]
     pub side: f32,
 }
 
-/// Définition d'une action (attaque, esquive, réaction…).
+/// Definition of an action (attack, dodge, reaction…).
 #[derive(Deserialize, Clone, Debug)]
 pub struct MoveDef {
-    /// Nom du clip d'animation correspondant.
+    /// Name of the matching animation clip.
     pub anim: String,
     pub total: u32,
     #[serde(default)]
     pub hits: Vec<HitWindow>,
     #[serde(default)]
     pub motion: Vec<Motion>,
-    /// L'orientation suit la cible / le stick jusqu'à ce tick.
+    /// The orientation follows the target / the stick until this tick.
     #[serde(default)]
     pub track_until: u32,
-    /// Vitesse de rotation pendant le suivi (degrés/s).
+    /// Turning speed during tracking (degrees/s).
     #[serde(default = "default_track_rate")]
     pub track_rate: f32,
-    /// Coût d'endurance. Absent sur une attaque d'arme : calculé à partir des dégâts
-    /// (`stamina_per_damage`), pour qu'un même total de dégâts coûte pareil quelle que soit l'arme.
+    /// Stamina cost. Absent on a weapon attack: computed from the damage
+    /// (`stamina_per_damage`), so that the same total damage costs the same whatever the weapon.
     #[serde(default)]
     pub stamina: Option<f32>,
-    /// Vitesse de marche autorisée pendant l'action (soin), 0 = immobile.
+    /// Walking speed allowed during the action (heal), 0 = stationary.
     #[serde(default)]
     pub walk: f32,
-    /// Tick à partir duquel l'action suivante (combo, input bufferisé) peut démarrer.
+    /// Tick from which the next action (combo, buffered input) can start.
     #[serde(default)]
     pub chain_from: Option<u32>,
-    /// Tick à partir duquel esquive et garde peuvent interrompre l'action.
+    /// Tick from which dodge and guard can interrupt the action.
     #[serde(default)]
     pub cancel_from: Option<u32>,
     #[serde(default)]
     pub hyperarmor: Option<[u32; 2]>,
     #[serde(default)]
     pub iframes: Option<[u32; 2]>,
-    /// Fenêtre pendant laquelle un coup reçu est contré (posture de l'épée longue).
+    /// Window during which an incoming hit is countered (longsword stance).
     #[serde(default)]
     pub counter: Option<[u32; 2]>,
-    /// Sorts lancés pendant l'action (boss).
+    /// Spells cast during the action (bosses).
     #[serde(default)]
     pub casts: Vec<Cast>,
 }
@@ -144,7 +144,7 @@ impl MoveDef {
     pub fn in_window(w: Option<[u32; 2]>, tick: u32) -> bool {
         w.is_some_and(|[s, e]| tick >= s && tick < e)
     }
-    /// Premier tick actif et fin du dernier coup, utilisés pour caler l'animation.
+    /// First active tick and end of the last hit, used to time the animation.
     pub fn strike_span(&self) -> Option<(u32, u32)> {
         let s = self.hits.iter().map(|h| h.start).min()?;
         let e = self.hits.iter().map(|h| h.end).max()?;
@@ -154,32 +154,32 @@ impl MoveDef {
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct GuardDef {
-    /// Fenêtre de garde parfaite (ticks depuis le début de la garde).
+    /// Perfect guard window (ticks since the start of the guard).
     pub perfect_window: u32,
-    /// Pression répétée en moins de `spam_window` ticks : la fenêtre rétrécit de `spam_penalty`.
+    /// Repeated press within `spam_window` ticks: the window shrinks by `spam_penalty`.
     pub spam_window: u32,
     pub spam_penalty: u32,
     pub min_window: u32,
-    /// Part des dégâts subis en garde normale (le reste est annulé).
+    /// Share of the damage taken with a normal guard (the rest is cancelled).
     pub damage_ratio: f32,
-    /// Endurance perdue par point de dégât bloqué.
+    /// Stamina lost per point of blocked damage.
     pub stamina_ratio: f32,
-    /// Stagger infligé à l'attaquant par une garde parfaite.
+    /// Stagger dealt to the attacker by a perfect guard.
     pub perfect_stagger: f32,
-    /// Jauge spéciale gagnée par une garde parfaite.
+    /// Special gauge gained from a perfect guard.
     pub perfect_special: f32,
     pub perfect_hitstop: u8,
-    /// Arc frontal protégé par la garde (degrés de chaque côté).
+    /// Frontal arc protected by the guard (degrees on each side).
     pub arc: f32,
     pub walk_speed: f32,
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct JumpDef {
-    /// Vitesse verticale au départ (m/s) : hauteur = v² / (2 × gravité).
+    /// Initial vertical speed (m/s): height = v² / (2 × gravity).
     pub speed: f32,
     pub stamina: f32,
-    /// Accélération horizontale en l'air (m/s²) : on corrige un peu sa trajectoire, sans plus.
+    /// Horizontal acceleration in the air (m/s²): you can nudge your trajectory a little, no more.
     pub air_control: f32,
 }
 
@@ -187,9 +187,9 @@ pub struct JumpDef {
 pub struct PlayerDef {
     pub max_hp: f32,
     pub max_stamina: f32,
-    /// Endurance consommée par point de dégât des attaques d'arme.
+    /// Stamina consumed per point of damage of weapon attacks.
     pub stamina_per_damage: f32,
-    /// L'endurance peut descendre jusque-là ; il faut au moins 1 point pour agir.
+    /// Stamina can go down to this; at least 1 point is needed to act.
     pub stamina_floor: f32,
     pub stamina_regen: f32,
     pub stamina_regen_guarding: f32,
@@ -197,7 +197,7 @@ pub struct PlayerDef {
     pub run_speed: f32,
     pub sprint_speed: f32,
     pub sprint_stamina: f32,
-    /// Maintenir esquive au-delà de ce nombre de ticks déclenche le sprint.
+    /// Holding dodge beyond this number of ticks triggers the sprint.
     pub sprint_hold: u32,
     pub accel: f32,
     pub turn_rate: f32,
@@ -206,14 +206,14 @@ pub struct PlayerDef {
     pub height: f32,
     pub lock_range: f32,
     pub input_buffer: u32,
-    /// Durée pendant laquelle le regain peut être récupéré.
+    /// Duration during which the regain can be recovered.
     pub regain_ticks: u32,
-    /// PV rendus par point de dégât infligé.
+    /// HP restored per point of damage dealt.
     pub regain_ratio: f32,
     pub special_segments: u32,
     pub special_per_segment: f32,
     pub special_per_damage: f32,
-    /// Distance max et arc pour déclencher le coup fatal.
+    /// Max distance and arc to trigger the fatal blow.
     pub fatal_range: f32,
     pub fatal_arc: f32,
     pub guard: GuardDef,
@@ -225,36 +225,36 @@ pub struct PlayerDef {
     pub hit_light: MoveDef,
     pub hit_heavy: MoveDef,
     pub switch: MoveDef,
-    /// Tick du changement d'arme effectif pendant `switch`.
+    /// Tick at which the weapon change takes effect during `switch`.
     pub switch_at: u32,
     pub death: MoveDef,
-    /// Charges de soin (rechargées au checkpoint).
+    /// Healing charges (refilled at the checkpoint).
     pub heal_charges: u8,
-    /// Part des PV max rendue par un soin.
+    /// Share of max HP restored by a heal.
     pub heal_ratio: f32,
     pub heal: MoveDef,
-    /// Tick où le soin s'applique : touché avant, la charge est perdue.
+    /// Tick at which the heal applies: hit before it, the charge is lost.
     pub heal_at: u32,
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct WeaponDef {
     pub name: LText,
-    /// Ce qu'elle fait de mieux (fiche du menu d'équipement).
+    /// What it does best (equipment menu sheet).
     pub description: LText,
     pub light: Vec<MoveDef>,
     pub heavy: MoveDef,
     pub heavy_charged: MoveDef,
-    /// Ticks de maintien pour une charge complète : l'attaque chargée part alors d'elle-même.
+    /// Ticks held for a full charge: the charged attack then fires on its own.
     pub charge_ticks: u32,
     pub charge_anim: String,
     pub special: MoveDef,
-    /// Riposte déclenchée si la fenêtre `counter` de la spéciale est touchée.
+    /// Riposte triggered if the special's `counter` window is hit.
     #[serde(default)]
     pub special_counter: Option<MoveDef>,
     pub fatal: MoveDef,
-    /// Attaque sautée (attaque pendant un saut) : plus de dégâts, peu d'endurance (le saut
-    /// en a déjà coûté).
+    /// Jump attack (attack during a jump): more damage, little stamina (the jump
+    /// already cost some).
     pub jump: MoveDef,
 }
 
@@ -263,26 +263,26 @@ pub struct WeaponsDef {
     pub weapons: Vec<WeaponDef>,
 }
 
-/// Où partent les sorts d'un lancer.
+/// Where the spells of a cast go.
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CastAim {
-    /// Projectiles vers la cible (en éventail de `spread` degrés s'il y en a plusieurs) ;
-    /// éruptions sous ses pieds, éparpillées dans un rayon de `spread` mètres autour.
+    /// Projectiles towards the target (in a fan of `spread` degrees if there are several);
+    /// eruptions under its feet, scattered within a radius of `spread` metres.
     #[default]
     Target,
-    /// Droit devant (éventail de `spread` degrés) ; éruptions en ligne, tous les `step` mètres.
+    /// Straight ahead (fan of `spread` degrees); eruptions in a line, every `step` metres.
     Forward,
-    /// En cercle autour du lanceur, à `spread` mètres (éruptions) ou dans toutes les directions.
+    /// In a circle around the caster, at `spread` metres (eruptions) or in all directions.
     Ring,
 }
 
-/// Sort lancé au tick `at` d'une action.
+/// Spell cast at tick `at` of an action.
 #[derive(Deserialize, Clone, Debug)]
 pub struct Cast {
     pub at: u32,
-    /// Nom du sort (`spells` du boss).
+    /// Name of the spell (the boss's `spells`).
     pub spell: String,
-    /// Point de départ (repère local du lanceur, à son échelle).
+    /// Starting point (caster's local frame, at its scale).
     #[serde(default)]
     pub from: [f32; 3],
     #[serde(default)]
@@ -291,10 +291,10 @@ pub struct Cast {
     pub count: u8,
     #[serde(default)]
     pub spread: f32,
-    /// Distance entre deux éruptions en ligne (`Forward`), et à la première.
+    /// Distance between two eruptions in a line (`Forward`), and to the first one.
     #[serde(default = "one")]
     pub step: f32,
-    /// Délai supplémentaire entre deux éruptions successives (une vague qui avance).
+    /// Extra delay between two successive eruptions (an advancing wave).
     #[serde(default)]
     pub delay_step: u32,
 }
@@ -305,26 +305,26 @@ fn one_u8() -> u8 {
 
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SpellKind {
-    /// Projectile qui file (et suit un peu sa cible).
+    /// Projectile that flies (and homes in on its target slightly).
     #[default]
     Bolt,
-    /// Colonne qui jaillit du sol après une alerte (zone marquée au sol).
+    /// Column that bursts from the ground after a warning (area marked on the ground).
     Eruption,
-    /// Jet continu (souffle) : de la bouche du lanceur jusqu'au sol devant lui, il suit ses
-    /// mouvements pendant `life` ticks et s'arrête si l'attaque est interrompue.
+    /// Continuous stream (breath): from the caster's mouth to the ground in front of it, it follows its
+    /// movements for `life` ticks and stops if the attack is interrupted.
     Beam,
 }
 
-/// Élément d'un sort (uniquement visuel).
+/// Element of a spell (visual only).
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Element {
     #[default]
     Fire,
-    /// Lumière pâle de l'allumeur.
+    /// The lamplighter's pale light.
     Light,
-    /// Fer qui tournoie (couperet lancé).
+    /// Spinning iron (thrown cleaver).
     Iron,
-    /// Glace de la bête à l'échine creuse.
+    /// Ice of the hollow-spined beast.
     Ice,
 }
 
@@ -341,22 +341,22 @@ pub struct SpellDef {
     pub reaction: Reaction,
     #[serde(default = "default_hitstop")]
     pub hitstop: u8,
-    /// Projectile : vitesse (m/s) et virage vers la cible (degrés/s).
+    /// Projectile: speed (m/s) and turning towards the target (degrees/s).
     #[serde(default)]
     pub speed: f32,
     #[serde(default)]
     pub homing: f32,
-    /// Éruption : ticks d'alerte avant de jaillir. Projectile : ticks où il reste suspendu
-    /// là où il apparaît, avant de partir vers sa cible.
+    /// Eruption: warning ticks before bursting out. Projectile: ticks during which it hangs
+    /// where it appears, before heading for its target.
     #[serde(default)]
     pub delay: u32,
-    /// Durée de vie (projectile) ou durée de la colonne (éruption), en ticks.
+    /// Lifetime (projectile) or column duration (eruption), in ticks.
     pub life: u32,
-    /// Ni garde ni parade (les éruptions le sont toujours).
+    /// Neither guard nor parry (eruptions always are).
     #[serde(default)]
     pub aoe: bool,
-    /// Jet : distance (bornes min, max) entre la bouche et le point où il touche le sol, selon
-    /// la cible au lancer.
+    /// Stream: distance (min, max bounds) between the mouth and the point where it hits the ground, according to
+    /// the target at cast time.
     #[serde(default = "default_reach")]
     pub reach: [f32; 2],
 }
@@ -365,16 +365,16 @@ fn default_reach() -> [f32; 2] {
     [4.0, 12.0]
 }
 
-/// Partie d'un grand boss : zone touchable en plus du corps, et point qu'on peut verrouiller.
+/// Part of a large boss: hittable zone on top of the body, and point that can be locked on.
 #[derive(Deserialize, Clone, Debug)]
 pub struct PartDef {
-    /// Centre (repère local, à l'échelle du modèle).
+    /// Centre (local frame, at the model's scale).
     pub at: [f32; 3],
     pub r: f32,
-    /// Verrouillable (sinon simple zone touchable).
+    /// Lockable (otherwise just a hittable zone).
     #[serde(default = "yes")]
     pub lock: bool,
-    /// Pièce du modèle que suit le réticule (sinon le point fixe `at`).
+    /// Model piece followed by the reticle (otherwise the fixed point `at`).
     #[serde(default)]
     pub bone: Option<String>,
 }
@@ -383,7 +383,7 @@ fn yes() -> bool {
     true
 }
 
-/// Côté de la cible par rapport à l'avant du boss.
+/// Side of the target relative to the boss's front.
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Side {
     #[default]
@@ -398,27 +398,27 @@ pub struct BossAttack {
     pub mv: MoveDef,
     pub min_range: f32,
     pub max_range: f32,
-    /// Angle max entre l'avant du boss et la cible pour lancer l'attaque.
+    /// Max angle between the boss's front and the target to launch the attack.
     pub max_angle: f32,
-    /// Angle min (attaques vers l'arrière : coup de queue…).
+    /// Min angle (backwards attacks: tail swipe…).
     #[serde(default)]
     pub min_angle: f32,
-    /// Côté où doit se trouver la cible (pivots vers la gauche ou la droite).
+    /// Side where the target must be (pivots to the left or right).
     #[serde(default)]
     pub side: Side,
     pub weight: f32,
     pub cooldown: u32,
-    /// Phases où l'attaque est disponible (1 et/ou 2). Les ennemis n'ont qu'une phase.
+    /// Phases in which the attack is available (1 and/or 2). Enemies only have one phase.
     #[serde(default = "default_phases")]
     pub phases: Vec<u8>,
-    /// Enchaînements possibles : (nom de l'attaque suivante, probabilité). Un seul tirage :
-    /// les probabilités s'additionnent (≤ 1), le reste du temps il n'enchaîne pas.
+    /// Possible follow-ups: (name of the next attack, probability). A single draw:
+    /// probabilities add up (≤ 1), the rest of the time it doesn't chain.
     #[serde(default)]
     pub next: Vec<(String, f32)>,
 }
 
 impl BossAttack {
-    /// Attaque enchaînée (index dans `attacks`) pour un tirage `roll` ∈ [0, 1).
+    /// Chained attack (index in `attacks`) for a draw `roll` ∈ [0, 1).
     pub fn chained(&self, attacks: &[BossAttack], mut roll: f32) -> Option<usize> {
         for (name, chance) in &self.next {
             if roll < *chance {
@@ -436,28 +436,28 @@ fn default_phases() -> Vec<u8> {
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct BossDef {
-    /// Clé (référencée par les rencontres).
+    /// Key (referenced by the encounters).
     #[serde(default)]
     pub key: String,
     pub name: LText,
-    /// Modèle (`assets/models/<model>.glb`) et son échelle.
+    /// Model (`assets/models/<model>.glb`) and its scale.
     #[serde(default = "default_boss_model")]
     pub model: String,
     #[serde(default = "one")]
     pub scale: f32,
-    /// Teinte permanente du modèle (r, g, b, force).
+    /// Permanent tint of the model (r, g, b, strength).
     #[serde(default)]
     pub tint: Option<[f32; 4]>,
-    /// Couleur (sRGB) de ses alertes au sol : zones d'effet et éruptions de ses sorts.
+    /// Colour (sRGB) of its ground warnings: area effects and eruptions of its spells.
     #[serde(default = "default_aoe_color")]
     pub color: [f32; 3],
-    /// Second rôle (les chiens du boucher) : pas de barre de vie en bas de l'écran, et sa mort
-    /// n'est pas nécessaire à la victoire.
+    /// Supporting role (the butcher's dogs): no health bar at the bottom of the screen, and its death
+    /// isn't required for victory.
     #[serde(default)]
     pub minor: bool,
     #[serde(default = "default_boss_mass")]
     pub mass: f32,
-    /// Distance en deçà de laquelle il recule (lanceur de sorts) ; 0 = jamais.
+    /// Distance under which it backs away (spellcaster); 0 = never.
     #[serde(default)]
     pub keep_away: f32,
     pub max_hp: f32,
@@ -467,21 +467,21 @@ pub struct BossDef {
     pub walk_speed: f32,
     pub strafe_speed: f32,
     pub turn_rate: f32,
-    /// Grande bête (degrés) : elle ne se tourne vers sa cible que lorsque celle-ci sort de ce
-    /// cône, et vise à peu près (pas exactement) sa direction. Tout près d'elle, elle ne
-    /// pivote presque plus : ce sont ses attaques de côté qui la font tourner. 0 = suit la cible.
+    /// Large beast (degrees): it only turns towards its target when the target leaves this
+    /// cone, and aims roughly (not exactly) in its direction. Right next to it, it hardly
+    /// pivots any more: it's its side attacks that make it turn. 0 = follows the target.
     #[serde(default)]
     pub heading_slack: f32,
-    /// Distance que le boss cherche à garder avec sa cible.
+    /// Distance the boss tries to keep from its target.
     pub preferred_range: f32,
     pub stagger_max: f32,
     pub stagger_delay: u32,
     pub stagger_decay: f32,
-    /// Pause (min, max) entre deux attaques : c'est là qu'on punit.
+    /// Pause (min, max) between two attacks: that's where you punish.
     pub idle_ticks: [u32; 2],
-    /// Durée pendant laquelle le dernier attaquant garde l'aggro.
+    /// Duration during which the last attacker keeps the aggro.
     pub aggro_ticks: u32,
-    /// Braises gagnées en le battant.
+    /// Embers earned by defeating it.
     #[serde(alias = "souls")]
     pub embers: u32,
     pub groggy: MoveDef,
@@ -489,7 +489,7 @@ pub struct BossDef {
     pub roar: MoveDef,
     pub death: MoveDef,
     pub attacks: Vec<BossAttack>,
-    /// Zones touchables et points de verrouillage des grands boss (tête, pattes…).
+    /// Hittable zones and lock-on points of large bosses (head, legs…).
     #[serde(default)]
     pub parts: Vec<PartDef>,
     #[serde(default)]
@@ -514,21 +514,21 @@ impl BossDef {
     }
 }
 
-/// Un membre d'une rencontre de boss.
+/// A member of a boss encounter.
 #[derive(Deserialize, Clone, Debug)]
 pub struct MemberDef {
     pub boss: String,
-    /// Décalage (x, z) par rapport au point d'apparition du boss.
+    /// Offset (x, z) from the boss spawn point.
     #[serde(default)]
     pub offset: [f32; 2],
 }
 
-/// Ce qui attend dans l'arène : un boss, un duo, un boss et ses chiens…
+/// What waits in the arena: a boss, a duo, a boss and its dogs…
 #[derive(Deserialize, Clone, Debug)]
 pub struct EncounterDef {
     pub name: LText,
     pub members: Vec<MemberDef>,
-    /// Braises gagnées à la victoire.
+    /// Embers earned on victory.
     pub embers: u32,
 }
 
@@ -541,44 +541,44 @@ pub struct BossesDef {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ArenaDef {
     pub radius: f32,
-    /// Piliers : (x, z, rayon).
+    /// Pillars: (x, z, radius).
     pub pillars: Vec<[f32; 3]>,
     pub boss_spawn: [f32; 2],
-    /// Demi-largeur de l'ouverture du mur, au sud (vers -z), où se forme la brume.
+    /// Half-width of the wall opening, to the south (towards -z), where the fog forms.
     pub gate_half_width: f32,
 }
 
-/// Forme d'un morceau de sol praticable. Repère jeu : (x, z) au sol, y = hauteur.
+/// Shape of a piece of walkable floor. Game frame: (x, z) on the ground, y = height.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug)]
 pub enum Shape {
-    /// Ellipse horizontale (un disque si les deux rayons sont égaux).
+    /// Horizontal ellipse (a disc if both radii are equal).
     Ellipse { center: [f32; 2], radii: [f32; 2], y: f32 },
-    /// Bande droite de `from` à `to` (x, z, y) : pont, rampe ou escalier si les hauteurs diffèrent.
+    /// Straight strip from `from` to `to` (x, z, y): bridge, ramp or stairs if the heights differ.
     Strip { from: [f32; 3], to: [f32; 3], half_width: f32 },
 }
 
-/// Aspect d'un morceau de sol (décor uniquement).
+/// Look of a piece of floor (decor only).
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FloorStyle {
-    /// Dallage sur un socle de roche.
+    /// Paving on a rock base.
     #[default]
     Paved,
-    /// Pont de pierre sur arches.
+    /// Stone bridge on arches.
     Bridge,
-    /// Passerelle de planches.
+    /// Plank walkway.
     Planks,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct FloorDef {
     pub shape: Shape,
-    /// Bords murés : on y bute. Sinon, au-delà du bord, c'est le vide (et la chute).
+    /// Walled edges: you bump into them. Otherwise, past the edge, it's the void (and the fall).
     #[serde(default)]
     pub walled: bool,
-    /// Fait partie de l'arène (interdit aux ennemis du chemin).
+    /// Part of the arena (off-limits to path enemies).
     #[serde(default)]
     pub arena: bool,
-    /// Nombre de marches dessinées (décor ; la pente est continue pour la simulation).
+    /// Number of steps drawn (decor; the slope is continuous for the simulation).
     #[serde(default)]
     pub steps: u32,
     #[serde(default)]
@@ -588,37 +588,37 @@ pub struct FloorDef {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct CheckpointDef {
     pub name: LText,
-    /// Position (x, z) du brasier.
+    /// Position (x, z) of the brazier.
     pub pos: [f32; 2],
-    /// Point (x, z) vers lequel regarde le joueur qui réapparaît au brasier (et la caméra,
-    /// derrière lui) : la suite du chemin. Il se tient à côté du feu, pas devant, pour que le
-    /// brasier et ses braises ne masquent pas la vue.
+    /// Point (x, z) the player respawning at the brazier faces (and the camera,
+    /// behind them): the way forward. They stand next to the fire, not in front of it, so that the
+    /// brazier and its embers don't block the view.
     pub look: [f32; 2],
-    /// Vue du lieu dans le menu de voyage : position de la caméra puis point visé (x, y, z).
+    /// View of the place in the travel menu: camera position then target point (x, y, z).
     pub view: [[f32; 3]; 2],
 }
 
-/// Décor posé au sol. Les collisions sont données par `Prop::colliders`.
+/// Decor placed on the ground. Collisions are given by `Prop::colliders`.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Prop {
-    /// Réverbère (allumé).
+    /// Street lamp (lit).
     Lamp,
-    /// Réverbère éteint, tordu.
+    /// Unlit, bent street lamp.
     DeadLamp,
-    /// Fontaine sèche.
+    /// Dry fountain.
     Fountain,
     Bench,
-    /// Statue de cheval renversée.
+    /// Toppled horse statue.
     Horse,
-    /// Guichet de foire (cabane de bois).
+    /// Fairground ticket booth (wooden hut).
     Booth,
-    /// Colonne brisée (kiosque à musique).
+    /// Broken column (bandstand).
     Column,
     Crates,
 }
 
 impl Prop {
-    /// Cercles de collision (dx, dz, rayon), en repère local (z = avant).
+    /// Collision circles (dx, dz, radius), in the local frame (z = forward).
     pub fn colliders(self) -> &'static [[f32; 3]] {
         match self {
             Prop::Lamp | Prop::DeadLamp => &[[0.0, 0.0, 0.18]],
@@ -636,39 +636,39 @@ impl Prop {
 pub struct PropDef {
     pub kind: Prop,
     pub pos: [f32; 2],
-    /// Orientation (degrés).
+    /// Orientation (degrees).
     #[serde(default)]
     pub yaw: f32,
 }
 
-/// Ennemi placé dans le niveau.
+/// Enemy placed in the level.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct EnemySpawn {
-    /// Clé du type d'ennemi (`enemies.ron`).
+    /// Key of the enemy type (`enemies.ron`).
     pub kind: String,
     pub pos: [f32; 2],
     #[serde(default)]
     pub yaw: f32,
-    /// Endormi : il faut s'approcher davantage pour le réveiller, mais il voit dans toutes les
-    /// directions. Sinon, il guette devant lui.
+    /// Asleep: you have to get closer to wake it, but it sees in all
+    /// directions. Otherwise, it watches ahead.
     #[serde(default)]
     pub asleep: bool,
-    /// Les ennemis d'un même groupe (> 0) donnent l'alerte ensemble.
+    /// Enemies of the same group (> 0) raise the alarm together.
     #[serde(default)]
     pub group: u8,
-    /// Ne réapparaît pas une fois vaincu.
+    /// Doesn't respawn once defeated.
     #[serde(default)]
     pub unique: bool,
 }
 
-/// Objet qui brille au sol, ramassé une seule fois par partie.
+/// Item glowing on the ground, picked up only once per game.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct PickupDef {
     pub pos: [f32; 2],
     pub items: Vec<(Item, u8)>,
 }
 
-/// Le niveau autour de l'arène : sols, checkpoints, décor, ennemis, objets.
+/// The level around the arena: floors, checkpoints, decor, enemies, items.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct LevelDef {
     pub floors: Vec<FloorDef>,
@@ -681,16 +681,16 @@ pub struct LevelDef {
     pub pickups: Vec<PickupDef>,
 }
 
-/// Type d'ennemi (chien, pantin…).
+/// Enemy type (dog, puppet…).
 #[derive(Deserialize, Clone, Debug)]
 pub struct EnemyDef {
     pub key: String,
-    /// Modèle (`assets/models/<model>.glb`) ; plusieurs types peuvent partager un modèle.
+    /// Model (`assets/models/<model>.glb`); several types can share a model.
     pub model: String,
-    /// Échelle du modèle (les portées des coups sont à donner à cette échelle).
+    /// Model scale (hit reaches must be given at this scale).
     #[serde(default = "one")]
     pub scale: f32,
-    /// Teinte permanente du modèle (r, g, b, force).
+    /// Permanent tint of the model (r, g, b, strength).
     #[serde(default)]
     pub tint: Option<[f32; 4]>,
     pub name: LText,
@@ -701,16 +701,16 @@ pub struct EnemyDef {
     pub walk_speed: f32,
     pub run_speed: f32,
     pub turn_rate: f32,
-    /// Distance de détection (réduite de moitié s'il dort, et alors dans toutes les directions).
+    /// Detection distance (halved if it's asleep, and then in all directions).
     pub sight: f32,
-    /// Distance max à son point de départ avant d'abandonner la poursuite.
+    /// Max distance from its starting point before giving up the chase.
     pub leash: f32,
     pub preferred_range: f32,
     pub idle_ticks: [u32; 2],
-    /// Dégâts encaissés (sur ~1 s) avant d'être interrompu ; 0 = toujours.
+    /// Damage taken (over ~1 s) before being staggered; 0 = always.
     pub poise: f32,
     pub embers: u32,
-    /// Cri d'alerte.
+    /// Alert cry.
     pub alert: MoveDef,
     pub hit: MoveDef,
     pub death: MoveDef,
@@ -726,14 +726,14 @@ pub struct EnemiesDef {
     pub kinds: Vec<EnemyDef>,
 }
 
-/// Ensemble des données de tuning utilisées par la simulation.
+/// All the tuning data used by the simulation.
 #[derive(Resource, Clone, Debug)]
 pub struct Tuning {
     pub player: PlayerDef,
     pub weapons: Vec<WeaponDef>,
-    /// Le premier est l'Automate (`boss.ron`), puis ceux de `bosses.ron`.
+    /// The first is the Automaton (`boss.ron`), then those of `bosses.ron`.
     pub bosses: Vec<BossDef>,
-    /// Rencontres proposées au checkpoint (la première : l'Automate seul).
+    /// Encounters offered at the checkpoint (the first: the Automaton alone).
     pub encounters: Vec<EncounterDef>,
     pub arena: ArenaDef,
     pub level: LevelDef,
@@ -748,7 +748,7 @@ pub const ARENA_RON: &str = include_str!("../../assets/config/arena.ron");
 pub const LEVEL_RON: &str = include_str!("../../assets/config/level.ron");
 pub const ENEMIES_RON: &str = include_str!("../../assets/config/enemies.ron");
 
-/// Contenu des fichiers de tuning, dans l'ordre de `Tuning::parse`.
+/// Contents of the tuning files, in the order of `Tuning::parse`.
 pub struct TuningSources<'a> {
     pub player: &'a str,
     pub weapons: &'a str,
@@ -789,7 +789,7 @@ impl Tuning {
         };
         for e in &t.level.enemies {
             if t.enemy_kind(&e.kind).is_none() {
-                return Err(format!("level.ron: type d'ennemi inconnu « {} »", e.kind));
+                return Err(format!("level.ron: unknown enemy type '{}'", e.kind));
             }
         }
         if t.level.checkpoints.is_empty() {
@@ -798,7 +798,7 @@ impl Tuning {
         for e in &t.encounters {
             for m in &e.members {
                 if t.boss_kind(&m.boss).is_none() {
-                    return Err(format!("bosses.ron: boss inconnu « {} »", m.boss));
+                    return Err(format!("bosses.ron: unknown boss '{}'", m.boss));
                 }
             }
         }
@@ -806,13 +806,13 @@ impl Tuning {
             for a in &b.attacks {
                 for c in &a.mv.casts {
                     if b.spell(&c.spell).is_none() {
-                        return Err(format!("{}/{}: sort inconnu « {} »", b.key, a.name, c.spell));
+                        return Err(format!("{}/{}: unknown spell '{}'", b.key, a.name, c.spell));
                     }
                 }
             }
         }
-        // Dès que le cercle d'une zone d'effet s'affiche, le boss cesse de suivre sa cible : le
-        // coup tombe là où le cercle l'annonçait.
+        // As soon as an area effect's circle appears, the boss stops tracking its target: the
+        // hit lands where the circle announced it.
         let mut t = t;
         for b in &mut t.bosses {
             for a in &mut b.attacks {
@@ -826,7 +826,7 @@ impl Tuning {
         Ok(t)
     }
 
-    /// Données compilées dans le binaire (utilisées au démarrage et par les tests).
+    /// Data compiled into the binary (used at startup and by the tests).
     pub fn builtin() -> Self {
         Self::parse(&TuningSources {
             player: PLAYER_RON,
@@ -837,15 +837,15 @@ impl Tuning {
             level: LEVEL_RON,
             enemies: ENEMIES_RON,
         })
-        .expect("tuning intégré invalide")
+        .expect("invalid built-in tuning")
     }
 
-    /// Index du boss `key`.
+    /// Index of boss `key`.
     pub fn boss_kind(&self, key: &str) -> Option<u8> {
         self.bosses.iter().position(|b| b.key == key).map(|i| i as u8)
     }
 
-    /// Index du type d'ennemi `key`.
+    /// Index of enemy type `key`.
     pub fn enemy_kind(&self, key: &str) -> Option<u8> {
         self.enemies.iter().position(|k| k.key == key).map(|i| i as u8)
     }
@@ -904,16 +904,16 @@ impl Tuning {
     }
 }
 
-/// Référence compacte (Copy) vers une `MoveDef` : c'est ce qui est stocké dans l'état de la sim.
+/// Compact (Copy) reference to a `MoveDef`: this is what's stored in the sim state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MoveRef {
     Player(PlayerMove),
     Weapon(u8, WeaponMove),
-    /// Attaque d'un boss : (boss, attaque).
+    /// Boss attack: (boss, attack).
     BossAttack(u8, u16),
-    /// Action commune d'un boss : (boss, action).
+    /// Shared boss action: (boss, action).
     Boss(u8, BossMove),
-    /// Action d'un ennemi : (type, action).
+    /// Enemy action: (type, action).
     Enemy(u8, EnemyMove),
 }
 
@@ -967,24 +967,24 @@ mod tests {
         let t = Tuning::builtin();
         assert_eq!(t.weapons.len(), 2);
         assert!(!t.bosses[0].attacks.is_empty());
-        // Les enchaînements des boss pointent vers des attaques existantes.
+        // Boss follow-ups point to existing attacks.
         for b in &t.bosses {
             for a in &b.attacks {
                 for (n, _) in &a.next {
                     assert!(b.attacks.iter().any(|x| &x.name == n), "{}: next inconnu: {n}", b.key);
                 }
                 for h in &a.mv.hits {
-                    assert!(h.start < h.end && h.end <= a.mv.total, "{}/{}: fenêtre invalide", b.key, a.name);
+                    assert!(h.start < h.end && h.end <= a.mv.total, "{}/{}: invalid window", b.key, a.name);
                 }
                 for c in &a.mv.casts {
-                    assert!(c.at < a.mv.total, "{}/{}: sort lancé après la fin", b.key, a.name);
+                    assert!(c.at < a.mv.total, "{}/{}: spell cast after the end", b.key, a.name);
                 }
             }
         }
         for k in &t.enemies {
             for a in &k.attacks {
                 for h in &a.mv.hits {
-                    assert!(h.start < h.end && h.end <= a.mv.total, "{}/{}: fenêtre invalide", k.key, a.name);
+                    assert!(h.start < h.end && h.end <= a.mv.total, "{}/{}: invalid window", k.key, a.name);
                 }
                 for (n, _) in &a.next {
                     assert!(k.attacks.iter().any(|b| &b.name == n), "{}: next inconnu: {n}", k.key);

@@ -1,10 +1,10 @@
-"""Portraits des rencontres de boss pour le menu « Choisir le boss » (assets/ui/boss_<n>.png).
+"""Portraits of the boss encounters for the "Choose the boss" menu (assets/ui/boss_<n>.png).
 
 blender -b --factory-startup -P tools/blender/boss_icons.py
 
-Chaque rencontre (tools/blender/timings.json, `encounters`) est posée comme dans l'arène (échelle,
-décalage des membres), vue de trois quarts face, et rendue en 64×64 sur fond transparent : de gros
-pixels, comme le reste de l'interface.
+Each encounter (tools/blender/timings.json, `encounters`) is posed as in the arena (scale,
+member offsets), seen three-quarter front, and rendered at 64×64 on a transparent background: big
+pixels, like the rest of the interface.
 """
 
 import math
@@ -29,14 +29,14 @@ def portrait(index, members):
         bpy.ops.import_scene.gltf(filepath=os.path.join(MODELS, m["model"] + ".glb"))
         new = [o for o in bpy.data.objects if o not in before]
         roots = [o for o in new if o.parent is None]
-        # Repère du jeu (x, z) → Blender (x, -y) ; les modèles regardent vers -Y.
+        # Game frame (x, z) → Blender (x, -y); models face -Y.
         ox, oz = m["offset"]
         for r in roots:
             r.scale = [m["scale"]] * 3
             r.location = (r.location.x - ox * 1.0, r.location.y - oz, r.location.z)
         objs += [o for o in new if o.type == "MESH"]
-    # Pose d'attente (la première animation importée), sans la croix ni les fils de la
-    # marionnette dans le cadre.
+    # Idle pose (the first imported animation), without the puppet's cross and strings
+    # in the frame.
     sc.frame_set(0)
     bpy.context.view_layer.update()
     framed = [o for o in objs if not o.name.startswith("control")]
@@ -50,13 +50,13 @@ def portrait(index, members):
     cam = bpy.data.objects.new("cam", cam_data)
     sc.collection.objects.link(cam)
     sc.camera = cam
-    # Trois quarts face, un peu en plongée.
+    # Three-quarter front view, slightly from above.
     yaw, pitch = math.radians(28), math.radians(10)
     d = 40.0
     direction = Vector((math.sin(yaw) * math.cos(pitch), -math.cos(yaw) * math.cos(pitch), math.sin(pitch)))
     cam.location = center + direction * d
     cam.rotation_euler = (-direction).to_track_quat("-Z", "Y").to_euler()
-    # Cadre : la plus grande étendue vue depuis la caméra.
+    # Framing: the largest extent seen from the camera.
     right = Vector((math.cos(yaw), math.sin(yaw), 0))
     up = direction.cross(right).normalized() * -1
     xs = [(p - center).dot(right) for p in pts]

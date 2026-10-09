@@ -1,5 +1,5 @@
-//! Sorts des boss : projectiles qui filent vers leur cible, et éruptions qui jaillissent du sol
-//! après une alerte. Ce sont des entités de simulation à part entière (déterministes).
+//! Boss spells: projectiles that fly towards their target, and eruptions that burst from the ground
+//! after a warning. They're full-fledged (deterministic) simulation entities.
 
 use bevy::prelude::*;
 
@@ -13,34 +13,34 @@ use super::{DT, SimEntity, SimEvent, SimEvents, SimTick, math, world};
 
 #[derive(Component, Clone, Debug)]
 pub struct Spell {
-    /// Boss lanceur (définition) et sort (`spells` du boss).
+    /// Casting boss (definition) and spell (the boss's `spells`).
     pub boss: u8,
     pub spell: u8,
-    /// Joueur visé (les projectiles le suivent un peu).
+    /// Targeted player (projectiles home in on it slightly).
     pub target: Option<Entity>,
     pub pos: Vec3,
-    /// Position au tick précédent (balayage des collisions, interpolation du rendu).
+    /// Position on the previous tick (collision sweep, render interpolation).
     pub prev: Vec3,
-    /// Direction d'un projectile.
+    /// Direction of a projectile.
     pub dir: Vec3,
     pub age: u32,
-    /// Délai supplémentaire avant de jaillir (vague d'éruptions).
+    /// Extra delay before bursting out (wave of eruptions).
     pub wait: u32,
-    /// Joueurs déjà touchés (une éruption ne touche qu'une fois).
+    /// Players already hit (an eruption only hits once).
     pub struck: Vec<Entity>,
-    /// Attaque qui l'a lancé : les sorts d'une même attaque ne touchent qu'une fois.
+    /// Attack that cast it: spells from the same attack only hit once.
     pub volley: u32,
-    /// Jet : son lanceur et l'instance de son attaque (le jet cesse si elle est interrompue),
-    /// le point de départ (repère local du lanceur), la distance au sol où il touche le sol,
-    /// et l'extrémité du jet.
+    /// Stream: its caster and the instance of its attack (the stream stops if it's interrupted),
+    /// the starting point (caster's local frame), the distance along the ground where it hits the ground,
+    /// and the end of the stream.
     pub caster: Option<(Entity, u32)>,
     pub from: [f32; 3],
     pub reach: f32,
     pub end: Vec3,
-    /// Projectile écrasé au sol : tick (`age`) de l'impact. Il y brûle encore un moment.
+    /// Projectile crashed on the ground: tick (`age`) of the impact. It keeps burning there for a while.
     pub landed: Option<u32>,
-    /// Projectile visé qui reste un moment suspendu (`delay`) : son écart (radians) à la
-    /// direction de la cible, pour le viser de nouveau quand il part.
+    /// Aimed projectile that hangs for a while (`delay`): its offset (radians) from the
+    /// target's direction, to aim at it again when it launches.
     pub aim_off: Option<f32>,
 }
 
@@ -49,32 +49,32 @@ impl Spell {
         &t.bosses[self.boss as usize].spells[self.spell as usize]
     }
 
-    /// Éruption : tick où elle jaillit.
+    /// Eruption: tick at which it bursts out.
     pub fn burst_at(&self, t: &Tuning) -> u32 {
         self.def(t).delay + self.wait
     }
 }
 
-/// Hauteur visée sur un joueur.
+/// Height aimed at on a player.
 const AIM_HEIGHT: f32 = 1.0;
-/// Les projectiles qui sortent de l'arène disparaissent.
+/// Projectiles leaving the arena disappear.
 const ARENA_MARGIN: f32 = 2.0;
-/// Le jet se prolonge un peu au-delà du point où il touche le sol (il s'y étale).
+/// The stream extends slightly beyond the point where it hits the ground (it spreads there).
 const BEAM_SPLASH: f32 = 2.5;
-/// Projectile écrasé au sol : il y brûle `SPLASH_LIFE` ticks, sur un petit cercle (au moins
-/// `SPLASH_MIN` m, sinon `SPLASH_SCALE` fois son rayon), et y fait cette part de ses dégâts.
+/// Projectile crashed on the ground: it burns there for `SPLASH_LIFE` ticks, on a small circle (at least
+/// `SPLASH_MIN` m, otherwise `SPLASH_SCALE` times its radius), and deals this share of its damage there.
 pub const SPLASH_LIFE: u32 = 40;
 const SPLASH_MIN: f32 = 1.2;
 const SPLASH_SCALE: f32 = 2.5;
 const SPLASH_DAMAGE: f32 = 0.5;
 
-/// Rayon de la zone qu'un projectile laisse en s'écrasant au sol.
+/// Radius of the area a projectile leaves when crashing on the ground.
 pub fn splash_radius(sd: &super::data::SpellDef) -> f32 {
     (sd.radius * SPLASH_SCALE).max(SPLASH_MIN)
 }
 
-/// Extrémités d'un jet lancé depuis `from` (repère local de `body`), qui touche le sol à
-/// `reach` mètres devant ce point.
+/// Ends of a stream cast from `from` (local frame of `body`), which hits the ground
+/// `reach` metres in front of that point.
 pub fn beam_ends(body: &Body, from: [f32; 3], reach: f32) -> (Vec3, Vec3) {
     let origin = math::local_to_world(body.pos, body.yaw, from);
     let ground = Vec3::new(origin.x, body.pos.y, origin.z) + math::forward(body.yaw) * reach;
@@ -82,8 +82,8 @@ pub fn beam_ends(body: &Body, from: [f32; 3], reach: f32) -> (Vec3, Vec3) {
     (origin, ground + dir * BEAM_SPLASH)
 }
 
-/// Lance le sort `c` depuis `body` vers `target` (joueur visé et sa position).
-/// `caster` : le lanceur et le numéro de son action (un jet s'arrête avec elle).
+/// Casts spell `c` from `body` towards `target` (targeted player and their position).
+/// `caster`: the caster and the number of its action (a stream stops with it).
 #[allow(clippy::too_many_arguments)]
 pub fn cast(
     commands: &mut Commands,
@@ -129,7 +129,7 @@ pub fn cast(
         SpellKind::Bolt => {
             let base = match (c.aim, target) {
                 (CastAim::Target, Some((_, tp))) => (tp + Vec3::Y * AIM_HEIGHT - origin).normalize_or(math::forward(body.yaw)),
-                // Droit devant, mais en plongeant vers la hauteur de la cible (un souffle d'en haut).
+                // Straight ahead, but diving towards the target's height (a breath from above).
                 (CastAim::Forward, Some((_, tp))) => {
                     let to = tp + Vec3::Y * AIM_HEIGHT - origin;
                     let pitch = math::atan2(to.y, math::flat_len(to).max(1.0));
@@ -157,8 +157,8 @@ pub fn cast(
             for i in 0..n {
                 let flat = match (c.aim, target) {
                     (CastAim::Target, Some((_, tp))) => {
-                        // La première sous les pieds, les autres éparpillées autour, sans se
-                        // chevaucher : on garde le meilleur de quelques tirages.
+                        // The first under the feet, the others scattered around, without
+                        // overlapping: keep the best of a few draws.
                         if i == 0 || c.spread <= 0.0 {
                             tp
                         } else {
@@ -184,7 +184,7 @@ pub fn cast(
                     }
                     _ => origin + math::forward(body.yaw) * (c.step * (i + 1) as f32),
                 };
-                // Au sol (ou à la hauteur du lanceur au-dessus du vide).
+                // On the ground (or at the caster's height above the void).
                 placed.push(flat);
                 let y = world::floor_at(t, flat.x, flat.z, ground + 1.0).unwrap_or(ground);
                 spawn(spell(Vec3::new(flat.x, y, flat.z), Vec3::ZERO, c.delay_step * i as u32));
@@ -194,7 +194,7 @@ pub fn cast(
     events.push(SimEvent::SpellCast { pos: origin, element: sd.element, boss, volley });
 }
 
-/// Avance les sorts et frappe les joueurs.
+/// Advances the spells and hits the players.
 #[allow(clippy::type_complexity)]
 pub fn spell_tick(
     mut commands: Commands,
@@ -216,7 +216,7 @@ pub fn spell_tick(
         match sd.kind {
             SpellKind::Bolt => {
                 if let Some(at) = s.landed {
-                    // Écrasé au sol : il y brûle encore un moment (ni garde ni parade).
+                    // Crashed on the ground: it keeps burning there for a while (neither guard nor parry).
                     if s.age >= at + SPLASH_LIFE {
                         commands.entity(e).despawn();
                         continue;
@@ -238,8 +238,8 @@ pub fn spell_tick(
                     }
                     continue;
                 }
-                // Suspendu un moment là où il est apparu (on le voit venir), puis il part vers
-                // sa cible, là où elle est alors.
+                // Hangs for a while where it appeared (you see it coming), then heads for
+                // its target, wherever it is at that point.
                 if s.age < sd.delay {
                     continue;
                 }
@@ -257,14 +257,14 @@ pub fn spell_tick(
                     continue;
                 }
                 if let Some(y) = world::floor_at(t, s.pos.x, s.pos.z, s.pos.y + 0.5).filter(|&y| s.pos.y < y) {
-                    // Au sol : une petite zone de dégâts, là où il s'est écrasé.
+                    // On the ground: a small damage area, where it crashed.
                     s.pos.y = y;
                     s.prev = s.pos;
                     s.landed = Some(s.age);
                     events.push(SimEvent::SpellSplash { pos: s.pos, radius: splash_radius(&sd), element: sd.element, boss: s.boss });
                     continue;
                 }
-                // Suit un peu sa cible (seulement à l'horizontale et pas dans son dos).
+                // Homes in on its target slightly (only horizontally and not behind it).
                 if sd.homing > 0.0
                     && let Some((_, _, tb, ..)) = s.target.and_then(|p| players.get(p).ok())
                 {
@@ -303,7 +303,7 @@ pub fn spell_tick(
                 }
             }
             SpellKind::Beam => {
-                // Suit la bouche du lanceur ; cesse avec son attaque.
+                // Follows the caster's mouth; stops with its attack.
                 let alive = s.caster.and_then(|(c, seq)| {
                     casters.get(c).ok().filter(|(_, a, h)| !h.dead() && a.seq == seq && a.mv.is_some())
                 });
@@ -359,7 +359,7 @@ pub fn spell_tick(
     }
 }
 
-/// Éruption à venir : centre, rayon et avancement de l'alerte (0 → 1 au jaillissement).
+/// Upcoming eruption: centre, radius and warning progress (0 → 1 when it bursts).
 pub fn telegraph(s: &Spell, t: &Tuning) -> Option<(Vec3, f32, f32)> {
     let sd = s.def(t);
     if sd.kind != SpellKind::Eruption {

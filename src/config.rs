@@ -1,5 +1,5 @@
-//! Rechargement à chaud du tuning (`assets/config/*.ron`) : sauvegarder un fichier RON
-//! pendant que le jeu tourne relance le combat avec les nouvelles valeurs.
+//! Hot reloading of the tuning (`assets/config/*.ron`): saving a RON file
+//! while the game is running restarts the fight with the new values.
 
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
@@ -73,14 +73,14 @@ fn reload(
     let src = TuningSources { player: t[0], weapons: t[1], boss: t[2], bosses: t[6], arena: t[3], level: t[4], enemies: t[5] };
     match Tuning::parse(&src) {
         Ok(new) => {
-            // Le premier chargement est identique au tuning intégré : pas de reset.
+            // The first load is identical to the built-in tuning: no reset.
             if last_hash.is_some() {
-                info!("tuning rechargé");
+                info!("tuning reloaded");
                 reset.requested = true;
             }
             *last_hash = Some(hash);
             *tuning = new;
         }
-        Err(e) => error!("tuning invalide, conservé tel quel : {e}"),
+        Err(e) => error!("invalid tuning, kept as is: {e}"),
     }
 }

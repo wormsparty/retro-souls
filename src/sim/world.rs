@@ -1,35 +1,35 @@
-//! Géométrie praticable : l'arène (murée), et autour d'elle des sols suspendus au-dessus du
-//! vide (escalier, place, chemins, ponts). Chaque morceau de sol a une hauteur (rampes et
-//! escaliers en pente continue). Au-delà d'un bord muré on bute ; au-delà d'un bord ouvert,
-//! c'est la chute.
+//! Walkable geometry: the (walled) arena, and around it floors hanging above the
+//! void (stairs, square, paths, bridges). Each piece of floor has a height (ramps and
+//! stairs on a continuous slope). Past a walled edge you bump; past an open edge,
+//! you fall.
 //!
-//! Tout est en maths déterministes (`math`) : c'est de la simulation.
+//! Everything uses deterministic maths (`math`): this is simulation.
 
 use bevy::prelude::*;
 
 use super::data::{ArenaDef, FloorDef, Shape, Tuning};
 use super::math;
 
-/// Qui se déplace : détermine les sols accessibles et ce que valent les bords ouverts.
+/// Who is moving: determines the reachable floors and what open edges mean.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mover {
-    /// Joueur : partout ; un bord ouvert fait tomber.
+    /// Player: everywhere; an open edge makes them fall.
     Player,
-    /// Joueur pendant le combat de boss : l'arène seule (la brume ferme la sortie).
+    /// Player during the boss fight: the arena only (the fog closes the exit).
     PlayerInFight,
-    /// Le boss ne quitte jamais l'arène.
+    /// The boss never leaves the arena.
     Boss,
-    /// Ennemis du chemin : pas dans l'arène, et ils ne sautent jamais dans le vide.
+    /// Path enemies: not in the arena, and they never jump into the void.
     Enemy,
 }
 
-/// Morceau de sol (l'arène en est un : un disque muré à la hauteur 0).
+/// Piece of floor (the arena is one: a walled disc at height 0).
 #[derive(Clone, Copy, Debug)]
 struct Piece {
     shape: Shape,
     walled: bool,
     arena: bool,
-    /// Le disque de l'arène elle-même.
+    /// The arena disc itself.
     arena_disc: bool,
 }
 
@@ -56,14 +56,17 @@ fn allowed(p: &Piece, m: Mover) -> bool {
     }
 }
 
-/// Marge à respecter par rapport au bord : un corps de rayon `r` bute contre un mur, mais
-/// peut s'avancer au-dessus du vide jusqu'à son centre. Les ennemis restent bien sur le sol.
+/// Margin to keep from the edge: a body of radius `r` bumps against a wall, but
+/// can step out over the void up to its centre. Enemies stay well on the floor.
 fn margin(p: &Piece, m: Mover, r: f32) -> f32 {
     if p.walled || m != Mover::Player { r } else { 0.0 }
 }
 
-/// Résultat d'un test « dans le morceau » : point ramené sur le morceau (avec la marge),
-/// distance à ce point (0 si dedans), hauteur du sol à cet endroit.
+/// Wall thickness, outside the walled floor (stair balustrades, tools/blender/arena.py).
+const WALL_THICKNESS: f32 = 0.4;
+
+/// Result of an "inside the piece" test: point brought back onto the piece (with the margin),
+/// distance to that point (0 if inside), floor height at that spot.
 struct Fit {
     point: Vec3,
     dist: f32,
@@ -79,7 +82,7 @@ fn fit(shape: &Shape, pos: Vec3, m: f32) -> Fit {
             if k <= 1.0 {
                 return Fit { point: pos, dist: 0.0, y };
             }
-            // Projection radiale (approchée, mais continue) sur le bord de l'ellipse.
+            // Radial projection (approximate, but continuous) onto the edge of the ellipse.
             let p = Vec3::new(cx + dx / k, pos.y, cz + dz / k);
             Fit { point: p, dist: math::flat_len(pos - p), y }
         }
@@ -90,7 +93,7 @@ fn fit(shape: &Shape, pos: Vec3, m: f32) -> Fit {
             let dir = ab / len;
             let side = Vec3::new(dir.z, 0.0, -dir.x);
             let rel = Vec3::new(pos.x, 0.0, pos.z) - a;
-            // Pas de marge aux extrémités : elles se raccordent à d'autres morceaux.
+            // No margin at the ends: they connect to other pieces.
             let along = rel.dot(dir).clamp(0.0, len);
             let hw = (half_width - m).max(0.0);
             let across = rel.dot(side).clamp(-hw, hw);
@@ -102,21 +105,27 @@ fn fit(shape: &Shape, pos: Vec3, m: f32) -> Fit {
     }
 }
 
-/// Où se retrouve un corps qui veut aller en `pos`.
+/// Where a body that wants to go to `pos` ends up.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Step {
-    /// Sur le sol (position ajustée, y compris la hauteur).
+    /// On the floor (adjusted position, including height).
     Ground(Vec3),
-    /// Au-dessus du vide : il tombe.
+    /// Above the void: it falls.
     Fall,
 }
 
-/// Ramène `pos` (corps de rayon `r`) sur un sol accessible à `m`. Parmi les morceaux qui
-/// contiennent le point, on garde celui dont la hauteur est la plus proche de `pos.y`.
+/// Brings `pos` (body of radius `r`) back onto a floor reachable by `m`. Among the pieces that
+/// contain the point, keep the one whose height is closest to `pos.y`.
+/// A body touching the wall of a walled floor bumps, even if the nearest floor is open
+/// (at the foot of the stairs, along the balustrades, next to the landing).
 pub fn step(t: &Tuning, pos: Vec3, r: f32, m: Mover) -> Step {
     let mut inside: Option<f32> = None;
     let mut nearest: Option<(Fit, bool)> = None;
+    let mut against_wall = false;
     for p in pieces(t).filter(|p| allowed(p, m)) {
+        if p.walled && fit(&p.shape, pos, -(WALL_THICKNESS + r)).dist <= 1e-5 {
+            against_wall = true;
+        }
         let f = fit(&p.shape, pos, margin(&p, m, r));
         if f.dist <= 1e-5 {
             if inside.is_none_or(|y| (f.y - pos.y).abs() < (y - pos.y).abs()) {
@@ -130,15 +139,15 @@ pub fn step(t: &Tuning, pos: Vec3, r: f32, m: Mover) -> Step {
         return Step::Ground(Vec3::new(pos.x, y, pos.z));
     }
     match nearest {
-        // Bord ouvert, pour le joueur : le vide.
-        Some((_, false)) if m == Mover::Player => Step::Fall,
+        // Open edge, for the player: the void.
+        Some((_, false)) if m == Mover::Player && !against_wall => Step::Fall,
         Some((f, _)) => Step::Ground(Vec3::new(f.point.x, f.y, f.point.z)),
         None => Step::Ground(pos),
     }
 }
 
-/// Ramène `pos` sur le sol le plus proche, à au moins `m` de ses bords (sauf aux extrémités
-/// des bandes, qui se raccordent à d'autres sols).
+/// Brings `pos` back onto the nearest floor, at least `m` from its edges (except at the ends
+/// of strips, which connect to other floors).
 pub fn settle(t: &Tuning, pos: Vec3, m: f32) -> Vec3 {
     let score = |f: &Fit| f.dist + (f.y - pos.y).abs();
     pieces(t)
@@ -150,7 +159,7 @@ pub fn settle(t: &Tuning, pos: Vec3, m: f32) -> Vec3 {
         })
 }
 
-/// Hauteur du sol sous (x, z), s'il y en a (le plus proche de `near_y`).
+/// Floor height under (x, z), if any (the one closest to `near_y`).
 pub fn floor_at(t: &Tuning, x: f32, z: f32, near_y: f32) -> Option<f32> {
     let pos = Vec3::new(x, near_y, z);
     let mut best: Option<f32> = None;
@@ -163,9 +172,9 @@ pub fn floor_at(t: &Tuning, x: f32, z: f32, near_y: f32) -> Option<f32> {
     best
 }
 
-/// Premier mur traversé par le segment `from` → `to` (vu de dessus) : fraction du segment où il
-/// est touché (`None` : rien ne s'interpose). Murs : le pourtour de l'arène (sauf son ouverture)
-/// et les côtés des sols murés (escalier). Sert à la caméra, qui ne doit pas passer derrière.
+/// First wall crossed by the segment `from` → `to` (seen from above): fraction of the segment where it
+/// is hit (`None`: nothing in the way). Walls: the arena's perimeter (except its opening)
+/// and the sides of walled floors (stairs). Used by the camera, which must not go behind them.
 pub fn wall_hit(t: &Tuning, from: Vec3, to: Vec3) -> Option<f32> {
     let (a, d) = (Vec2::new(from.x, from.z), Vec2::new(to.x - from.x, to.z - from.z));
     let r = t.arena.radius;
@@ -176,20 +185,20 @@ pub fn wall_hit(t: &Tuning, from: Vec3, to: Vec3) -> Option<f32> {
             best = Some(s);
         }
     };
-    // Cercle de l'arène : |a + s·d| = r.
+    // Arena circle: |a + s·d| = r.
     let (qa, qb, qc) = (d.dot(d), 2.0 * a.dot(d), a.dot(a) - r * r);
     let disc = qb * qb - 4.0 * qa * qc;
     if qa > 1e-8 && disc >= 0.0 {
         let sq = math::sqrt(disc);
         for s in [(-qb - sq) / (2.0 * qa), (-qb + sq) / (2.0 * qa)] {
             let p = a + d * s;
-            // L'ouverture, au sud, ne bloque pas.
+            // The opening, to the south, doesn't block.
             if !(p.x.abs() < hw && p.y < 0.0) {
                 hit(s);
             }
         }
     }
-    // Côtés des bandes murées (la partie dans l'arène ne compte pas : ce n'est que le seuil).
+    // Sides of walled strips (the part inside the arena doesn't count: it's just the threshold).
     for f in t.level.floors.iter().filter(|f| f.walled) {
         let Shape::Strip { from: [x0, z0, _], to: [x1, z1, _], half_width } = f.shape else { continue };
         let (p0, p1) = (Vec2::new(x0, z0), Vec2::new(x1, z1));
@@ -210,7 +219,7 @@ pub fn wall_hit(t: &Tuning, from: Vec3, to: Vec3) -> Option<f32> {
     best
 }
 
-/// Obstacles circulaires (x, z, rayon) : piliers de l'arène, brasiers, décor.
+/// Circular obstacles (x, z, radius): arena pillars, braziers, decor.
 pub fn obstacles(t: &Tuning, checkpoint_radius: f32) -> Vec<[f32; 3]> {
     let mut v: Vec<[f32; 3]> = t.arena.pillars.clone();
     for c in &t.level.checkpoints {
@@ -226,13 +235,13 @@ pub fn obstacles(t: &Tuning, checkpoint_radius: f32) -> Vec<[f32; 3]> {
     v
 }
 
-/// Centre de la brume, dans l'ouverture du mur de l'arène.
+/// Centre of the fog, in the opening of the arena wall.
 pub fn fog_gate(a: &ArenaDef) -> Vec3 {
     let hw = a.gate_half_width;
     Vec3::new(0.0, 0.0, -math::sqrt(a.radius * a.radius - hw * hw) - 0.3)
 }
 
-/// Point juste devant la brume, côté escalier.
+/// Point just in front of the fog, on the stairs side.
 pub fn gate_outside(a: &ArenaDef) -> Vec3 {
     Vec3::new(0.0, 0.0, -(a.radius + 1.5))
 }
@@ -244,7 +253,7 @@ mod tests {
     fn ground(s: Step) -> Vec3 {
         match s {
             Step::Ground(p) => p,
-            Step::Fall => panic!("chute inattendue"),
+            Step::Fall => panic!("unexpected fall"),
         }
     }
 
@@ -252,16 +261,16 @@ mod tests {
     fn arena_is_walled_and_stairs_lead_down_to_the_plaza() {
         let t = Tuning::builtin();
         let r = 0.4;
-        // Contre le mur de l'arène : on bute.
+        // Against the arena wall: bump.
         let p = ground(step(&t, Vec3::new(20.0, 0.0, 0.0), r, Mover::Player));
         assert!((math::flat_len(p) - (t.arena.radius - r)).abs() < 1e-3);
-        // Le boss et le joueur en combat ne sortent pas par l'ouverture.
+        // The boss and the player in a fight don't go out through the opening.
         let g = gate_outside(&t.arena);
         for m in [Mover::Boss, Mover::PlayerInFight] {
             let q = ground(step(&t, g, r, m));
             assert!(math::flat_len(q) <= t.arena.radius - r + 1e-3);
         }
-        // Le joueur, lui, passe sur le palier puis descend l'escalier jusqu'à la place.
+        // The player, though, goes onto the landing then down the stairs to the square.
         assert_eq!(ground(step(&t, g, r, Mover::Player)), g);
         let mut pos = g;
         let mut low = 0.0f32;
@@ -269,23 +278,40 @@ mod tests {
             pos = ground(step(&t, pos - Vec3::Z * 0.1, r, Mover::Player));
             low = low.min(pos.y);
         }
-        assert!(low < -1.0, "on descend ({low})");
-        // Les ennemis n'entrent pas dans l'arène.
+        assert!(low < -1.0, "going down ({low})");
+        // Enemies don't enter the arena.
         let q = ground(step(&t, Vec3::new(0.0, 0.0, -5.0), r, Mover::Enemy));
         assert!(q.z < -t.arena.radius);
     }
 
     #[test]
+    fn no_fall_along_the_stair_rails_from_the_landing() {
+        let t = Tuning::builtin();
+        let r = 0.4;
+        // From the lower landing, going back up towards the arena along the balustrades, on each
+        // side and at every distance from the axis: you bump, you never fall.
+        for i in 0..=48 {
+            let x = -2.4 + 0.1 * i as f32;
+            let mut pos = Vec3::new(x, -2.4, -24.5);
+            for _ in 0..40 {
+                pos = ground(step(&t, pos + Vec3::Z * 0.1, r, Mover::Player));
+            }
+        }
+        // The landing's open edge, though, always makes you fall.
+        assert_eq!(step(&t, Vec3::new(3.0, -2.4, -23.5), r, Mover::Player), Step::Fall);
+    }
+
+    #[test]
     fn walls_block_the_camera_but_not_the_open_end_of_the_stairs() {
         let t = Tuning::builtin();
-        // Dans l'arène, vers l'extérieur : le mur.
-        let s = wall_hit(&t, Vec3::new(10.0, 0.0, 0.0), Vec3::new(20.0, 0.0, 0.0)).expect("mur");
+        // In the arena, towards the outside: the wall.
+        let s = wall_hit(&t, Vec3::new(10.0, 0.0, 0.0), Vec3::new(20.0, 0.0, 0.0)).expect("wall");
         assert!((s - 0.6).abs() < 1e-3);
-        // Par l'ouverture, le long de l'escalier : rien.
+        // Through the opening, along the stairs: nothing.
         assert_eq!(wall_hit(&t, Vec3::new(0.0, 0.0, -10.0), Vec3::new(0.0, 0.0, -22.0)), None);
-        // Au pied de l'escalier, caméra derrière soi sur la place : rien non plus.
+        // At the foot of the stairs, camera behind you on the square: nothing either.
         assert_eq!(wall_hit(&t, Vec3::new(0.0, -2.0, -23.0), Vec3::new(0.5, -1.0, -28.5)), None);
-        // Sur l'escalier, caméra de côté : le mur de l'escalier.
+        // On the stairs, camera from the side: the stair wall.
         assert!(wall_hit(&t, Vec3::new(0.0, -1.0, -20.0), Vec3::new(5.0, 0.0, -21.0)).is_some());
     }
 
@@ -293,8 +319,8 @@ mod tests {
     fn open_edges_make_the_player_fall_but_not_enemies() {
         let t = Tuning::builtin();
         let cp = t.level.checkpoints[0].pos;
-        let y = floor_at(&t, cp[0], cp[1], 0.0).expect("checkpoint sur le sol");
-        // Très loin de tout, à la hauteur de la place.
+        let y = floor_at(&t, cp[0], cp[1], 0.0).expect("checkpoint on the ground");
+        // Very far from everything, at the height of the square.
         let far = Vec3::new(cp[0] + 60.0, y, cp[1]);
         assert_eq!(step(&t, far, 0.4, Mover::Player), Step::Fall);
         assert!(matches!(step(&t, far, 0.4, Mover::Enemy), Step::Ground(_)));
@@ -305,16 +331,16 @@ mod tests {
     fn level_content_is_on_the_ground() {
         let t = Tuning::builtin();
         for c in &t.level.checkpoints {
-            assert!(floor_at(&t, c.pos[0], c.pos[1], 0.0).is_some(), "checkpoint dans le vide : {c:?}");
+            assert!(floor_at(&t, c.pos[0], c.pos[1], 0.0).is_some(), "checkpoint in the void: {c:?}");
         }
         for e in &t.level.enemies {
-            assert!(floor_at(&t, e.pos[0], e.pos[1], 0.0).is_some(), "ennemi dans le vide : {e:?}");
+            assert!(floor_at(&t, e.pos[0], e.pos[1], 0.0).is_some(), "enemy in the void: {e:?}");
         }
         for p in &t.level.pickups {
-            assert!(floor_at(&t, p.pos[0], p.pos[1], 0.0).is_some(), "objet dans le vide : {p:?}");
+            assert!(floor_at(&t, p.pos[0], p.pos[1], 0.0).is_some(), "item in the void: {p:?}");
         }
         for p in &t.level.props {
-            assert!(floor_at(&t, p.pos[0], p.pos[1], 0.0).is_some(), "décor dans le vide : {p:?}");
+            assert!(floor_at(&t, p.pos[0], p.pos[1], 0.0).is_some(), "decor in the void: {p:?}");
         }
     }
 }

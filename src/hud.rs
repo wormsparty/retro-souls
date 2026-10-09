@@ -1,5 +1,5 @@
-//! Interface : barres du joueur et du boss, objet rapide, braises, réticule de verrouillage,
-//! invite d'interaction, bannières et fondu à la mort.
+//! Interface: player and boss bars, quick item, embers, lock-on reticle,
+//! interaction prompt, banners and fade on death.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
@@ -20,16 +20,16 @@ use crate::sim::boss::Boss;
 use crate::sim::data::Tuning;
 use crate::sim::encounter::{Encounter, RESPAWN_TICKS, near_checkpoint, near_dropped, near_pickup};
 use crate::sim::fighter::{Body, Foe, Health};
-use crate::sim::items::{Item, Kind, QUICK_SLOTS};
+use crate::sim::items::{Item, QUICK_SLOTS};
 use crate::sim::player::{PState, Player};
 use crate::ui::{Glyph, Hint, PixelSize, UiFont, hint_node, i, image_bundle, set_hint, t};
 
-const HP_PX: f32 = 0.6; // px par PV
-const ST_PX: f32 = 2.0; // px par point d'endurance
-const SP_PX: f32 = 0.4; // px par point de jauge spéciale
+const HP_PX: f32 = 0.6; // px per HP
+const ST_PX: f32 = 2.0; // px per stamina point
+const SP_PX: f32 = 0.4; // px per special gauge point
 const TEXT: Color = Color::srgb(0.85, 0.82, 0.75);
 const GOLD: Color = Color::srgb(0.9, 0.75, 0.4);
-/// Durée d'affichage d'un gain de braises (le compteur l'absorbe après la première seconde).
+/// How long an embers gain is shown (the counter absorbs it after the first second).
 const GAIN_SHOW: f32 = 4.0;
 
 #[derive(Component)]
@@ -41,17 +41,17 @@ enum Bar {
     StaminaFrame,
     Special,
     SpecialFrame,
-    /// Barres du boss affiché à cet emplacement (deux pour un duo).
+    /// Bars of the boss shown in this slot (two for a duo).
     BossHp(u8),
     BossStagger(u8),
 }
 
-/// Emplacement de boss du panneau du bas (son nom et ses barres).
+/// Boss slot of the bottom panel (its name and bars).
 #[derive(Component)]
 struct BossSlot(u8);
 #[derive(Component)]
 struct BossName(u8);
-/// Emplacements de boss : un duo en a deux.
+/// Boss slots: a duo has two.
 const BOSS_SLOTS: u8 = 2;
 
 #[derive(Component)]
@@ -74,7 +74,7 @@ struct EmbersGain;
 struct Prompt;
 #[derive(Component)]
 struct BossPanel;
-/// Arme équipée (icône, nom, touche pour changer) et ses repères.
+/// Equipped weapon (icon, name, key to switch) and its markers.
 #[derive(Component)]
 struct WeaponIcon;
 #[derive(Component)]
@@ -95,10 +95,10 @@ struct Fade;
 struct Reticle;
 #[derive(Component)]
 struct LoadingText;
-/// Compteur d'images par seconde (option « Afficher les FPS »).
+/// Frames-per-second counter ("Show FPS" option).
 #[derive(Component)]
 struct FpsText;
-/// Fenêtre « objet obtenu ».
+/// "Item obtained" popup.
 #[derive(Component)]
 struct Popup;
 #[derive(Component)]
@@ -107,16 +107,16 @@ struct PopupIcon;
 struct PopupName;
 #[derive(Component)]
 struct PopupInfo;
-/// Effets en cours (résine, mousse).
+/// Active effects (resin, moss).
 #[derive(Component)]
 struct Effects;
-/// Barre de vie flottante d'un ennemi (et l'ennemi qu'elle suit).
+/// Floating health bar of an enemy (and the enemy it follows).
 #[derive(Component)]
 struct FoeBar(Entity);
 #[derive(Component)]
 struct FoeBarFill;
 
-/// Icônes des objets (pixel art généré au démarrage), aussi utilisées par le menu d'équipement.
+/// Item icons (pixel art generated at startup), also used by the equipment menu.
 #[derive(Resource)]
 pub struct ItemIcons(HashMap<Item, Handle<Image>>);
 
@@ -126,7 +126,7 @@ impl ItemIcons {
     }
 }
 
-/// Icônes des armes, dans l'ordre de `weapons.ron`.
+/// Weapon icons, in the order of `weapons.ron`.
 #[derive(Resource)]
 pub struct WeaponIcons(Vec<Handle<Image>>);
 
@@ -136,14 +136,14 @@ impl WeaponIcons {
     }
 }
 
-/// Icônes du menu pause : équipement (heaume) et système (roue crantée).
+/// Pause menu icons: equipment (helm) and system (cogwheel).
 #[derive(Resource)]
 pub struct MenuIcons {
     pub equipment: Handle<Image>,
     pub system: Handle<Image>,
 }
 
-/// Objets ramassés à annoncer, l'un après l'autre.
+/// Picked-up items to announce, one after the other.
 #[derive(Resource, Default)]
 struct PickupPopup {
     queue: VecDeque<(Item, u8)>,
@@ -153,21 +153,21 @@ struct PickupPopup {
 
 const POPUP_SHOW: f32 = 3.2;
 
-/// Bannière de mort / victoire.
+/// Death / victory banner.
 #[derive(Resource, Default)]
 struct Outcome {
-    /// Texte (anglais, français) et couleur.
+    /// Text (English, French) and colour.
     text: Option<((&'static str, &'static str), Color)>,
     timer: f32,
-    /// Durée d'affichage (`None` : jusqu'à la réapparition).
+    /// Display duration (`None`: until the respawn).
     duration: Option<f32>,
 }
 
-/// Valeurs animées : compteur de braises, fondu au noir.
+/// Animated values: embers counter, fade to black.
 #[derive(Resource, Default)]
 struct HudAnim {
     embers_shown: f32,
-    /// Braises du joueur à la frame précédente (détection des gains).
+    /// The player's embers on the previous frame (gain detection).
     embers_known: u32,
     gain: u32,
     gain_timer: f32,
@@ -223,13 +223,13 @@ fn bar(width: f32, height: f32, color: Color, kind: Bar) -> impl Bundle {
     (Node { width: px(width), height: px(height), ..default() }, BackgroundColor(color), kind)
 }
 
-/// Taille des icônes d'objets, en pixels (= points).
+/// Size of item icons, in pixels (= dots).
 pub const ITEM_ICON: usize = 24;
 
-/// Icône façon PS1 de `n`×`n` pixels : `shade(x, y)` donne la couleur de chaque pixel (centre
-/// du pixel, en pixels depuis le coin haut gauche) ou `None` s'il est transparent. Les couleurs
-/// sont ramenées à 15 bits par canal avec le même tramage 4×4 que le jeu ; avec `outline`,
-/// l'icône reçoit un contour sombre d'un pixel pour se détacher du fond.
+/// PS1-style icon of `n`×`n` pixels: `shade(x, y)` gives the colour of each pixel (pixel
+/// centre, in pixels from the top-left corner) or `None` if it's transparent. Colours
+/// are reduced to 15 bits per channel with the same 4×4 dithering as the game; with `outline`,
+/// the icon gets a dark one-pixel outline to stand out from the background.
 fn ps1_icon(n: usize, outline: bool, shade: impl Fn(f32, f32) -> Option<Vec3>) -> Image {
     const BAYER: [f32; 16] = [0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0];
     let mut data = Vec::with_capacity(n * n * 4);
@@ -267,7 +267,7 @@ fn ps1_icon(n: usize, outline: bool, shade: impl Fn(f32, f32) -> Option<Vec3>) -
     )
 }
 
-/// Fiole de soin : petit rendu « 3D » (panse sphérique éclairée, reflet, liquide vert lumineux).
+/// Healing flask: small "3D" rendering (lit spherical body, highlight, glowing green liquid).
 fn flask_icon() -> Image {
     let light = Vec3::new(-0.55, 0.6, 0.6).normalize();
     let (cx, cy, r) = (12.0, 15.0, 8.2);
@@ -288,7 +288,7 @@ fn flask_icon() -> Image {
             let diffuse = n.dot(light).max(0.0);
             let spec = n.dot((light + Vec3::Z).normalize()).max(0.0).powf(24.0);
             let rim = (1.0 - n.z).powf(2.0);
-            // Liquide sous la ligne de niveau (légère ondulation), verre vide au-dessus.
+            // Liquid below the level line (slight ripple), empty glass above.
             let level = cy - 2.0 + 0.6 * ((fx - cx) * 0.9).sin();
             let base = if fy > level {
                 let glow = 0.35 + 0.65 * (1.0 - d2);
@@ -303,7 +303,7 @@ fn flask_icon() -> Image {
     })
 }
 
-/// Petite sphère éclairée (forme de base de plusieurs icônes) : normale et facteur diffus.
+/// Small lit sphere (base shape of several icons): normal and diffuse factor.
 fn lit(dx: f32, dy: f32) -> Option<(Vec3, f32)> {
     let d2 = dx * dx + dy * dy;
     (d2 <= 1.0).then(|| {
@@ -312,7 +312,7 @@ fn lit(dx: f32, dy: f32) -> Option<(Vec3, f32)> {
     })
 }
 
-/// Braise à écraser : un caillou de charbon fendu de lueurs (ternie : grise ; vive : ardente).
+/// Ember to crush: a lump of coal cracked with glows (faded: grey; lively: blazing).
 fn ember_icon(lively: bool) -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
         let (dx, dy) = ((fx - 12.0) / 8.5, (fy - 13.5) / 7.5);
@@ -329,7 +329,7 @@ fn ember_icon(lively: bool) -> Image {
     })
 }
 
-/// Mousse dorée : touffe de brins verts aux pointes dorées.
+/// Golden moss: tuft of green strands with golden tips.
 fn moss_icon() -> Image {
     const BLADES: [(f32, f32, f32); 7] = [(5.0, 2.0, 7.0), (8.0, 6.5, 3.0), (11.0, 11.5, 1.0), (14.0, 16.0, 2.5), (17.0, 20.5, 5.0), (9.5, 4.0, 5.0), (15.0, 18.0, 4.0)];
     ps1_icon(ITEM_ICON, true, |fx, fy| {
@@ -353,7 +353,7 @@ fn moss_icon() -> Image {
     })
 }
 
-/// Résine ardente : petit pot de terre, résine ambrée qui déborde.
+/// Ember resin: small clay pot, amber resin overflowing.
 fn resin_icon() -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
         let (cx, w) = (12.0, 7.5 - (fy - 14.0).abs() * 0.12);
@@ -371,7 +371,7 @@ fn resin_icon() -> Image {
     })
 }
 
-/// Éclat de fiole : morceau de verre vert, tranchant.
+/// Flask shard: sharp piece of green glass.
 fn shard_icon() -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
         let (u, v) = (fx - 12.0, fy - 12.0);
@@ -384,7 +384,7 @@ fn shard_icon() -> Image {
     })
 }
 
-/// Broche de fer : disque de métal martelé, cabochon sombre et épingle.
+/// Iron brooch: disc of hammered metal, dark cabochon and pin.
 fn brooch_icon() -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
         if (fx - fy - 1.0).abs() < 0.8 && (3.0..21.0).contains(&fx) && !(6.0..18.0).contains(&fx) {
@@ -401,10 +401,10 @@ fn brooch_icon() -> Image {
     })
 }
 
-/// Plume de cimier : plume en diagonale, rayée rouge et blanc.
+/// Crest plume: diagonal feather, striped red and white.
 fn feather_icon() -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
-        // Axe de la plume : du coin bas gauche vers le haut droit.
+        // Feather axis: from the bottom-left corner towards the top right.
         let k = std::f32::consts::FRAC_1_SQRT_2;
         let (u, v) = ((fx - fy) * k, (fx + fy - 24.0) * k);
         let half = (1.0 - (v / 10.0) * (v / 10.0)).max(0.0) * 4.2 - if v < -6.0 { 4.0 } else { 0.0 };
@@ -419,10 +419,10 @@ fn feather_icon() -> Image {
     })
 }
 
-/// Arme en diagonale, garde en bas à gauche, pointe en haut à droite. `t` : distance le long de
-/// l'arme depuis le pommeau, `v` : écart à l'axe (positif : côté éclairé). La rapière a une
-/// lame fine et une garde dorée à coquille, l'espadon une lame large à gorge et une longue
-/// garde droite de fer.
+/// Diagonal weapon, guard at the bottom left, point at the top right. `t`: distance along
+/// the weapon from the pommel, `v`: offset from the axis (positive: lit side). The rapier has a
+/// thin blade and a golden shell guard, the greatsword a wide fullered blade and a long
+/// straight iron guard.
 fn weapon_icon(index: usize) -> Image {
     let k = std::f32::consts::FRAC_1_SQRT_2;
     let rapier = index == 0;
@@ -445,11 +445,11 @@ fn weapon_icon(index: usize) -> Image {
             if (2.2..5.0).contains(&t) && v.abs() < 0.8 {
                 return Some(leather(t));
             }
-            // Coquille et quillons.
+            // Shell and quillons.
             if (5.0..6.2).contains(&t) && v.abs() < 3.4 {
                 return Some(gold * (0.8 + 0.1 * v));
             }
-            // Pas-d'âne : un arc qui revient vers le pommeau.
+            // Knuckle bow: an arc curving back towards the pommel.
             let bow = ((t - 4.2).powi(2) + (v - 2.2).powi(2)).sqrt();
             if (bow - 2.0).abs() < 0.45 && v > 1.0 {
                 return Some(gold * 0.85);
@@ -471,7 +471,7 @@ fn weapon_icon(index: usize) -> Image {
             }
             let w = if t < 24.0 { 2.1 } else { 2.1 * (27.5 - t) / 3.5 };
             if (7.6..27.5).contains(&t) && v.abs() < w {
-                // Gorge sombre au milieu de la lame.
+                // Dark fuller in the middle of the blade.
                 let fuller = v.abs() < 0.5 && t < 22.0;
                 return Some(steel(v, w) * if fuller { 0.6 } else { 1.0 });
             }
@@ -480,13 +480,13 @@ fn weapon_icon(index: usize) -> Image {
     })
 }
 
-/// Roue crantée (système) : huit dents, moyeu percé, acier éclairé d'en haut à gauche.
+/// Cogwheel (system): eight teeth, pierced hub, steel lit from the top left.
 fn gear_icon() -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
         let (dx, dy) = (fx - 12.0, fy - 12.0);
         let r = (dx * dx + dy * dy).sqrt();
         let a = dy.atan2(dx);
-        // Dents : créneaux sur le pourtour (un peu plus étroits au sommet).
+        // Teeth: crenels around the rim (a bit narrower at the top).
         let tooth = ((a * 8.0 / std::f32::consts::TAU + 0.25).rem_euclid(1.0) - 0.5).abs() < 0.22;
         let outer = if tooth { 10.5 } else { 8.0 };
         if r > outer || r < 3.2 {
@@ -494,27 +494,27 @@ fn gear_icon() -> Image {
         }
         let light = (0.55 - 0.45 * (dx - dy) / 17.0).clamp(0.0, 1.0);
         let base = Vec3::new(0.42, 0.42, 0.46).lerp(Vec3::new(0.86, 0.86, 0.9), light);
-        // Rainure entre la couronne et le moyeu.
+        // Groove between the rim and the hub.
         Some(if (r - 5.6).abs() < 0.7 { base * 0.55 } else { base })
     })
 }
 
-/// Heaume (équipement) : casque de fer à fente de visière et crête rouge.
+/// Helm (equipment): iron helmet with a visor slit and a red crest.
 fn helm_icon() -> Image {
     ps1_icon(ITEM_ICON, true, |fx, fy| {
         let (dx, dy) = ((fx - 12.0) / 8.0, (fy - 13.0) / 9.0);
-        // Crête au sommet.
+        // Crest on top.
         if (fx - 12.0).abs() < 1.3 && (1.0..5.0).contains(&fy) {
             return Some(Vec3::new(0.72, 0.14, 0.1) * (1.1 - (fy - 1.0) * 0.08));
         }
-        // Dôme en haut, joues droites en bas.
+        // Dome at the top, straight cheeks at the bottom.
         let inside = if dy < 0.0 { dx * dx + dy * dy <= 1.0 } else { dx.abs() <= 1.0 - dy * 0.15 && dy <= 1.0 };
         if !inside {
             return None;
         }
         let light = (0.6 - 0.5 * dx - 0.3 * dy).clamp(0.0, 1.0);
         let iron = Vec3::new(0.32, 0.32, 0.36).lerp(Vec3::new(0.82, 0.82, 0.86), light);
-        // Fente de la visière, et rivets de part et d'autre.
+        // Visor slit, and rivets on either side.
         if (12.5..14.0).contains(&fy) && (6.0..18.0).contains(&fx) {
             return Some(Vec3::splat(0.05));
         }
@@ -525,16 +525,16 @@ fn helm_icon() -> Image {
     })
 }
 
-/// Taille de l'icône des braises, en pixels (= points) : dessinée à sa taille d'affichage.
+/// Size of the embers icon, in pixels (= dots): drawn at its display size.
 const EMBER_ICON: usize = 16;
 
-/// Flamme (braises) : trois langues déchiquetées sur un foyer arrondi, rouge sombre sur les
-/// bords, cœur ocre pâle, et deux escarbilles qui s'en échappent. Pas de contour : la
-/// silhouette reste irrégulière, comme une texture basse résolution.
+/// Flame (embers): three jagged tongues over a rounded hearth, dark red at the
+/// edges, pale ochre core, and two cinders escaping from it. No outline: the
+/// silhouette stays irregular, like a low-resolution texture.
 fn flame_icon() -> Image {
-    // Langues : (x de la base, x de la pointe, y de la pointe, demi-largeur à la base).
+    // Tongues: (x of the base, x of the tip, y of the tip, half-width at the base).
     const TONGUES: [(f32, f32, f32, f32); 3] = [(8.0, 8.4, 0.5, 4.2), (6.2, 2.6, 4.5, 2.4), (10.0, 13.0, 3.0, 2.2)];
-    // Hauteur où les langues atteignent leur pleine largeur ; le foyer s'arrondit en dessous.
+    // Height where the tongues reach their full width; the hearth rounds off below.
     const BASE: f32 = 12.0;
     const FOOT: f32 = 3.6;
     let hash = |x: i32, y: i32| {
@@ -549,7 +549,7 @@ fn flame_icon() -> Image {
         let k = ((fy - ty) / (BASE - ty)).min(1.0);
         let axis = tx + (bx - tx) * k.powf(0.7);
         let half = if fy <= BASE { w * k.powf(1.1) } else { w * (1.0 - ((fy - BASE) / FOOT).powi(2)).max(0.0).sqrt() };
-        // Bords rongés : la largeur varie d'un pixel à l'autre.
+        // Ragged edges: the width varies from one pixel to the next.
         let half = half + (hash(fx as i32, fy as i32) - 0.5) * 0.9 * k;
         (1.0 - (fx - axis).abs() / half.max(1e-3)).max(0.0)
     };
@@ -600,7 +600,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
         Node { position_type: PositionType::Absolute, left: percent(45), top: percent(45), ..default() },
         LoadingText,
     ));
-    // FPS, en haut à droite, visible partout (menus compris) quand l'option est active.
+    // FPS, top right, visible everywhere (menus included) when the option is on.
     commands.spawn((
         font.text("", 1, TEXT),
         Node { position_type: PositionType::Absolute, right: px(28), top: px(24), ..default() },
@@ -616,7 +616,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
         ))
         .id();
 
-    // Barres du joueur, en haut à gauche.
+    // Player bars, top left.
     commands
         .spawn((
             ChildOf(root),
@@ -663,8 +663,8 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
             c.spawn((font.text("", 1, GOLD), Effects));
         });
 
-    // Arme équipée et objet rapide, en bas à gauche : une case avec l'icône, et à côté le nom,
-    // les repères des emplacements et la touche pour changer.
+    // Equipped weapon and quick item, bottom left: a box with the icon, and next to it the name,
+    // the slot markers and the key to switch.
     let slot_box = |c: &mut ChildSpawnerCommands, icon: Handle<Image>, marker: Option<ItemIcon>| {
         c.spawn((
             Node {
@@ -732,7 +732,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
                 });
             });
         });
-    // Objet obtenu : icône, nom et description, au-dessus de l'invite d'interaction.
+    // Item obtained: icon, name and description, above the interaction prompt.
     commands
         .spawn((
             ChildOf(root),
@@ -771,7 +771,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
     commands.insert_resource(weapon_icons);
     commands.insert_resource(MenuIcons { equipment: images.add(helm_icon()), system: images.add(gear_icon()) });
 
-    // Braises, en bas à droite.
+    // Embers, bottom right.
     commands
         .spawn((
             ChildOf(root),
@@ -796,7 +796,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
                     border: UiRect::all(px(1)),
                     ..default()
                 },
-                // Biseau d'un pixel : arête claire en haut à gauche, sombre en bas à droite.
+                // One-pixel bevel: light edge at the top left, dark at the bottom right.
                 BorderColor {
                     top: Color::srgb(0.42, 0.37, 0.3),
                     left: Color::srgb(0.42, 0.37, 0.3),
@@ -811,7 +811,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
             });
         });
 
-    // Invite d'interaction, au-dessus du panneau du boss.
+    // Interaction prompt, above the boss panel.
     commands
         .spawn((
             ChildOf(root),
@@ -833,7 +833,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
             ));
         });
 
-    // Boss, en bas au centre.
+    // Boss, bottom centre.
     commands
         .spawn((
             ChildOf(root),
@@ -857,7 +857,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
                                 .with_children(|c| {
                                     c.spawn((Node { width: percent(100), height: px(8), ..default() }, BackgroundColor(Color::srgb(0.68, 0.08, 0.06)), Bar::BossHp(slot)));
                                 });
-                            // Jauge de stagger : suivie mais cachée (on la devine à la réaction du boss).
+                            // Stagger gauge: tracked but hidden (you guess it from the boss's reaction).
                             c.spawn((Node { width: px(620), height: px(6), padding: UiRect::all(px(1)), display: Display::None, ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6))))
                                 .with_children(|c| {
                                     c.spawn((Node { width: percent(0), height: px(4), ..default() }, BackgroundColor(Color::srgb(0.95, 0.9, 0.75)), Bar::BossStagger(slot)));
@@ -867,7 +867,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
             });
         });
 
-    // Flash plein écran (garde parfaite / furie), puis fondu au noir.
+    // Full-screen flash (perfect guard / rage), then fade to black.
     commands.spawn((
         ChildOf(root),
         Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100), ..default() },
@@ -881,7 +881,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
         Fade,
     ));
 
-    // Bannière de mort / victoire.
+    // Death / victory banner.
     commands
         .spawn((
             ChildOf(root),
@@ -896,7 +896,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
                 padding: UiRect::axes(px(0), px(22)),
                 ..default()
             },
-            // Bandeau sombre sur toute la largeur, façon Dark Souls.
+            // Dark strip across the whole width, Dark Souls style.
             BackgroundColor(Color::NONE),
             Visibility::Hidden,
             Banner,
@@ -914,7 +914,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
     ));
 }
 
-/// Le HUD n'est visible qu'en jeu (pas sur l'écran titre).
+/// The HUD is only visible in game (not on the title screen).
 fn show_root(state: Res<State<AppState>>, mut q: Query<&mut Visibility, With<HudRoot>>) {
     let want = if *state.get() == AppState::Playing { Visibility::Inherited } else { Visibility::Hidden };
     for mut v in &mut q {
@@ -924,7 +924,7 @@ fn show_root(state: Res<State<AppState>>, mut q: Query<&mut Visibility, With<Hud
     }
 }
 
-/// Moyenne sur une demi-seconde, pour que le chiffre reste lisible.
+/// Average over half a second, so the number stays readable.
 fn fps(
     time: Res<Time<Real>>,
     settings: Res<crate::settings::Settings>,
@@ -1017,7 +1017,7 @@ fn embers(
         anim.embers_shown = p.embers as f32;
         anim.embers_known = p.embers;
     }
-    // Braises gagnées : « +N » au-dessus du compteur, qui les absorbe après un instant.
+    // Embers gained: "+N" above the counter, which absorbs them after a moment.
     if p.embers > anim.embers_known {
         anim.gain = if anim.gain_timer > 0.0 { anim.gain + p.embers - anim.embers_known } else { p.embers - anim.embers_known };
         anim.gain_timer = GAIN_SHOW;
@@ -1049,11 +1049,11 @@ fn prompt(
     mut root: Query<(&mut Visibility, &Children), With<Prompt>>,
     mut hints: Query<&mut Hint>,
 ) {
-    // Ramasser passe avant le repos (même bouton). (texte, avec la touche ?)
+    // Picking up takes priority over resting (same button). (text, with the key?)
     let label = players.single().ok().filter(|(p, _, h)| !h.dead() && matches!(p.state, PState::Free | PState::Guard)).and_then(
         |(p, b, _)| {
             if p.dropped.is_some_and(|d| near_dropped(&d, b.pos)) {
-                return Some((tr("Recover your embers", "Récupérer vos braises"), true));
+                return Some((tr("Recover", "Récupérer"), true));
             }
             if near_pickup(&tuning, p.picked, b.pos).is_some() {
                 return Some((tr("Pick up", "Ramasser"), true));
@@ -1090,7 +1090,7 @@ fn update_bars(
     let hp_scale = HP_PX;
     for (b, mut n, mut bg) in &mut bars {
         match b {
-            // Endurance : orange tant qu'on ne peut pas agir, cadre rouge si une action est refusée.
+            // Stamina: orange while you can't act, red frame if an action is refused.
             Bar::Stamina => {
                 bg.0 = if p.can_act() { Color::srgb(0.3, 0.62, 0.25) } else { Color::srgb(0.75, 0.42, 0.12) };
             }
@@ -1156,11 +1156,11 @@ fn update_boss(
     mut names: Query<(&BossName, &mut Text)>,
     mut bars: Query<(&Bar, &mut Node), Without<BossSlot>>,
 ) {
-    // Le panneau n'apparaît que pendant le combat.
+    // The panel only appears during the fight.
     for mut v in &mut panel {
         *v = if enc.active { Visibility::Inherited } else { Visibility::Hidden };
     }
-    // Les premiers rôles, dans l'ordre de création (celui de la rencontre).
+    // The leads, in creation order (that of the encounter).
     let mut main: Vec<_> = bosses.iter().filter(|(_, b, _)| !b.def(&tuning).minor).collect();
     main.sort_by_key(|(_, b, _)| b.def);
     for (slot, mut v, mut n) in &mut slots {
@@ -1208,7 +1208,7 @@ fn outcome(
             SimEvent::PlayerDied => {
                 *out = Outcome { text: Some((("YOU DIED", "VOUS ÊTES MORT"), Color::srgb(0.75, 0.12, 0.08))), ..default() };
             }
-            // Les braises gagnées s'affichent en bas à droite (voir `embers`).
+            // Embers gained are shown at the bottom right (see `embers`).
             SimEvent::BossDefeated { .. } => {
                 *out = Outcome { text: Some((("AUTOMATON DESTROYED", "AUTOMATE DÉTRUIT"), Color::srgb(0.9, 0.75, 0.35))), timer: 0.0, duration: Some(5.0) };
             }
@@ -1260,8 +1260,8 @@ fn overlay(
             Color::NONE
         };
     }
-    // Mort : la scène s'assombrit pendant « VOUS ÊTES MORT », noir complet juste avant la
-    // réapparition au checkpoint, puis retour progressif.
+    // Death: the scene darkens during "YOU DIED", fully black just before the
+    // respawn at the checkpoint, then gradually back.
     if fx.last.contains(&SimEvent::Respawned) {
         anim.fade = 1.0;
     }
@@ -1311,13 +1311,13 @@ fn reticle(
     };
     let sx = window.width() / target.size.x as f32;
     let sy = window.height() / target.size.y as f32;
-    // Les longueurs d'UI sont multipliées par UiScale : on convertit en unités d'UI.
+    // UI lengths are multiplied by UiScale: convert to UI units.
     node.left = px(vp.x * sx / ui_scale.0 - 3.0);
     node.top = px(vp.y * sy / ui_scale.0 - 3.0);
     *vis = Visibility::Inherited;
 }
 
-/// Vrai entre le coup fatal et la fin de l'animation de mort.
+/// True between the fatal blow and the end of the death animation.
 fn fx_dying(fx: &FxState, anim: &mut HudAnim) -> bool {
     if fx.last.contains(&SimEvent::PlayerDied) {
         anim.dying = true;
@@ -1328,7 +1328,7 @@ fn fx_dying(fx: &FxState, anim: &mut HudAnim) -> bool {
     anim.dying
 }
 
-/// « Objet obtenu » : chaque objet ramassé s'affiche quelques secondes, l'un après l'autre.
+/// "Item obtained": each picked-up item is shown for a few seconds, one after the other.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn popup(
     time: Res<Time>,
@@ -1340,7 +1340,6 @@ fn popup(
     mut icon: Query<&mut ImageNode, With<PopupIcon>>,
     mut name: Query<&mut Text, (With<PopupName>, Without<PopupInfo>)>,
     mut info: Query<&mut Text, (With<PopupInfo>, Without<PopupName>)>,
-    players: Query<&Player, With<LocalPlayer>>,
 ) {
     for e in &fx.last {
         if let SimEvent::PickedUp { pickup, .. } = e
@@ -1372,19 +1371,12 @@ fn popup(
     for mut t in &mut name {
         set_text(&mut t, if n > 1 { format!("{} ×{n}", item.name()) } else { item.name().to_string() });
     }
-    // Talisman : dire où le changer (il est porté d'office si on n'en avait pas).
-    let worn = players.single().is_ok_and(|p| p.inventory.wears(item));
-    let extra = match item.kind() {
-        Kind::Talisman if worn => tr("\nWorn. Change talismans in Equipment (pause menu).", "\nPorté. Changer de talisman : Équipement (menu pause)."),
-        Kind::Talisman => tr("\nWear it from Equipment (pause menu).", "\nÀ porter depuis Équipement (menu pause)."),
-        _ => "",
-    };
     for mut t in &mut info {
-        set_text(&mut t, format!("{}{extra}", item.description()));
+        set_text(&mut t, item.description());
     }
 }
 
-/// Effets en cours, sous les barres : résine (arme enflammée), mousse (régénération).
+/// Active effects, under the bars: resin (flaming weapon), moss (regeneration).
 fn effects(players: Query<&Player, With<LocalPlayer>>, mut q: Query<&mut Text, With<Effects>>) {
     let Ok(p) = players.single() else { return };
     let mut parts = Vec::new();
@@ -1399,7 +1391,7 @@ fn effects(players: Query<&Player, With<LocalPlayer>>, mut q: Query<&mut Text, W
     }
 }
 
-/// Barres de vie flottantes au-dessus des ennemis blessés (ou verrouillés), façon Dark Souls.
+/// Floating health bars above wounded (or locked-on) enemies, Dark Souls style.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn foe_bars(
     mut commands: Commands,
@@ -1443,7 +1435,7 @@ fn foe_bars(
             }
         }
     }
-    // Ennemis du chemin et seconds rôles d'un boss (les premiers rôles ont leur barre en bas).
+    // Path enemies and a boss's supporting roles (the leads have their bar at the bottom).
     for (e, .., boss) in &enemies {
         if !has_bar.contains(&e) && boss.is_none_or(|b| b.def(&tuning).minor) {
             commands

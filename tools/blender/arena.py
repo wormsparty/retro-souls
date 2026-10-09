@@ -1,17 +1,17 @@
-"""Génère assets/models/arena.glb : le décor complet.
+"""Generates assets/models/arena.glb: the whole scenery.
 
-- la cour circulaire d'un théâtre forain en ruine (l'arène du boss), posée sur un socle de
-  roche qui s'enfonce dans le vide ;
-- autour, des ruines suspendues au-dessus du noir : l'escalier, la place des Allumeurs, les
-  ponts, plates-formes et passerelles du chemin, leur décor, et au loin dans le vide quelques
-  réverbères perdus sur des rochers flottants.
+- the circular courtyard of a ruined fairground theatre (the boss arena), set on a base of
+  rock that sinks into the void;
+- around it, ruins hanging above the darkness: the stairs, the Lamplighters' square, the
+  bridges, platforms and walkways of the path, their decor, and far off in the void a few
+  street lamps lost on floating rocks.
 
-Tout est lu dans tools/blender/timings.json (exporté de assets/config/arena.ron et
-level.ron par `cargo run --bin export_timings`) : mêmes positions que les collisions.
-Les empties « light_* » indiquent au jeu où placer les lumières (« light_checkpoint_<i> » :
-lanternes, « light_lamp_<i> » : réverbères, les autres : braseros).
+Everything is read from tools/blender/timings.json (exported from assets/config/arena.ron and
+level.ron by `cargo run --bin export_timings`): same positions as the collisions.
+The "light_*" empties tell the game where to put the lights ("light_checkpoint_<i>":
+lanterns, "light_lamp_<i>": street lamps, the others: braziers).
 
-Repère : le jeu (x, y, z) correspond à (x, -z, y) dans Blender.
+Frame: the game's (x, y, z) maps to (x, -z, y) in Blender.
 """
 
 import math
@@ -51,7 +51,7 @@ sc = bpy.context.scene
 
 
 def B(x, z, y=0.0):
-    """Point du jeu (x, z) à la hauteur y → coordonnées Blender."""
+    """Game point (x, z) at height y → Blender coordinates."""
     return (x, -z, y)
 
 
@@ -72,7 +72,7 @@ def light(name, p):
     LIGHTS.append((name, p))
 
 
-# ----------------------------------------------------------------------------- sols (même logique que src/sim/world.rs)
+# ----------------------------------------------------------------------------- floors (same logic as src/sim/world.rs)
 
 def strip_geom(f):
     s = f["shape"]["Strip"]
@@ -122,7 +122,7 @@ def inside_ellipse(x, z, margin=0.0):
     return None
 
 
-# ----------------------------------------------------------------------------- arène
+# ----------------------------------------------------------------------------- arena
 
 def ring_quads(mb, r0, r1, z, mat, sides, uv=(1, 1), cx=0.0, cy=0.0, ry=None):
     k = 1.0 if ry is None else ry
@@ -133,10 +133,10 @@ def ring_quads(mb, r0, r1, z, mat, sides, uv=(1, 1), cx=0.0, cy=0.0, ry=None):
 
 
 def arena_floor(mb):
-    # Sol en anneaux concentriques (dalles), légèrement subdivisé pour limiter la déformation affine.
+    # Floor in concentric rings (flagstones), slightly subdivided to limit the affine distortion.
     rings = [0, 1.5, 3, 4.5, 6, 7.5, 9, 10.5, 12, 13.5, 15, RADIUS + 1.5]
     for r0, r1 in zip(rings, rings[1:]):
-        sides = 48  # même découpage partout : pas de fissure entre anneaux
+        sides = 48  # same split everywhere: no crack between rings
         if r0 == 0:
             for i in range(sides):
                 a0, a1 = 2 * math.pi * i / sides, 2 * math.pi * (i + 1) / sides
@@ -145,40 +145,40 @@ def arena_floor(mb):
                 mb._face(v, FLOOR, uvs=[(0.5, 0), (0, 1), (1, 1)])
         else:
             ring_quads(mb, r0, r1, 0, FLOOR, sides)
-    # Rosace centrale.
+    # Central rosette.
     ring_quads(mb, 2.2, 2.6, 0.04, DARKSTONE, 24)
 
 
-GATE_SEGMENT = 7  # segment de mur centré sur +y (ouverture vers l'escalier)
+GATE_SEGMENT = 7  # wall segment centred on +y (opening towards the stairs)
 
 
 def wall(mb):
     sides = 32
     r_in, r_out, h = RADIUS + 0.5, RADIUS + 1.3, 5.0
     for i in range(sides):
-        # Décalé d'un demi-segment pour qu'un segment soit centré sur l'axe de l'escalier.
+        # Offset by half a segment so that one segment is centred on the stairs' axis.
         a0, a1 = 2 * math.pi * (i + 0.5) / sides, 2 * math.pi * (i + 1.5) / sides
         if i == GATE_SEGMENT:
             continue
         c0, s0, c1, s1 = math.cos(a0), math.sin(a0), math.cos(a1), math.sin(a1)
-        hh = h - (1.6 if i % 5 == 2 else 0) - (0.7 if i % 3 == 0 else 0)  # créneaux en ruine
+        hh = h - (1.6 if i % 5 == 2 else 0) - (0.7 if i % 3 == 0 else 0)  # ruined battlements
         vi = [mb.bm.verts.new(p) for p in ((r_in * c1, r_in * s1, 0), (r_in * c0, r_in * s0, 0),
                                            (r_in * c0, r_in * s0, hh), (r_in * c1, r_in * s1, hh))]
         mb._face(vi, BRICK, uv_scale=(1, 2))
-        # Le parement extérieur descend jusque sous le sol (on le voit depuis la place).
+        # The outer facing goes down below the floor (it's visible from the square).
         vo = [mb.bm.verts.new(p) for p in ((r_out * c0, r_out * s0, -1.5), (r_out * c1, r_out * s1, -1.5),
                                            (r_out * c1, r_out * s1, hh), (r_out * c0, r_out * s0, hh))]
         mb._face(vo, BRICK, uv_scale=(1, 2.6))
         vt = [mb.bm.verts.new(p) for p in ((r_in * c0, r_in * s0, hh), (r_out * c0, r_out * s0, hh),
                                            (r_out * c1, r_out * s1, hh), (r_in * c1, r_in * s1, hh))]
         mb._face(vt, STONE)
-        # Contreforts (pas contre l'ouverture).
+        # Buttresses (not next to the opening).
         if i % 4 == 0 and i not in (GATE_SEGMENT, GATE_SEGMENT + 1):
             mb.box((r_in * c0 - 0.3 * c0, r_in * s0 - 0.3 * s0, h / 2 - 0.4), (0.7, 0.7, h - 0.8), STONE)
 
 
 def rock_cone(mb, cx, cy, top, rx, ry, depth, seed, sides=14, rings=4):
-    """Socle de roche irrégulier sous une plate-forme : il se resserre et se perd dans le vide."""
+    """Irregular rock base under a platform: it narrows and fades into the void."""
     r = random.Random(seed)
     jag = [[0.82 + 0.3 * r.random() for _ in range(sides)] for _ in range(rings + 1)]
     levels = []
@@ -223,7 +223,7 @@ def braziers(mb):
 
 
 def carousel(mb):
-    # Manège en ruine au-delà du mur, derrière le boss (au nord), sur son propre rocher.
+    # Ruined carousel beyond the wall, behind the boss (to the north), on its own rock.
     cx, cy = 0.0, -(RADIUS + 9.0)
     rock_cone(mb, cx, cy, 0.0, 7.0, 7.0, 16, seed=8)
     mb.cylinder((cx, cy, 0.3), 6.0, 0.6, WOOD, sides=12)
@@ -231,23 +231,23 @@ def carousel(mb):
     for i in range(12):
         a = 2 * math.pi * i / 12
         if i in (3, 4):
-            continue  # poteaux cassés
+            continue  # broken posts
         mb.cylinder((cx + 5.2 * math.cos(a), cy + 5.2 * math.sin(a), 3.2), 0.1, 5.6, GOLD, sides=6)
     mb.cylinder((cx, cy, 6.3), 6.4, 0.5, GOLD, sides=12)
     mb.cylinder((cx, cy, 8.0), 6.6, 3.0, CANOPY, sides=12, radius_top=0.3, uv_scale=(3, 1))
-    mb.box((cx + 2.5, cy + 1.0, 1.1), (0.5, 1.4, 1.0), WOOD)  # cheval de bois renversé
+    mb.box((cx + 2.5, cy + 1.0, 1.1), (0.5, 1.4, 1.0), WOOD)  # toppled wooden horse
     mb.box((cx - 3.0, cy - 0.5, 1.3), (0.4, 1.2, 0.9), WOOD)
 
 
 def skyline(mb):
-    """Silhouettes de bâtisses, au nord seulement (au sud, il n'y a que le vide), chacune sur
-    une aiguille de roche."""
+    """Building silhouettes, to the north only (to the south there is only the void), each on
+    a rock spire."""
     for i in range(20):
         a = 2 * math.pi * (i + 0.3) / 20
         d = RADIUS + 16 + (i * 7 % 5) * 2.5
         x, y = d * math.cos(a), d * math.sin(a)
         if y > -6 or (abs(x) < 9 and y < 0):
-            continue  # pas au sud, et laisse voir le manège
+            continue  # not to the south, and leaves the carousel visible
         h = 8 + (i * 13 % 7) * 2.0
         rock_cone(mb, x, y, -0.2, 4.2, 3.6, 18 + (i % 3) * 6, seed=100 + i, sides=8, rings=3)
         mb.box((x, y, h / 2), (6, 5, h), DARKSTONE, taper=(0.9, 0.9), uv_scale=(2, 3))
@@ -255,15 +255,15 @@ def skyline(mb):
 
 
 def porch_and_landing(mb):
-    """Porche dans l'ouverture du mur, palier et départ de l'escalier."""
+    """Porch in the wall opening, landing and start of the stairs."""
     hw = GATE_HW
     yp0, yp1 = RADIUS + 0.4, RADIUS + 1.5
     for sx in (-1, 1):
         mb.slab((sx * (hw + 0.25), (yp0 + yp1) / 2, 2.9), (0.8, yp1 - yp0, 5.8), STONE)
     mb.slab((0, (yp0 + yp1) / 2, 5.2), (2 * hw + 1.5, yp1 - yp0 + 0.1, 0.8), STONE)
     mb.box((0, (yp0 + yp1) / 2, 6.01), (2 * hw + 0.6, 0.9, 0.8), DARKSTONE, taper=(0.5, 1.0))
-    # Sol du palier : il reprend exactement le bord du sol de l'arène (polygone à 48 côtés,
-    # dont un sommet est sur l'axe) au lieu de le chevaucher.
+    # Landing floor: it follows the edge of the arena floor exactly (48-sided polygon,
+    # with one vertex on the axis) instead of overlapping it.
     land = next(f for f in LEVEL["floors"] if f.get("arena"))
     y1 = -strip_geom(land)[4]
     r = RADIUS + 1.5
@@ -277,22 +277,22 @@ def porch_and_landing(mb):
         for i in range(4):
             q = (rows[j][i], rows[j][i + 1], rows[j + 1][i + 1], rows[j + 1][i])
             mb._face(q, FLOOR, uvs=[(v.co.x / 2, v.co.y / 2) for v in q])
-    # Balustrades du palier.
+    # Landing balustrades.
     for sx in (-1, 1):
         mb.slab((sx * (hw + 0.2), (yp1 + y1) / 2, 0.5), (0.4, y1 - yp1, 1.0), STONE, skip=("bottom", "-y"))
-    # Dessous du palier : son sommet reste juste sous le dallage (à la même hauteur, la roche
-    # le perçait par endroits), et sa tranche, au départ de l'escalier, est en pierre.
+    # Underside of the landing: its top stays just below the paving (at the same height, the rock
+    # poked through in places), and its edge, at the start of the stairs, is stone.
     mb.box((0, (yp1 + y1) / 2, -0.85), (2 * hw + 0.8, y1 - yp1, 1.6), STONE)
 
 
-# ----------------------------------------------------------------------------- chemins et plates-formes
+# ----------------------------------------------------------------------------- paths and platforms
 
 def platform(mb, f, seed):
     e = f["shape"]["Ellipse"]
     (cx, cz), (rx, rz), y = e["center"], e["radii"], e["y"]
     bx, by, _ = B(cx, cz)
     k = rz / rx
-    # Dessus en anneaux (pas de face trop grande : la texture affine se déformerait).
+    # Top in rings (no face too large: the affine texture would get distorted).
     sides = 40
     step = 1.6
     rings = [0.0]
@@ -309,7 +309,7 @@ def platform(mb, f, seed):
                 mb._face(v, FLOOR, uvs=[(0.5, 0), (0, 1), (1, 1)])
         else:
             ring_quads(mb, r0, r1, y, FLOOR, sides, cx=bx, cy=by, ry=k)
-    # Tranche du dallage, puis le rocher dessous.
+    # Edge of the paving, then the rock underneath.
     for i in range(sides):
         a0, a1 = 2 * math.pi * i / sides, 2 * math.pi * (i + 1) / sides
         p = [(bx + rx * math.cos(a), by + rx * k * math.sin(a)) for a in (a0, a1)]
@@ -317,14 +317,14 @@ def platform(mb, f, seed):
              mb.bm.verts.new((p[0][0], p[0][1], y - 0.6)), mb.bm.verts.new((p[1][0], p[1][1], y - 0.6))]
         mb._face(v, STONE, uv_scale=(0.5, 0.3))
     rock_cone(mb, bx, by, y - 0.6, rx, rx * k, 6 + rx * 1.6, seed=seed, sides=16)
-    # Bordure de pierres basses (pas une barrière : quelques pierres, avec des manques).
+    # Border of low stones (not a railing: a few stones, with gaps).
     r = random.Random(seed)
     for i in range(sides):
         if r.random() < 0.35:
             continue
         a = 2 * math.pi * (i + 0.5) / sides
         px, py = bx + (rx - 0.18) * math.cos(a), by + (rx - 0.18) * k * math.sin(a)
-        # Pas de pierre là où un chemin part.
+        # No stone where a path starts.
         gx, gz = px, -py
         if any(near_strip_end(g, gx, gz) for g in LEVEL["floors"] if "Strip" in g["shape"]):
             continue
@@ -342,8 +342,8 @@ def strip(mb, f, idx):
     dx, dz = x1 - x0, z1 - z0
     ln = math.hypot(dx, dz)
     ux, uz = dx / ln, dz / ln
-    # Les bouts qui entrent dans une plate-forme (ou le sol de l'arène) sont rognés : on ne
-    # superpose pas deux sols (2 cm d'écart scintillent de loin), il ne reste qu'un raccord.
+    # Ends that go into a platform (or the arena floor) are trimmed: we don't
+    # stack two floors (a 2 cm gap flickers from afar), only a seam remains.
     def inside(t):
         x, z = x0 + ux * t, z0 + uz * t
         on_arena = math.hypot(x, z) < RADIUS + 1.5 and abs(y0 + (y1 - y0) * t / ln) < 0.1
@@ -353,11 +353,11 @@ def strip(mb, f, idx):
         a += 0.1
     while b > 0 and inside(b - 0.3):
         b -= 0.1
-    # Bande tout entière sur une plate-forme : rien à dessiner (sauf ses balustrades).
+    # Strip entirely on a platform: nothing to draw (except its balustrades).
     covered = b - a < 0.2 and not steps
     if b - a < 0.2:
         a, b = 0.0, ln
-    sx, sz = uz, -ux  # côté (droite en regardant vers `to`)
+    sx, sz = uz, -ux  # side (right when looking towards `to`)
     deck = 0.12 if style == "Planks" else 0.5
     mat_top = PLANKS if style == "Planks" else FLOOR
     mat_side = WOOD if style == "Planks" else STONE
@@ -367,7 +367,7 @@ def strip(mb, f, idx):
         return B(x0 + ux * t + sx * side, z0 + uz * t + sz * side, y + dy)
 
     if steps:
-        # Marches : le dessus de chaque marche est à la hauteur de la pente en son milieu.
+        # Steps: the top of each step is at the height of the slope at its middle.
         n = steps
         for k in range(n):
             ta, tb = a + (b - a) * k / n, a + (b - a) * (k + 1) / n
@@ -383,7 +383,7 @@ def strip(mb, f, idx):
                 q = (v_bot[i], v_bot[j], v_top[j], v_top[i])
                 mb._face(q if is_ccw(corners) else tuple(reversed(q)), STONE, uv_scale=(1, 0.3))
     elif not covered:
-        # Dalles du tablier en bandes d'environ 1 m (texture affine contenue).
+        # Deck slabs in strips of about 1 m (affine texture kept in check).
         n = max(1, math.ceil((b - a) / 1.0))
         cols = [-hw + 2 * hw * i / 3 for i in range(4)]
         rows = [[mb.bm.verts.new(P(a + (b - a) * j / n, c, -0.02)) for c in cols] for j in range(n + 1)]
@@ -393,7 +393,7 @@ def strip(mb, f, idx):
                 if not is_ccw([v.co for v in q]):
                     q.reverse()
                 mb._face(q, mat_top, uvs=[(v.co.x / 2, v.co.y / 2) for v in q])
-        # Tranches du tablier.
+        # Deck edges.
         for side in (-hw, hw):
             for j in range(n):
                 ta, tb = a + (b - a) * j / n, a + (b - a) * (j + 1) / n
@@ -402,14 +402,14 @@ def strip(mb, f, idx):
                 if side < 0:
                     q.reverse()
                 mb._face(q, mat_side, uv_scale=(1, 0.4))
-        # Dessous.
+        # Underside.
         q = [mb.bm.verts.new(P(a, -hw, -deck)), mb.bm.verts.new(P(a, hw, -deck)),
              mb.bm.verts.new(P(b, hw, -deck)), mb.bm.verts.new(P(b, -hw, -deck))]
         if is_ccw([v.co for v in q]):
             q.reverse()
         mb._face(q, mat_side)
         if style == "Planks":
-            # Planches transversales mal jointes, et quelques poutres qui pendent dessous.
+            # Badly joined cross planks, and a few beams hanging underneath.
             for k in range(int((b - a) / 0.9)):
                 t = a + 0.45 + k * 0.9
                 mb.seg(P(t, -hw - 0.1, -0.05), P(t, hw + 0.1, -0.05), 0.18, 0.06, WOOD)
@@ -417,16 +417,16 @@ def strip(mb, f, idx):
                 for side in (-hw, hw):
                     mb.seg(P(t, side, -0.1), P(t, side * 1.4, -3.0), 0.12, 0.12, WOOD)
         else:
-            # Piles qui plongent dans le vide.
+            # Piers plunging into the void.
             k = max(1, int((b - a) / 6.0))
             for i in range(k):
                 t = a + (b - a) * (i + 0.5) / k
                 c = P(t, 0, -deck)
                 mb.box((c[0], c[1], c[2] - 7.0), (2 * hw * 0.7, 1.2, 14.0), ROCK if style != "Bridge" else STONE,
                        taper=(0.5, 0.6))
-                # Encorbellement sous le tablier.
+                # Corbelling under the deck.
                 mb.box((c[0], c[1], c[2] - 0.5), (2 * hw + 0.2, 1.6, 1.0), STONE, taper=(1.15, 1.4))
-            # Pierres d'arête, avec des manques.
+            # Edge stones, with gaps.
             r = random.Random(idx * 31)
             for side in (-hw + 0.15, hw - 0.15):
                 t = a + 0.5
@@ -436,7 +436,7 @@ def strip(mb, f, idx):
                         mb.box((c[0], c[1], c[2] + 0.04), (0.28, 0.28, 0.1), STONE, taper=(0.8, 0.8))
                     t += 0.9 + r.random() * 0.8
     if walled:
-        # Balustrades de part et d'autre (escalier de l'arène).
+        # Balustrades on either side (arena stairs).
         for side in (-hw - 0.2, hw + 0.2):
             n = max(1, steps or int(ln))
             for k in range(n):
@@ -447,8 +447,8 @@ def strip(mb, f, idx):
                 length = math.hypot(c1[0] - c0[0], c1[1] - c0[1]) + 0.02
                 obj(f"rail_{idx}_{k}_{side}", lambda m, l=length, h=top - bot: m.slab((0, 0, 0), (0.4, l, h), STONE),
                     loc=mid, yaw=math.atan2(-(c1[0] - c0[0]), c1[1] - c0[1]))
-        # Dessous de l'escalier : des piles sous les marches (leur sommet reste sous la plus
-        # basse, sinon il percerait le bas de l'escalier).
+        # Underside of the stairs: piers under the steps (their top stays under the lowest
+        # one, otherwise it would poke through the bottom of the stairs).
         lo = min(y0, y1) - 0.45
         for t in (a + (b - a) * 0.3, a + (b - a) * 0.8):
             c = P(t, 0)
@@ -456,7 +456,7 @@ def strip(mb, f, idx):
 
 
 def is_ccw(pts):
-    """Vrai si le polygone (vu de dessus, axe Z) tourne dans le sens direct."""
+    """True if the polygon (seen from above, Z axis) winds counter-clockwise."""
     s = 0.0
     for i in range(len(pts)):
         x0, y0 = pts[i][0], pts[i][1]
@@ -465,8 +465,8 @@ def is_ccw(pts):
     return s > 0
 
 
-# ----------------------------------------------------------------------------- décor
-# Repère local d'un décor : avant = -Y, droite = -X (comme les personnages), origine au sol.
+# ----------------------------------------------------------------------------- decor
+# Local frame of a decor piece: front = -Y, right = -X (like the characters), origin on the ground.
 
 def lamp(mb):
     mb.box((0, 0, 0.15), (0.32, 0.32, 0.3), STONE, taper=(0.8, 0.8))
@@ -486,7 +486,7 @@ def dead_lamp(mb):
 
 
 def tube_inside(mb, r, z0, z1, mat, sides):
-    """Paroi intérieure d'un cylindre (faces tournées vers l'axe)."""
+    """Inner wall of a cylinder (faces turned towards the axis)."""
     for i in range(sides):
         a0, a1 = 2 * math.pi * i / sides, 2 * math.pi * (i + 1) / sides
         p = lambda a, z: mb.bm.verts.new((r * math.cos(a), r * math.sin(a), z))
@@ -494,37 +494,37 @@ def tube_inside(mb, r, z0, z1, mat, sides):
 
 
 def disc(mb, r, z, mat, sides):
-    """Disque horizontal tourné vers le haut, sans tranche (surface de l'eau : il entre un peu
-    dans la paroi qui l'entoure, aucun bord ne la double)."""
+    """Horizontal disc facing up, without an edge (water surface: it goes slightly into the
+    wall around it, so no rim doubles it)."""
     v = [mb.bm.verts.new((r * math.cos(2 * math.pi * i / sides), r * math.sin(2 * math.pi * i / sides), z)) for i in range(sides)]
     mb._face(v, mat)
 
 
-# Hauteurs de la fontaine (le jeu y fait jaillir l'eau : voir FOUNTAIN_* dans src/fx.rs).
+# Fountain heights (the game makes water spurt there: see FOUNTAIN_* in src/fx.rs).
 FOUNTAIN_WATER = 0.42
 FOUNTAIN_BOWL = 1.93
 FOUNTAIN_SPOUT = 2.2
 
 
 def fountain(mb):
-    # Bassin creux : paroi extérieure, margelle, paroi intérieure, et l'eau sous le bord (deux
-    # surfaces à la même hauteur scintillaient).
+    # Hollow basin: outer wall, rim, inner wall, and the water below the edge (two
+    # surfaces at the same height flickered).
     sides = 16
     mb.cylinder((0, 0, 0.28), 1.7, 0.56, STONE, sides=sides, caps=False)
     ring_quads(mb, 1.45, 1.7, 0.56, STONE, sides)
     tube_inside(mb, 1.45, 0.2, 0.56, STONE, sides)
     disc(mb, 1.5, FOUNTAIN_WATER, WATER, sides)
-    # Colonne et vasque haute, creuse elle aussi : l'eau est bien sous la margelle et le haut de
-    # la colonne bien sous l'eau (des faces à 1-2 cm l'une de l'autre se chevauchaient une fois
-    # les sommets accrochés à la grille de l'écran, façon PS1). Un bec au milieu.
+    # Column and upper bowl, hollow too: the water is well below the rim and the top of
+    # the column well below the water (faces 1-2 cm apart overlapped once
+    # the vertices were snapped to the screen grid, PS1-style). A spout in the middle.
     mb.cylinder((0, 0, 1.1), 0.28, 1.3, STONE, sides=8, radius_top=0.22)
     mb.cylinder((0, 0, FOUNTAIN_BOWL - 0.13), 0.38, 0.26, STONE, sides=12, radius_top=0.8, caps=False)
-    mb.cylinder((0, 0, FOUNTAIN_BOWL - 0.27), 0.38, 0.02, STONE, sides=12)  # dessous
+    mb.cylinder((0, 0, FOUNTAIN_BOWL - 0.27), 0.38, 0.02, STONE, sides=12)  # underside
     ring_quads(mb, 0.64, 0.8, FOUNTAIN_BOWL, STONE, 12)
     tube_inside(mb, 0.64, FOUNTAIN_BOWL - 0.2, FOUNTAIN_BOWL, STONE, 12)
     disc(mb, 0.68, FOUNTAIN_BOWL - 0.09, WATER, 12)
     mb.cylinder((0, 0, (FOUNTAIN_BOWL - 0.1 + FOUNTAIN_SPOUT) / 2), 0.09, FOUNTAIN_SPOUT - FOUNTAIN_BOWL + 0.1, STONE, sides=6, radius_top=0.06)
-    mb.box((0.0, -0.9, FOUNTAIN_WATER + 0.06), (0.7, 0.35, 0.22), DARKSTONE)  # éclat tombé dans le bassin
+    mb.box((0.0, -0.9, FOUNTAIN_WATER + 0.06), (0.7, 0.35, 0.22), DARKSTONE)  # shard fallen into the basin
 
 
 def bench(mb):
@@ -535,7 +535,7 @@ def bench(mb):
 
 
 def horse(mb):
-    # Cheval de manège tombé sur le flanc.
+    # Carousel horse fallen on its side.
     mb.box((0, 0, 0.3), (0.42, 1.25, 0.5), WOOD)
     mb.box((0, -0.75, 0.5), (0.3, 0.45, 0.32), WOOD, taper=(0.9, 0.8))
     mb.box((0, -1.0, 0.42), (0.24, 0.3, 0.22), WOOD)
@@ -548,7 +548,7 @@ def horse(mb):
 
 def booth(mb):
     mb.box((0, 0.1, 1.0), (1.5, 1.3, 2.0), WOOD)
-    mb.box((0, -0.56, 1.15), (1.1, 0.06, 0.55), DARKSTONE)  # guichet
+    mb.box((0, -0.56, 1.15), (1.1, 0.06, 0.55), DARKSTONE)  # ticket booth
     mb.box((0, -0.62, 0.88), (1.2, 0.25, 0.06), WOOD)
     mb.box((0, -0.05, 2.25), (1.8, 1.8, 0.5), BOOTH, taper=(0.15, 0.15))
     mb.box((0, -0.86, 2.1), (1.7, 0.08, 0.25), BOOTH)
@@ -585,13 +585,13 @@ def props():
             lamp_i += 1
 
 
-# Hauteur des braises du brasier (le jeu en fait monter braises et cendres : voir src/fx.rs).
+# Height of the brazier's embers (the game makes embers and ash rise from it: see src/fx.rs).
 COALS = 1.0
 
 
 def checkpoint(mb):
-    """Brasier du point de repos : socle de pierre, vasque de fer à griffes, et une vieille
-    épée plantée dans les braises (en coordonnées locales ; les braises sont à part)."""
+    """Resting-point brazier: stone base, clawed iron bowl, and an old sword planted in the
+    embers (in local coordinates; the embers are separate)."""
     mb.cylinder((0, 0, 0.12), 0.62, 0.24, STONE, sides=8)
     mb.cylinder((0, 0, 0.36), 0.46, 0.24, DARKSTONE, sides=8, radius_top=0.36)
     mb.cylinder((0, 0, 0.56), 0.16, 0.16, IRON, sides=6)
@@ -600,7 +600,7 @@ def checkpoint(mb):
         a = 2 * math.pi * (k + 0.5) / 6
         c, s = math.cos(a), math.sin(a)
         mb.seg((0.56 * c, 0.56 * s, 0.9), (0.74 * c, 0.74 * s, 1.22), 0.06, 0.06, IRON, taper=0.4)
-    # Épée plantée, légèrement penchée : lame, garde, poignée, pommeau.
+    # Planted sword, slightly tilted: blade, guard, grip, pommel.
     hilt = (0.13, 0.05, 1.72)
     mb.seg((0.03, 0.0, 0.85), hilt, 0.11, 0.03, IRON, taper=1.3)
     mb.seg((hilt[0], hilt[1] - 0.2, hilt[2]), (hilt[0], hilt[1] + 0.2, hilt[2]), 0.06, 0.06, IRON)
@@ -610,8 +610,8 @@ def checkpoint(mb):
 
 
 def checkpoint_coals(mb):
-    """Tas de braises dans la vasque (objet à part : le jeu l'assombrit tant que le brasier
-    n'est pas ranimé)."""
+    """Heap of embers in the bowl (separate object: the game darkens it until the brazier
+    is rekindled)."""
     mb.cylinder((0, 0, COALS - 0.06), 0.56, 0.12, FIRE, sides=8, radius_top=0.32)
     for k in range(5):
         a = 2 * math.pi * k / 5 + 0.4
@@ -628,7 +628,7 @@ def checkpoints():
 
 
 def ring_marks(mb):
-    """La piste du colosse : un cercle peint rouge et blanc sur les dalles."""
+    """The colossus's track: a red and white circle painted on the flagstones."""
     for (cx, cz), (rx, rz), y in ellipses():
         if rx >= 6.0 and abs(rx - rz) < 1e-3:
             bx, by, _ = B(cx, cz)
@@ -641,7 +641,7 @@ def ring_marks(mb):
 
 
 def far_lamps():
-    """Au loin dans le vide : des réverbères sur des rochers flottants, seuls points de lumière."""
+    """Far off in the void: street lamps on floating rocks, the only points of light."""
     zs = [f["shape"]["Ellipse"]["center"][1] for f in LEVEL["floors"] if "Ellipse" in f["shape"]]
     cz = (min(zs) + max(zs)) / 2
     for i in range(18):
@@ -649,9 +649,9 @@ def far_lamps():
         d = 40 + rng.random() * 60
         x, z = 5 + d * math.cos(a), cz + d * 1.3 * math.sin(a)
         if abs(z) < 30 and abs(x) < 30:
-            continue  # pas dans l'arène
+            continue  # not in the arena
         y = -14 - rng.random() * 30
-        s = 1.4 + rng.random() * 1.2  # plus grands que nature : on les voit de loin
+        s = 1.4 + rng.random() * 1.2  # larger than life: visible from afar
 
         def build(mb, s=s, seed=i):
             rock_cone(mb, 0, 0, 0, 1.6 * s, 1.3 * s, 4 * s, seed=500 + seed, sides=7, rings=2)
@@ -660,7 +660,7 @@ def far_lamps():
         obj(f"far_lamp_{i}", build, loc=B(x, z, y))
 
 
-# ----------------------------------------------------------------------------- assemblage
+# ----------------------------------------------------------------------------- assembly
 
 obj("floor", arena_floor)
 obj("wall", wall)
@@ -672,7 +672,7 @@ obj("skyline", skyline)
 obj("porch", porch_and_landing)
 for i, f in enumerate(LEVEL["floors"]):
     if f.get("arena"):
-        continue  # le palier est dessiné avec le porche
+        continue  # the landing is drawn with the porch
     if "Ellipse" in f["shape"]:
         obj(f"platform_{i}", lambda mb, f=f, i=i: platform(mb, f, seed=200 + i))
     else:

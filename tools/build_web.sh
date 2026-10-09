@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build navigateur : WASM optimisé + bindings JS + assets, dans dist/.
-# Prérequis : rustup target add wasm32-unknown-unknown
-#             cargo install wasm-bindgen-cli --version <version de wasm-bindgen dans Cargo.lock>
-# Optionnel : wasm-opt (binaryen) pour réduire encore la taille.
+# Browser build: optimised WASM + JS bindings + assets, into dist/.
+# Requires:  rustup target add wasm32-unknown-unknown
+#             cargo install wasm-bindgen-cli --version <wasm-bindgen version in Cargo.lock>
+# Optional:  wasm-opt (binaryen) to shrink the size further.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build --target wasm32-unknown-unknown --profile wasm-release --bin giants-flame
@@ -14,4 +14,4 @@ if command -v wasm-opt >/dev/null; then
 fi
 cp -r assets dist/
 cp web/index.html dist/
-echo "dist/ prêt ($(du -h dist/giants-flame_bg.wasm | cut -f1) de WASM). Servir avec : tools/serve_web.sh"
+echo "dist/ ready ($(du -h dist/giants-flame_bg.wasm | cut -f1) of WASM). Serve with: tools/serve_web.sh"

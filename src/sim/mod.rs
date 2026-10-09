@@ -1,9 +1,9 @@
-//! Simulation de combat déterministe à 60 ticks/s.
+//! Deterministic combat simulation at 60 ticks/s.
 //!
-//! Règles pour rester compatible avec un futur rollback réseau :
-//! - aucune lecture de `Time` ni d'input matériel ici : seulement `PlayerInputs` et `SimTick` ;
-//! - maths via `math` (libm), aléatoire via `SimRng` ;
-//! - tout l'état est dans des composants/ressources `Clone`.
+//! Rules to stay compatible with future network rollback:
+//! - no reading of `Time` or hardware input here: only `PlayerInputs` and `SimTick`;
+//! - maths via `math` (libm), randomness via `SimRng`;
+//! - all state lives in `Clone` components/resources.
 
 pub mod boss;
 pub mod combat;
@@ -30,11 +30,11 @@ use input::PlayerInputs;
 pub const TICK_HZ: f64 = 60.0;
 pub const DT: f32 = 1.0 / 60.0;
 
-/// Numéro du tick de simulation courant.
+/// Number of the current simulation tick.
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct SimTick(pub u32);
 
-/// Schedule exécuté une fois par tick de simulation.
+/// Schedule run once per simulation tick.
 #[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
 pub struct SimSchedule;
 
@@ -47,7 +47,7 @@ pub enum SimSet {
     End,
 }
 
-/// Événements produits par la sim à destination de la présentation (sons, VFX, HUD).
+/// Events produced by the sim for the presentation (sounds, VFX, HUD).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SimEvent {
     Hit { pos: Vec3, heavy: bool, on_player: bool },
@@ -58,12 +58,12 @@ pub enum SimEvent {
     Swing { entity: Entity, heavy: bool },
     Dodge { entity: Entity },
     FuryWarn { entity: Entity },
-    /// Impact d'une attaque de zone (`aoe`) : centre au sol et rayon. `boss` : définition du
-    /// boss (sa couleur).
+    /// Impact of an area attack (`aoe`): ground centre and radius. `boss`: the boss's
+    /// definition (its colour).
     Shockwave { pos: Vec3, radius: f32, boss: u8 },
-    /// Sort lancé (point de départ), projectile qui s'éteint, éruption qui jaillit, projectile
-    /// qui s'écrase au sol (il y brûle un moment). `boss` : définition du lanceur (sa couleur).
-    /// `volley` : l'attaque qui l'a lancé (un seul bruit par attaque).
+    /// Spell cast (starting point), projectile fading out, eruption bursting out, projectile
+    /// crashing on the ground (it burns there for a while). `boss`: the caster's definition (its colour).
+    /// `volley`: the attack that cast it (a single sound per attack).
     SpellCast { pos: Vec3, element: data::Element, boss: u8, volley: u32 },
     SpellFizzle { pos: Vec3, element: data::Element, boss: u8 },
     Eruption { pos: Vec3, radius: f32, element: data::Element, boss: u8, volley: u32 },
@@ -75,36 +75,36 @@ pub enum SimEvent {
     PlayerDied,
     WeaponSwitched { entity: Entity },
     Heal { entity: Entity },
-    /// Action refusée faute d'endurance (retour visuel sur la barre).
+    /// Action refused for lack of stamina (visual feedback on the bar).
     NoStamina { entity: Entity },
-    /// Emplacement rapide suivant sélectionné.
+    /// Next quick slot selected.
     ItemCycled { entity: Entity },
-    /// Le joueur est entré dans l'arène : le boss se réveille, la brume se ferme.
+    /// The player entered the arena: the boss wakes up, the fog closes.
     BossAwake,
     BossDefeated { embers: u32 },
     BossRevived,
-    /// Repos au checkpoint (PV, objets et endurance restaurés).
+    /// Rest at the checkpoint (HP, items and stamina restored).
     Rested { entity: Entity },
-    /// Les combattants viennent d'être (re)créés : chargement, réapparition, voyage.
+    /// The fighters have just been (re)created: loading, respawn, travel.
     Respawned,
-    /// Un ennemi repère un joueur et donne l'alerte.
+    /// An enemy spots a player and raises the alarm.
     EnemyAlert { entity: Entity },
-    /// Un ennemi est vaincu (braises données au joueur qui l'a achevé).
+    /// An enemy is defeated (embers given to the player who finished it).
     EnemyDied { pos: Vec3, embers: u32 },
-    /// Son corps disparaît, quelques instants plus tard.
+    /// Its body disappears, a few moments later.
     EnemyVanished { pos: Vec3 },
-    /// Objet ramassé (`level.pickups[pickup]`).
+    /// Item picked up (`level.pickups[pickup]`).
     PickedUp { entity: Entity, pickup: u16 },
-    /// Consommable utilisé (autre que la fiole, qui donne `Heal`).
+    /// Consumable used (other than the flask, which gives `Heal`).
     ItemUsed { entity: Entity, item: items::Item },
-    /// Checkpoint découvert (premier repos).
+    /// Checkpoint discovered (first rest).
     Kindled { checkpoint: u8 },
-    /// Le joueur est passé par-dessus bord.
+    /// The player went over the edge.
     Fell { entity: Entity },
-    /// Saut, et retour au sol.
+    /// Jump, and back on the ground.
     Jumped { entity: Entity },
     Landed { entity: Entity },
-    /// Braises laissées à la mort récupérées.
+    /// Embers dropped on death recovered.
     EmbersRecovered { entity: Entity, pos: Vec3, embers: u32 },
 }
 
@@ -113,25 +113,25 @@ pub struct SimEvents(pub Vec<SimEvent>);
 
 impl SimEvents {
     pub fn push(&mut self, e: SimEvent) {
-        // Évite une croissance infinie si personne ne lit (tests, onglet en arrière-plan).
+        // Avoids unbounded growth if nobody reads (tests, background tab).
         if self.0.len() < 256 {
             self.0.push(e);
         }
     }
 }
 
-/// Options de debug qui influencent la sim (identiques chez tous les pairs).
+/// Debug options that affect the sim (identical on all peers).
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct SimDebug {
     pub boss_passive: bool,
 }
 
-/// Demande de (re)création des combattants, traitée au début du tick suivant.
+/// Request to (re)create the fighters, handled at the start of the next tick.
 #[derive(Resource, Clone, Debug)]
 pub struct ResetFight {
     pub requested: bool,
     pub players: u8,
-    /// Progression de départ. `None` : celle du joueur actuel (ou une nouvelle partie).
+    /// Starting progress. `None`: the current player's (or a new game).
     pub progress: Option<Progress>,
 }
 
@@ -141,7 +141,7 @@ impl Default for ResetFight {
     }
 }
 
-/// Marqueur de toutes les entités de simulation (pour le reset).
+/// Marker of all simulation entities (for the reset).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SimEntity;
 
@@ -185,7 +185,7 @@ impl Plugin for SimPlugin {
     }
 }
 
-/// Exécute un tick de simulation. À appeler depuis `FixedUpdate` (ou par le rollback plus tard).
+/// Runs one simulation tick. Call from `FixedUpdate` (or from rollback later).
 pub fn run_sim_tick(world: &mut World) {
     world.run_schedule(SimSchedule);
 }
@@ -222,15 +222,15 @@ fn reset_fight(
     events.push(SimEvent::Respawned);
 }
 
-/// Crée les joueurs, le boss (s'il n'a pas été vaincu) et les ennemis du chemin. Les entités
-/// sont créées dans un ordre fixe (déterminisme).
+/// Creates the players, the boss (if it hasn't been defeated) and the path enemies. Entities
+/// are created in a fixed order (determinism).
 pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &Progress) {
     let checkpoint = (progress.checkpoint as usize).min(t.level.checkpoints.len() - 1);
     for id in 0..players.max(1) {
         let (spawn, spawn_yaw) = encounter::checkpoint_spawn(t, checkpoint);
-        // Une position sauvegardée hors du sol (ancienne sauvegarde, niveau modifié) : au checkpoint.
-        // Au pied d'un brasier (on avait quitté en s'y reposant) : à la place habituelle, tourné
-        // vers la suite du chemin plutôt que vers le feu.
+        // A saved position off the ground (old save, modified level): at the checkpoint.
+        // At the foot of a brazier (we quit while resting there): at the usual spot, facing
+        // the way forward rather than the fire.
         let saved = progress.pos.and_then(|[x, z, yaw]| {
             let y = world::floor_at(t, x, z, 0.0)?;
             let pos = Vec3::new(x, y, z);
@@ -274,8 +274,8 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
     enemy::spawn_all(commands, t, progress.slain);
 }
 
-/// Boss de la rencontre `choice` (`Tuning::encounters`), endormis à leur point d'apparition,
-/// tournés vers l'ouverture de l'arène.
+/// Bosses of encounter `choice` (`Tuning::encounters`), asleep at their spawn point,
+/// facing the arena opening.
 pub fn spawn_boss(commands: &mut Commands, t: &Tuning, choice: u8) {
     let enc = t.encounters.get(choice as usize).unwrap_or(&t.encounters[0]);
     let [bx, bz] = t.arena.boss_spawn;
@@ -306,7 +306,7 @@ fn begin_tick(mut q: Query<(&Body, &mut PrevBody, &mut Action)>) {
     }
 }
 
-/// Avance le compteur des actions qui ont exécuté une frame ce tick.
+/// Advances the counter of actions that ran a frame this tick.
 fn advance_actions(mut q: Query<&mut Action>) {
     for mut a in &mut q {
         if a.executed && a.mv.is_some() {
@@ -319,8 +319,8 @@ fn end_tick(mut tick: ResMut<SimTick>) {
     tick.0 = tick.0.wrapping_add(1);
 }
 
-/// Hash de l'état de simulation : sert au test de déterminisme (et plus tard à la détection
-/// de désynchronisation en réseau).
+/// Hash of the simulation state: used by the determinism test (and later for network
+/// desync detection).
 pub fn state_hash(world: &mut World) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();

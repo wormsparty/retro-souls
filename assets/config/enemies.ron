@@ -1,12 +1,12 @@
-// Ennemis du chemin. Durées en ticks (60/s), distances en mètres, comme boss.ron.
-// Les attaques ont le même format que celles du boss (`phases` en moins).
+// Enemies along the path. Durations in ticks (60/s), distances in metres, as in boss.ron.
+// Attacks use the same format as the boss's (minus `phases`).
 //
-// - sight : distance de détection (devant lui s'il guette ; moitié moins, mais tout autour,
-//   s'il dort). leash : il abandonne s'il s'éloigne trop de son poste, y retourne et se soigne.
-// - poise : dégâts encaissés en ~1 s avant d'être interrompu (0 = chaque coup l'interrompt).
-// - scale / tint : un type peut réutiliser le modèle d'un autre, agrandi et teinté ; ses
-//   capsules de coups sont alors à donner à cette échelle. Les animations se recalent sur
-//   les fenêtres de frappe tant que le nombre de coups de chaque attaque ne change pas.
+// - sight: detection distance (in front of it if it's watching; half as far, but all around,
+//   if it's asleep). leash: it gives up if it strays too far from its post, goes back and heals.
+// - poise: damage taken within ~1 s before being staggered (0 = every hit staggers it).
+// - scale / tint: a type can reuse another's model, scaled up and tinted; its hit
+//   capsules must then be given at that scale. Animations are retimed to the
+//   hit windows as long as the number of hits of each attack doesn't change.
 (
     kinds: [
         (
@@ -99,7 +99,7 @@
             ],
         ),
         (
-            // Le gardien de la piste : un pantin géant. Ne bronche presque jamais.
+            // The track's guardian: a giant puppet. Hardly ever flinches.
             key: "colossus", model: "puppet", scale: 1.45, tint: (0.55, 0.12, 0.05, 0.3),
             name: (en: "Ringmaster Colossus", fr: "Colosse de la piste"),
             max_hp: 1100, radius: 0.65, height: 2.75, mass: 4.0,

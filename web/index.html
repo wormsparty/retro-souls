@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -12,18 +12,18 @@
     </style>
 </head>
 <body>
-    <div id="hint">Chargement…</div>
+    <div id="hint">Loading…</div>
     <canvas id="bevy" tabindex="0"></canvas>
     <script type="module">
         import init from "./giants-flame.js";
         const hint = document.getElementById("hint");
-        // Bevy fixe la taille du canvas au démarrage : on retire alors le message.
+        // Bevy sets the canvas size on startup: remove the message then.
         new MutationObserver((_, obs) => { hint.remove(); obs.disconnect(); })
             .observe(document.getElementById("bevy"), { attributes: true, attributeFilter: ["width"] });
         init().catch((e) => {
-            // Bevy remonte une exception de contrôle de flux au démarrage de sa boucle : normal.
+            // Bevy throws a control-flow exception when its loop starts: expected.
             if (!String(e).includes("Using exceptions for control flow")) {
-                hint.textContent = "Erreur : " + e;
+                hint.textContent = "Error: " + e;
                 console.error(e);
             }
         });

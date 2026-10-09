@@ -1,11 +1,11 @@
-// Tuning du joueur. Durées en ticks (60/s), vitesses en m/s.
-// Rechargé à chaud en natif avec `cargo run --features dev`.
+// Player tuning. Durations in ticks (60/s), speeds in m/s.
+// Hot-reloaded on native with `cargo run --features dev`.
 (
     max_hp: 500,
     max_stamina: 120,
-    // Coût des attaques = dégâts × ce facteur (identique pour toutes les armes).
+    // Attack cost = damage × this factor (the same for all weapons).
     stamina_per_damage: 0.28,
-    // L'endurance peut passer en négatif ; il faut au moins 1 point pour agir.
+    // Stamina can go negative; at least 1 point is needed to act.
     stamina_floor: -60,
     stamina_regen: 55,
     stamina_regen_guarding: 22,
@@ -16,8 +16,8 @@
     sprint_hold: 14,
     accel: 30,
     turn_rate: 720,
-    // Saut (A / G quand il n'y a rien à ramasser ni de brasier à portée) : ~0,8 m de haut,
-    // ~0,55 s en l'air, soit ~3,5 m franchis en courant (~2,3 m au trot).
+    // Jump (A / G when there's nothing to pick up and no brazier in range): ~0.8 m high,
+    // ~0.55 s in the air, i.e. ~3.5 m cleared while running (~2.3 m at a jog).
     jump: (speed: 6.0, stamina: 12, air_control: 6),
     radius: 0.4,
     height: 1.8,
@@ -32,7 +32,7 @@
     fatal_arc: 70,
 
     guard: (
-        // ~133 ms : garde pressée au plus 8 ticks avant l'impact.
+        // ~133 ms: guard pressed at most 8 ticks before the impact.
         perfect_window: 8,
         spam_window: 20,
         spam_penalty: 2,
@@ -46,7 +46,7 @@
         walk_speed: 1.8,
     ),
 
-    // Roulade : ~3,5 m (élan rapide puis glissade), de quoi sortir d'une zone d'effet.
+    // Roll: ~3.5 m (fast burst then slide), enough to get out of an area effect.
     dodge: (
         anim: "dodge",
         total: 30,
@@ -92,7 +92,7 @@
     hit_heavy: (
         anim: "hit_heavy",
         total: 80,
-        // Invulnérable pendant la chute et le relevé.
+        // Invulnerable during the fall and the getting up.
         iframes: (6, 70),
         motion: [(start: 0, end: 18, speed: -5.0)],
         cancel_from: 66,
@@ -109,10 +109,10 @@
         total: 90,
     ),
 
-    // Soins : 3 charges (rechargées au checkpoint), style Lies of P.
+    // Heals: 3 charges (refilled at the checkpoint), Lies of P style.
     heal_charges: 3,
     heal_ratio: 0.4,
-    // Le soin s'applique à ce tick : touché avant, la charge est perdue.
+    // The heal applies on this tick: hit before it, the charge is lost.
     heal_at: 24,
     heal: (
         anim: "heal",

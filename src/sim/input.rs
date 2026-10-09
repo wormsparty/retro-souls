@@ -1,11 +1,11 @@
-//! Inputs abstraits d'un joueur pour un tick. C'est la seule chose que la simulation lit
-//! côté joueur : en réseau, c'est exactement ce qui sera échangé entre les pairs.
+//! A player's abstract inputs for one tick. It's the only thing the simulation reads
+//! on the player side: over the network, it's exactly what will be exchanged between peers.
 
 use bevy::prelude::*;
 
 pub const MAX_PLAYERS: usize = 2;
 
-/// Boutons logiques (bitfield).
+/// Logical buttons (bitfield).
 pub mod btn {
     pub const LIGHT: u16 = 1 << 0;
     pub const HEAVY: u16 = 1 << 1;
@@ -14,31 +14,31 @@ pub mod btn {
     pub const DODGE: u16 = 1 << 4;
     pub const LOCK: u16 = 1 << 5;
     pub const SWITCH: u16 = 1 << 6;
-    /// Utiliser l'objet de l'emplacement rapide sélectionné.
+    /// Use the item in the selected quick slot.
     pub const ITEM: u16 = 1 << 7;
-    /// Emplacement rapide suivant.
+    /// Next quick slot.
     pub const NEXT_ITEM: u16 = 1 << 8;
-    /// Interagir (se reposer au checkpoint).
+    /// Interact (rest at the checkpoint).
     pub const INTERACT: u16 = 1 << 9;
-    /// Lancer la course (clic du stick) : elle dure tant que le stick est poussé.
+    /// Start sprinting (stick click): it lasts as long as the stick is pushed.
     pub const SPRINT: u16 = 1 << 10;
-    /// Cible suivante, à gauche ou à droite (verrouillé : stick droit, souris).
+    /// Next target, to the left or right (locked on: right stick, mouse).
     pub const TARGET_LEFT: u16 = 1 << 11;
     pub const TARGET_RIGHT: u16 = 1 << 12;
-    /// Point verrouillable plus haut ou plus bas (la tête d'un grand boss, ses pattes).
+    /// Lockable point higher or lower (a large boss's head, its legs).
     pub const TARGET_UP: u16 = 1 << 13;
     pub const TARGET_DOWN: u16 = 1 << 14;
     pub const COUNT: usize = 15;
 }
 
-/// Input compact d'un joueur pour un tick (7 octets, prêt à être sérialisé pour le réseau).
+/// A player's compact input for one tick (7 bytes, ready to be serialised for the network).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PlayerInput {
     pub buttons: u16,
-    /// Stick de déplacement quantifié (-127..=127). y = vers l'avant de la caméra.
+    /// Quantised movement stick (-127..=127). y = towards the camera's forward.
     pub move_x: i8,
     pub move_y: i8,
-    /// Yaw de la caméra quantifié sur 16 bits (les déplacements sont relatifs à la caméra).
+    /// Camera yaw quantised on 16 bits (movement is relative to the camera).
     pub cam_yaw: i16,
 }
 
@@ -61,20 +61,20 @@ impl PlayerInput {
     }
 }
 
-/// Inputs de tous les joueurs pour le tick en cours (rempli avant chaque tick de sim).
+/// Inputs of all players for the current tick (filled before each sim tick).
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct PlayerInputs(pub [PlayerInput; MAX_PLAYERS]);
 
-/// Mémorise les appuis récents pour qu'une action pressée un peu trop tôt parte dès que possible.
+/// Remembers recent presses so that an action pressed a bit too early fires as soon as possible.
 #[derive(Clone, Copy, Debug, Default, Hash)]
 pub struct InputBuffer {
-    /// Tick de l'appui non consommé pour chaque bouton.
+    /// Tick of the unconsumed press for each button.
     pressed_at: [Option<u32>; btn::COUNT],
     prev: u16,
 }
 
 impl InputBuffer {
-    /// À appeler une fois par tick avec les boutons courants. Retourne les fronts montants.
+    /// Call once per tick with the current buttons. Returns the rising edges.
     pub fn update(&mut self, buttons: u16, tick: u32) -> u16 {
         let pressed = buttons & !self.prev;
         for i in 0..btn::COUNT {
@@ -86,7 +86,7 @@ impl InputBuffer {
         pressed
     }
 
-    /// Vrai si `b` a été pressé dans les `window` derniers ticks et pas encore consommé.
+    /// True if `b` was pressed within the last `window` ticks and not yet consumed.
     pub fn buffered(&self, b: u16, tick: u32, window: u32) -> bool {
         let i = b.trailing_zeros() as usize;
         self.pressed_at[i].is_some_and(|t| tick.saturating_sub(t) <= window)
@@ -113,7 +113,7 @@ mod tests {
         assert!(!b.buffered(btn::LIGHT, 19, 8));
         b.consume(btn::LIGHT);
         assert!(!b.buffered(btn::LIGHT, 11, 8));
-        // Maintenir le bouton ne re-déclenche pas.
+        // Holding the button doesn't retrigger.
         b.update(btn::LIGHT, 11);
         assert!(!b.buffered(btn::LIGHT, 11, 8));
     }

@@ -1,4 +1,4 @@
-//! RNG déterministe (xorshift32) dont l'état fait partie de la simulation.
+//! Deterministic RNG (xorshift32) whose state is part of the simulation.
 
 use bevy::prelude::*;
 
@@ -20,11 +20,11 @@ impl SimRng {
         self.0 = x;
         x
     }
-    /// Flottant uniforme dans [0, 1).
+    /// Uniform float in [0, 1).
     pub fn next_f32(&mut self) -> f32 {
         (self.next_u32() >> 8) as f32 / (1u32 << 24) as f32
     }
-    /// Entier uniforme dans [lo, hi].
+    /// Uniform integer in [lo, hi].
     pub fn range(&mut self, lo: u32, hi: u32) -> u32 {
         if hi <= lo {
             return lo;

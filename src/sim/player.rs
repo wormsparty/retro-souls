@@ -1,4 +1,4 @@
-//! Machine à états du joueur.
+//! Player state machine.
 
 use bevy::prelude::*;
 
@@ -10,24 +10,24 @@ use super::input::{InputBuffer, PlayerInputs, btn};
 use super::items::{self, Inventory, Item};
 use super::{DT, SimEvent, SimEvents, SimTick, math};
 
-/// Gravité pendant une chute (m/s²).
+/// Gravity during a fall (m/s²).
 pub const GRAVITY: f32 = 22.0;
-/// Une chute dans le vide est mortelle au bout de ce temps.
+/// A fall into the void is fatal after this time.
 pub const FALL_DEATH_TICKS: u32 = 45;
-/// Un adversaire plus loin que ça (ou trop haut / trop bas) n'est pas une cible automatique.
+/// An opponent further than this (or too high / too low) isn't an automatic target.
 const AUTO_TARGET_RANGE: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PState {
-    /// Déplacement libre.
+    /// Free movement.
     Free,
-    /// Garde maintenue.
+    /// Guard held.
     Guard,
-    /// Attaque lourde en cours de charge.
+    /// Heavy attack being charged.
     Charging,
-    /// Une action (`Action::mv`) est en cours.
+    /// An action (`Action::mv`) is in progress.
     Acting,
-    /// Passé par-dessus bord : plus aucun contrôle, la mort au bout de la chute.
+    /// Gone over the edge: no more control, death at the end of the fall.
     Falling,
     Dead,
 }
@@ -37,16 +37,16 @@ pub struct Player {
     pub id: u8,
     pub state: PState,
     pub weapon: u8,
-    /// Index de la prochaine attaque légère du combo.
+    /// Index of the next light attack in the combo.
     pub combo: u8,
-    /// Jusqu'à ce tick, une attaque légère continue le combo après la fin de la précédente.
+    /// Until this tick, a light attack continues the combo after the previous one ended.
     pub combo_until: u32,
     pub stamina: f32,
     pub stamina_delay: u32,
-    /// PV récupérables en frappant (« regain »).
+    /// HP recoverable by hitting ("regain").
     pub regain: f32,
     pub regain_timer: u32,
-    /// Jauge d'attaque spéciale.
+    /// Special attack gauge.
     pub special: f32,
     pub guard_start: u32,
     pub guard_held: bool,
@@ -54,47 +54,47 @@ pub struct Player {
     pub guard_spam: u8,
     pub charge: u32,
     pub lock: Option<Entity>,
-    /// Point verrouillé de la cible (parties d'un grand boss : tête, pattes…).
+    /// Locked point of the target (parts of a large boss: head, legs…).
     pub lock_part: u8,
-    /// Dernière salve de sorts qui l'a touché (`Spell::volley`) : elle ne le touche qu'une fois.
+    /// Last spell volley that hit them (`Spell::volley`): it only hits them once.
     pub volley: u32,
     pub vel: Vec3,
     pub sprinting: bool,
-    /// Course lancée par `btn::SPRINT`, active jusqu'à ce que le joueur s'arrête.
+    /// Sprint started by `btn::SPRINT`, active until the player stops.
     pub sprint_latched: bool,
     pub dodge_held: u32,
     pub buffer: InputBuffer,
-    /// Le changement d'arme de l'action `Switch` en cours a déjà été appliqué.
+    /// The weapon change of the current `Switch` action has already been applied.
     pub switched: bool,
     pub inventory: Inventory,
-    /// Le soin de l'action `Heal` en cours a déjà été appliqué.
+    /// The heal of the current `Heal` action has already been applied.
     pub healed: bool,
-    /// Braises (monnaie), gagnées en battant des ennemis.
+    /// Embers (currency), earned by defeating enemies.
     pub embers: u32,
-    /// Ticks passés à l'état `Dead` (réapparition au bout de `RESPAWN_TICKS`).
+    /// Ticks spent in the `Dead` state (respawn after `RESPAWN_TICKS`).
     pub dead_ticks: u32,
-    /// Objet en cours d'utilisation (action `Heal`, commune à tous les consommables).
+    /// Item being used (`Heal` action, shared by all consumables).
     pub using: Option<Item>,
-    /// Effets des consommables : régénération (mousse) et arme enflammée (résine), en ticks.
+    /// Consumable effects: regeneration (moss) and flaming weapon (resin), in ticks.
     pub regen_ticks: u32,
     pub resin_ticks: u32,
-    /// Dernier checkpoint où l'on s'est reposé, checkpoints découverts (bits).
+    /// Last checkpoint rested at, discovered checkpoints (bits).
     pub checkpoint: u8,
     pub found: u32,
-    /// Objets ramassés, ennemis uniques vaincus (bits, voir `Progress`).
+    /// Picked-up items, defeated unique enemies (bits, see `Progress`).
     pub picked: u64,
     pub slain: u64,
-    /// Chute en cours (le corps continue de tomber après la mort, jusqu'à la réapparition).
+    /// Fall in progress (the body keeps falling after death, until the respawn).
     pub falling: bool,
     pub fall_vy: f32,
     pub fall_ticks: u32,
-    /// Hauteur du sol quitté (la caméra ne descend pas plus bas que ça).
+    /// Height of the floor left behind (the camera doesn't go lower than that).
     pub fall_from: f32,
-    /// Dernière position au sol avant la chute (les braises y restent).
+    /// Last position on the ground before the fall (the embers stay there).
     pub fall_at: Vec3,
-    /// Braises laissées à la dernière mort, à récupérer.
+    /// Embers dropped on the last death, to be recovered.
     pub dropped: Option<Dropped>,
-    /// En l'air (saut) : vitesse verticale, hauteur du sol quitté, ticks écoulés.
+    /// In the air (jump): vertical speed, height of the floor left behind, elapsed ticks.
     pub airborne: bool,
     pub air_vy: f32,
     pub air_from: f32,
@@ -152,17 +152,17 @@ impl Player {
         }
     }
 
-    /// Multiplicateur de dégâts de l'arme (résine ardente).
+    /// Weapon damage multiplier (ember resin).
     pub fn damage_mult(&self) -> f32 {
         if self.resin_ticks > 0 { items::RESIN_DAMAGE } else { 1.0 }
     }
 
-    /// Multiplicateur des dégâts subis (talisman).
+    /// Damage taken multiplier (talisman).
     pub fn defense_mult(&self) -> f32 {
         if self.inventory.wears(Item::IronBrooch) { items::BROOCH_DAMAGE } else { 1.0 }
     }
 
-    /// Commence une chute (le corps est déjà au-dessus du vide ; `from` : dernière position au sol).
+    /// Starts a fall (the body is already above the void; `from`: last position on the ground).
     pub fn start_fall(&mut self, action: &mut Action, momentum: Vec3, from: Vec3) {
         self.falling = true;
         self.airborne = false;
@@ -181,12 +181,12 @@ impl Player {
         action.stop();
     }
 
-    /// Il faut au moins 1 point d'endurance pour attaquer, esquiver ou utiliser la spéciale.
+    /// At least 1 stamina point is needed to attack, dodge or use the special.
     pub fn can_act(&self) -> bool {
         self.stamina >= 1.0
     }
 
-    /// Fenêtre de garde parfaite effective (réduite si on spamme la garde).
+    /// Effective perfect guard window (reduced if guard is spammed).
     pub fn perfect_window(&self, t: &Tuning) -> u32 {
         let g = &t.player.guard;
         g.perfect_window
@@ -196,7 +196,7 @@ impl Player {
 
     pub fn spend_stamina(&mut self, amount: f32, t: &Tuning) {
         if amount > 0.0 {
-            // L'endurance peut passer en négatif : il faudra attendre qu'elle remonte.
+            // Stamina can go negative: you'll have to wait for it to come back up.
             self.stamina = (self.stamina - amount).max(t.player.stamina_floor);
             self.stamina_delay = t.player.stamina_delay;
         }
@@ -207,26 +207,26 @@ impl Player {
     }
 }
 
-/// Infos sur la cible verrouillée ou le boss le plus proche, extraites avant de muter le joueur.
+/// Info on the locked target or the nearest boss, extracted before mutating the player.
 #[derive(Clone, Copy)]
 struct TargetInfo {
     entity: Entity,
     pos: Vec3,
     yaw: f32,
     radius: f32,
-    /// Boss groggy (sa définition) : on peut lui porter le coup fatal.
+    /// Staggered boss (its definition): the fatal blow can be dealt.
     groggy: Option<u8>,
 }
 
-/// Adversaires (boss et ennemis) vus par le joueur.
+/// Opponents (bosses and enemies) as seen by the player.
 type Foes<'w, 's> = Query<'w, 's, (Entity, &'static Body, &'static mut Action, &'static Health, Option<&'static Boss>), (With<Foe>, Without<Player>)>;
 
-/// Distance à un adversaire, comptée depuis le bord de son corps (les grands boss).
+/// Distance to an opponent, measured from the edge of its body (large bosses).
 fn foe_dist(b: &Body, pos: Vec3) -> f32 {
     (b.pos.distance(pos) - b.radius).max(0.0)
 }
 
-/// Adversaire vivant à portée (et à peu près à la même hauteur) le plus proche.
+/// Nearest living opponent in range (and at roughly the same height).
 fn nearest_foe(foes: &Foes, pos: Vec3, range: f32) -> Option<Entity> {
     foes.iter()
         .filter(|(_, b, _, h, _)| !h.dead() && foe_dist(b, pos) <= range && (b.pos.y - pos.y).abs() < 4.0)
@@ -234,7 +234,7 @@ fn nearest_foe(foes: &Foes, pos: Vec3, range: f32) -> Option<Entity> {
         .map(|(e, ..)| e)
 }
 
-/// Points verrouillables à portée : (adversaire, point, position).
+/// Lockable points in range: (opponent, point, position).
 fn lock_candidates(t: &Tuning, foes: &Foes, pos: Vec3, range: f32) -> Vec<(Entity, u8, Vec3)> {
     let mut out = Vec::new();
     for (e, b, _, h, boss) in foes.iter() {
@@ -248,7 +248,7 @@ fn lock_candidates(t: &Tuning, foes: &Foes, pos: Vec3, range: f32) -> Vec<(Entit
     out
 }
 
-/// Verrouillage : le point le plus proche de l'axe de la caméra (à défaut, le plus proche).
+/// Lock-on: the point closest to the camera axis (failing that, the nearest).
 fn pick_lock(t: &Tuning, foes: &Foes, pos: Vec3, cam_yaw: f32, range: f32) -> Option<(Entity, u8)> {
     let score = |p: Vec3| {
         let ang = math::wrap(math::yaw_of(p - pos) - cam_yaw).abs();
@@ -260,7 +260,7 @@ fn pick_lock(t: &Tuning, foes: &Foes, pos: Vec3, cam_yaw: f32, range: f32) -> Op
         .map(|(e, i, _)| (e, i))
 }
 
-/// Changement de cible : le point verrouillable suivant vers la gauche (`dir` > 0) ou la droite.
+/// Target switch: the next lockable point to the left (`dir` > 0) or right.
 fn switch_lock(t: &Tuning, foes: &Foes, pos: Vec3, cur: (Entity, u8), cur_pos: Vec3, dir: f32, range: f32) -> Option<(Entity, u8)> {
     let base = math::yaw_of(cur_pos - pos);
     lock_candidates(t, foes, pos, range)
@@ -272,8 +272,8 @@ fn switch_lock(t: &Tuning, foes: &Foes, pos: Vec3, cur: (Entity, u8), cur_pos: V
         .map(|(e, i, _)| (e, i))
 }
 
-/// Changement de cible vers le haut (`dir` > 0) ou le bas : le point plus haut (ou plus bas) le
-/// plus proche, de préférence dans la même direction.
+/// Target switch upwards (`dir` > 0) or downwards: the nearest higher (or lower) point,
+/// preferably in the same direction.
 fn switch_lock_vertical(t: &Tuning, foes: &Foes, pos: Vec3, cur: (Entity, u8), cur_pos: Vec3, dir: f32, range: f32) -> Option<(Entity, u8)> {
     let base = math::yaw_of(cur_pos - pos);
     lock_candidates(t, foes, pos, range)
@@ -285,7 +285,7 @@ fn switch_lock_vertical(t: &Tuning, foes: &Foes, pos: Vec3, cur: (Entity, u8), c
         .map(|(e, i, ..)| (e, i))
 }
 
-/// Position du point verrouillé.
+/// Position of the locked point.
 fn lock_pos(t: &Tuning, foes: &Foes, e: Entity, part: u8) -> Option<Vec3> {
     let (_, b, _, h, boss) = foes.get(e).ok()?;
     if h.dead() {
@@ -333,7 +333,7 @@ pub fn player_act(
                 0
             };
             p.last_guard_press = now;
-            // Re-presser la garde pendant un impact en garde relance la fenêtre de garde parfaite.
+            // Pressing guard again during an impact while guarding restarts the perfect guard window.
             let in_guard_move = action.is(MoveRef::Player(PlayerMove::GuardHit))
                 || action.is(MoveRef::Player(PlayerMove::PerfectGuard));
             if p.state == PState::Guard || in_guard_move {
@@ -341,7 +341,7 @@ pub fn player_act(
             }
         }
 
-        // Verrouillage (perdu à la mort du joueur ou de la cible, ou si elle est trop loin).
+        // Lock-on (lost when the player or the target dies, or if it's too far away).
         let lockable = |e: Entity| {
             foes.get(e).is_ok_and(|(_, b, _, h, _)| !h.dead() && foe_dist(b, body.pos) <= pd.lock_range * 1.3)
         };
@@ -354,8 +354,8 @@ pub fn player_act(
             p.lock = pick.map(|x| x.0);
             p.lock_part = pick.map_or(0, |x| x.1);
         }
-        // Changement de cible (stick droit, souris) : point suivant à gauche, à droite, plus
-        // haut ou plus bas.
+        // Target switch (right stick, mouse): next point to the left, right, higher
+        // or lower.
         const TARGET_BTNS: u16 = btn::TARGET_LEFT | btn::TARGET_RIGHT | btn::TARGET_UP | btn::TARGET_DOWN;
         if let Some(cur) = p.lock
             && pressed & TARGET_BTNS != 0
@@ -385,10 +385,10 @@ pub fn player_act(
                 radius: b.radius,
                 groggy: boss.filter(|b| a.is(MoveRef::Boss(b.def, BossMove::Groggy))).map(|b| b.def),
             });
-        // On vise le point verrouillé (la tête, une patte…), pas le centre du corps.
+        // Aim at the locked point (the head, a leg…), not the centre of the body.
         let locked_pos = p.lock.and_then(|e| lock_pos(t, &foes, e, p.lock_part));
 
-        // Direction de déplacement en monde, relative à la caméra.
+        // Movement direction in world space, relative to the camera.
         let stick = inp.stick();
         let stick_len = stick.length().min(1.0);
         let cam = inp.cam_yaw_rad();
@@ -396,7 +396,7 @@ pub fn player_act(
             (math::right(cam) * stick.x + math::forward(cam) * stick.y).normalize_or_zero()
         });
 
-        // Chute : plus de contrôle ; le corps continue de tomber, même après la mort.
+        // Fall: no more control; the body keeps falling, even after death.
         if p.falling {
             p.fall_vy -= GRAVITY * DT;
             let v = p.vel + Vec3::Y * p.fall_vy;
@@ -411,8 +411,8 @@ pub fn player_act(
             }
             continue;
         }
-        // Saut : la gravité s'applique quel que soit l'état (touché, voire tué, en plein saut).
-        // L'atterrissage (ou la chute dans le vide) est décidé avec les collisions.
+        // Jump: gravity applies whatever the state (hit, or even killed, mid-jump).
+        // Landing (or falling into the void) is decided with the collisions.
         if p.airborne {
             p.air_vy -= GRAVITY * DT;
             body.pos.y += p.air_vy * DT;
@@ -445,7 +445,7 @@ pub fn player_act(
         };
 
         if p.state == PState::Acting {
-            let mv = action.mv.expect("Acting sans action");
+            let mv = action.mv.expect("Acting without an action");
             let def = t.get(mv);
             if action.tick >= def.total {
                 action.stop();
@@ -491,12 +491,12 @@ pub fn player_act(
                             || try_offensive(&mut p, &mut body, &mut action, &mut foes, &mut ctx)));
                 if !interrupted {
                     if p.airborne {
-                        // Attaque sautée : l'élan du saut continue.
+                        // Jump attack: the jump's momentum carries on.
                         body.pos += p.vel * DT;
                     }
                     run_frame(&mut body, &action, def, locked_pos, move_dir);
                     if def.walk > 0.0 {
-                        // Marche lente autorisée (soin).
+                        // Slow walking allowed (heal).
                         if let Some(d) = move_dir {
                             body.pos += d * def.walk * stick_len * DT;
                             let want = locked_pos.map(|tp| math::yaw_of(tp - body.pos)).unwrap_or(math::yaw_of(d));
@@ -510,7 +510,7 @@ pub fn player_act(
 
         match p.state {
             PState::Acting => {
-                // Une nouvelle action vient de démarrer : on exécute sa première frame.
+                // A new action has just started: run its first frame.
                 let def = action.def(t).expect("action");
                 run_frame(&mut body, &action, def, locked_pos, move_dir);
             }
@@ -521,7 +521,7 @@ pub fn player_act(
                     p.charge = 0;
                     try_defensive(&mut p, &mut body, &mut action, &mut ctx);
                 } else if !inp.held(btn::HEAVY) || p.charge >= w.charge_ticks {
-                    // Relâchée avant la charge complète : lourde normale ; sinon, part toute seule.
+                    // Released before the full charge: normal heavy; otherwise, fires on its own.
                     let wm = if p.charge >= w.charge_ticks {
                         WeaponMove::HeavyCharged
                     } else {
@@ -546,7 +546,7 @@ pub fn player_act(
                     p.state = PState::Free;
                 }
                 if p.airborne {
-                    // En l'air : on ne fait que corriger un peu sa trajectoire, ou on frappe.
+                    // In the air: only nudge the trajectory a little, or strike.
                     if try_jump_attack(&mut p, &mut body, &mut action, &mut ctx) {
                         body.pos += p.vel * DT;
                         let def = action.def(t).expect("action");
@@ -555,7 +555,7 @@ pub fn player_act(
                         air_control(&mut p, &mut body, stick_len, move_dir, t);
                     }
                 } else if try_interact(&mut p, &body, &mut health, &mut encounter, &mut ctx) {
-                    // Repos ou objet ramassé : rien d'autre ce tick.
+                    // Rest or item picked up: nothing else this tick.
                 } else if try_jump(&mut p, &mut body, &mut ctx) {
                     air_control(&mut p, &mut body, stick_len, move_dir, t);
                 } else if try_defensive(&mut p, &mut body, &mut action, &mut ctx)
@@ -589,7 +589,7 @@ struct Ctx<'a, 'w> {
     events: &'a mut ResMut<'w, SimEvents>,
 }
 
-/// Esquive ou garde. Retourne vrai si l'état a changé.
+/// Dodge or guard. Returns true if the state changed.
 fn try_defensive(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut Ctx) -> bool {
     let pd = &ctx.t.player;
     if p.buffer.buffered(btn::DODGE, ctx.now, pd.input_buffer) && p.can_act() {
@@ -617,7 +617,7 @@ fn try_defensive(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut
     false
 }
 
-/// Attaques, spéciale, changement d'arme. Retourne vrai si une action a démarré.
+/// Attacks, special, weapon change. Returns true if an action started.
 fn try_offensive(p: &mut Player, body: &mut Body, action: &mut Action, foes: &mut Foes, ctx: &mut Ctx) -> bool {
     let t = ctx.t;
     let pd = &t.player;
@@ -631,7 +631,7 @@ fn try_offensive(p: &mut Player, body: &mut Body, action: &mut Action, foes: &mu
 
     if p.buffer.buffered(btn::LIGHT, now, buf) {
         p.buffer.consume(btn::LIGHT);
-        // Coup fatal sur un boss groggy, de face et à portée.
+        // Fatal blow on a staggered boss, from the front and in range.
         if let Some((ti, def)) = ctx.target.and_then(|ti| ti.groggy.map(|d| (ti, d))) {
             let to_player = body.pos - ti.pos;
             let dist = math::flat_len(to_player);
@@ -680,7 +680,7 @@ fn try_offensive(p: &mut Player, body: &mut Body, action: &mut Action, foes: &mu
     false
 }
 
-/// Utilise l'objet de l'emplacement rapide sélectionné. Ne demande pas d'endurance.
+/// Uses the item in the selected quick slot. Doesn't require stamina.
 fn try_item(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut Ctx) -> bool {
     if !p.buffer.buffered(btn::ITEM, ctx.now, ctx.t.player.input_buffer) {
         return false;
@@ -690,15 +690,15 @@ fn try_item(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut Ctx)
     if !p.inventory.consume(item) {
         return false;
     }
-    // Tous les consommables passent par la même action (on porte l'objet à la bouche, on
-    // écrase la braise…) ; l'effet s'applique à `heal_at`, perdu si on est touché avant.
+    // All consumables go through the same action (bringing the item to the mouth,
+    // crushing the ember…); the effect applies at `heal_at`, lost if hit before.
     p.healed = false;
     p.using = Some(item);
     start_move(p, body, action, MoveRef::Player(PlayerMove::Heal), ctx);
     true
 }
 
-/// Effet du consommable en cours d'utilisation.
+/// Effect of the consumable being used.
 fn use_item_effect(p: &mut Player, health: &mut Health, entity: Entity, ctx: &mut Ctx) {
     let Some(item) = p.using.take() else { return };
     match item {
@@ -716,8 +716,8 @@ fn use_item_effect(p: &mut Player, health: &mut Health, entity: Entity, ctx: &mu
     ctx.events.push(SimEvent::ItemUsed { entity, item });
 }
 
-/// Interagir : récupérer ses braises ou ramasser l'objet à portée, sinon se reposer au checkpoint.
-/// Rien à portée : le bouton est laissé au saut.
+/// Interact: recover your embers or pick up the item in range, otherwise rest at the checkpoint.
+/// Nothing in range: the button is left to the jump.
 fn try_interact(p: &mut Player, body: &Body, health: &mut Health, enc: &mut Encounter, ctx: &mut Ctx) -> bool {
     if !p.buffer.buffered(btn::INTERACT, ctx.now, ctx.t.player.input_buffer) {
         return false;
@@ -738,7 +738,7 @@ fn try_interact(p: &mut Player, body: &Body, health: &mut Health, enc: &mut Enco
         ctx.events.push(SimEvent::PickedUp { entity: ctx.entity, pickup: i });
         return true;
     }
-    // Pas de repos pendant un combat, ni avec des ennemis aux trousses.
+    // No resting during a fight, nor with enemies on your heels.
     let Some(cp) = near_checkpoint(ctx.t, body.pos).filter(|_| !enc.active && !enc.hunted) else {
         return false;
     };
@@ -762,7 +762,7 @@ fn try_interact(p: &mut Player, body: &Body, health: &mut Health, enc: &mut Enco
     true
 }
 
-/// Saut (le bouton d'interaction, quand il n'y a rien à portée). Il faut de l'endurance.
+/// Jump (the interact button, when there's nothing in range). It requires stamina.
 fn try_jump(p: &mut Player, body: &mut Body, ctx: &mut Ctx) -> bool {
     let jd = &ctx.t.player.jump;
     if !p.buffer.buffered(btn::INTERACT, ctx.now, ctx.t.player.input_buffer) || !p.can_act() {
@@ -776,7 +776,7 @@ fn try_jump(p: &mut Player, body: &mut Body, ctx: &mut Ctx) -> bool {
     p.air_from = body.pos.y;
     p.air_ticks = 0;
     p.charge = 0;
-    // On s'élance dans la direction du stick, à la vitesse acquise.
+    // Leap in the stick's direction, at the current speed.
     if let Some(d) = ctx.move_dir {
         body.yaw = math::yaw_of(d);
     }
@@ -784,7 +784,7 @@ fn try_jump(p: &mut Player, body: &mut Body, ctx: &mut Ctx) -> bool {
     true
 }
 
-/// Attaque sautée : attaque légère ou lourde pressée en l'air.
+/// Jump attack: light or heavy attack pressed in the air.
 fn try_jump_attack(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut Ctx) -> bool {
     let buf = ctx.t.player.input_buffer;
     let pressed = [btn::LIGHT, btn::HEAVY].into_iter().any(|b| p.buffer.buffered(b, ctx.now, buf));
@@ -798,7 +798,7 @@ fn try_jump_attack(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &m
     true
 }
 
-/// Coût d'endurance d'une action : explicite, ou proportionnel aux dégâts pour les attaques.
+/// Stamina cost of an action: explicit, or proportional to damage for attacks.
 pub fn stamina_cost(mv: MoveRef, t: &Tuning) -> f32 {
     let def = t.get(mv);
     match (def.stamina, mv) {
@@ -808,7 +808,7 @@ pub fn stamina_cost(mv: MoveRef, t: &Tuning) -> f32 {
     }
 }
 
-/// Démarre une action : coût d'endurance, orientation initiale, événements.
+/// Starts an action: stamina cost, initial orientation, events.
 fn start_move(p: &mut Player, body: &mut Body, action: &mut Action, mv: MoveRef, ctx: &mut Ctx) {
     let mut cost = stamina_cost(mv, ctx.t);
     if matches!(mv, MoveRef::Player(PlayerMove::Dodge | PlayerMove::Backstep)) && p.inventory.wears(Item::CrestPlume) {
@@ -816,7 +816,7 @@ fn start_move(p: &mut Player, body: &mut Body, action: &mut Action, mv: MoveRef,
     }
     p.spend_stamina(cost, ctx.t);
     if matches!(mv, MoveRef::Weapon(..)) {
-        // Les attaques s'orientent d'emblée vers la cible verrouillée ou la direction du stick.
+        // Attacks immediately face the locked target or the stick's direction.
         if let Some(tp) = ctx.locked_pos {
             body.yaw = math::yaw_of(tp - body.pos);
         } else if let Some(d) = ctx.move_dir {
@@ -832,7 +832,7 @@ fn start_move(p: &mut Player, body: &mut Body, action: &mut Action, mv: MoveRef,
     p.sprint_latched = false;
 }
 
-/// Démarre une action subie (réaction à un coup, garde…), en dehors de la boucle d'input.
+/// Starts an action undergone (hit reaction, guard…), outside the input loop.
 pub fn force_move(p: &mut Player, action: &mut Action, mv: MoveRef) {
     p.using = None;
     action.start(mv, 0.0);
@@ -844,7 +844,7 @@ pub fn force_move(p: &mut Player, action: &mut Action, mv: MoveRef) {
     p.buffer.clear();
 }
 
-/// Exécute la frame courante d'une action : suivi de cible et root motion.
+/// Runs the current frame of an action: target tracking and root motion.
 pub fn run_frame(
     body: &mut Body,
     action: &Action,
@@ -873,7 +873,7 @@ pub fn run_frame(
     }
 }
 
-/// Vitesse d'un segment de root motion (vers l'avant), selon la distance à la cible figée.
+/// Speed of a root motion segment (forwards), according to the distance to the frozen target.
 pub fn motion_speed(m: &super::data::Motion, target_dist: f32) -> f32 {
     if m.to_target {
         let span = (m.end - m.start).max(1) as f32 * DT;
@@ -920,8 +920,8 @@ fn locomotion(
     }
 }
 
-/// Déplacement en l'air : l'élan est conservé (stick relâché compris) ; le stick ne fait que
-/// l'infléchir lentement, sans le ralentir s'il pousse dans le même sens.
+/// Air movement: momentum is preserved (even with the stick released); the stick only
+/// bends it slowly, without slowing it if it pushes in the same direction.
 fn air_control(p: &mut Player, body: &mut Body, stick_len: f32, move_dir: Option<Vec3>, t: &Tuning) {
     let pd = &t.player;
     if let Some(d) = move_dir {
@@ -935,7 +935,7 @@ fn air_control(p: &mut Player, body: &mut Body, stick_len: f32, move_dir: Option
     body.pos += p.vel * DT;
 }
 
-/// Régénérations et minuteries de fin de tick.
+/// End-of-tick regenerations and timers.
 pub fn player_end_tick(tuning: Res<Tuning>, mut q: Query<(&mut Player, &Action, &mut Health)>) {
     let pd = &tuning.player;
     for (mut p, action, mut health) in &mut q {

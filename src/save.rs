@@ -1,11 +1,11 @@
-//! Sauvegarde automatique façon Dark Souls : un seul emplacement, réécrit dès qu'il se passe
-//! quelque chose d'important (repos, entrée dans l'arène, victoire, ennemi vaincu, objet
-//! ramassé ou utilisé, chute, mort, ouverture/fermeture d'un menu), toutes les 5 secondes,
-//! et en quittant. Le fichier n'est
-//! réécrit que s'il a changé. On reprend où on s'était arrêté — sauf en plein combat de boss :
-//! on revient alors devant la brume, et le boss repart de zéro.
+//! Dark Souls-style autosave: a single slot, rewritten as soon as something important
+//! happens (rest, entering the arena, victory, enemy defeated, item picked up
+//! or used, fall, death, menu opened/closed), every 5 seconds,
+//! and when quitting. The file is only
+//! rewritten if it has changed. You resume where you left off — except mid boss fight:
+//! you then come back in front of the fog, and the boss starts over.
 //!
-//! Emplacement : `save.ron` à côté des options (voir `storage`).
+//! Location: `save.ron` next to the settings (see `storage`).
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -26,16 +26,16 @@ const AUTOSAVE_SECS: f32 = 5.0;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SaveData {
     pub version: u32,
-    /// Temps de jeu, en secondes.
+    /// Play time, in seconds.
     pub play_time: f64,
     pub progress: Progress,
 }
 
 #[derive(Resource, Default)]
 pub struct SaveSlot {
-    /// Dernière sauvegarde lue ou écrite.
+    /// Last save read or written.
     pub data: Option<SaveData>,
-    /// N'écrit rien sur le disque (captures automatiques).
+    /// Writes nothing to disk (automatic screenshots).
     pub disabled: bool,
     pub play_time: f64,
     pending: bool,
@@ -49,18 +49,18 @@ impl SaveSlot {
         let data = text.as_deref().and_then(|t| match ron::from_str::<SaveData>(t) {
             Ok(d) if d.version == VERSION => Some(d),
             Ok(d) => {
-                warn!("sauvegarde de version {} ignorée (attendu {VERSION})", d.version);
+                warn!("save version {} ignored (expected {VERSION})", d.version);
                 None
             }
             Err(e) => {
-                warn!("sauvegarde illisible, ignorée : {e}");
+                warn!("unreadable save, ignored: {e}");
                 None
             }
         });
         Self { last_text: data.is_some().then_some(text).flatten(), data, ..default() }
     }
 
-    /// Demande une écriture à la fin de la frame.
+    /// Requests a write at the end of the frame.
     pub fn request(&mut self) {
         self.pending = true;
     }
@@ -71,7 +71,7 @@ impl SaveSlot {
         let text = match ron::ser::to_string_pretty(&data, ron::ser::PrettyConfig::default()) {
             Ok(t) => t,
             Err(e) => {
-                warn!("impossible de sérialiser la sauvegarde : {e}");
+                warn!("cannot serialise the save: {e}");
                 return;
             }
         };
@@ -136,7 +136,7 @@ fn flush(world: &mut World) {
     }
 }
 
-/// Progression actuelle du joueur local (`None` hors partie).
+/// Current progress of the local player (`None` outside a game).
 pub fn capture(world: &mut World) -> Option<Progress> {
     let enc = *world.resource::<Encounter>();
     let tuning = world.resource::<Tuning>().clone();
@@ -146,7 +146,7 @@ pub fn capture(world: &mut World) -> Option<Progress> {
         .map(|(p, b, h)| Progress::of_player(p, b, h, &enc, &tuning))
 }
 
-/// Écrit la sauvegarde tout de suite (si une partie est en cours).
+/// Writes the save right away (if a game is in progress).
 pub fn save_now(world: &mut World) {
     let Some(progress) = capture(world) else { return };
     let mut slot = world.resource_mut::<SaveSlot>();

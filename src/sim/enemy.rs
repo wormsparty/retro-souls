@@ -1,13 +1,13 @@
-//! Ennemis du chemin (chiens, pantins…) : une IA simple et lisible.
+//! Path enemies (dogs, puppets…): a simple, readable AI.
 //!
-//! - à leur poste, ils dorment (on peut les approcher de près, mais ils sentent tout autour
-//!   d'eux) ou guettent (ils voient loin, mais seulement devant eux) ;
-//! - repérer le joueur ou être frappé déclenche un cri d'alerte, qui réveille tout le groupe ;
-//! - ils poursuivent et attaquent comme le boss (choix pondéré, temps de recharge, pauses
-//!   où l'on peut punir) ;
-//! - trop loin de leur poste, ils abandonnent, y retournent et se soignent ;
-//! - vaincus, ils lâchent leurs braises et disparaissent. Ils reviennent tous quand on se
-//!   repose ou qu'on meurt, sauf les uniques.
+//! - at their post, they sleep (you can get close, but they sense everything around
+//!   them) or watch (they see far, but only in front of them);
+//! - spotting the player or being hit triggers an alert cry, which wakes the whole group;
+//! - they chase and attack like the boss (weighted choice, cooldowns, pauses
+//!   where you can punish);
+//! - too far from their post, they give up, go back and heal;
+//! - once defeated, they drop their embers and disappear. They all come back when you
+//!   rest or die, except the unique ones.
 
 use bevy::prelude::*;
 
@@ -21,56 +21,56 @@ use super::{DT, SimDebug, SimEntity, SimEvent, SimEvents, SimTick, math, world};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum EState {
-    /// Endormi à son poste.
+    /// Asleep at its post.
     Asleep,
-    /// Debout à son poste, il guette devant lui.
+    /// Standing at its post, watching ahead.
     Watch,
     Chase,
-    /// Retour au poste (il ignore le joueur tant qu'on ne le frappe pas).
+    /// Returning to its post (it ignores the player unless hit).
     Return,
 }
 
 #[derive(Component, Clone, Debug)]
 pub struct Enemy {
-    /// Type (index dans `Tuning::enemies`).
+    /// Type (index in `Tuning::enemies`).
     pub kind: u8,
-    /// Index dans `level.enemies`.
+    /// Index in `level.enemies`.
     pub spawn: u16,
     pub home: Vec3,
     pub home_yaw: f32,
-    /// État au poste : `Asleep` ou `Watch`.
+    /// State at its post: `Asleep` or `Watch`.
     pub rest_state: EState,
     pub state: EState,
     pub target: Option<Entity>,
-    /// Tick à partir duquel chaque attaque redevient disponible.
+    /// Tick from which each attack becomes available again.
     pub cooldowns: Vec<u32>,
-    /// Ticks avant de pouvoir attaquer.
+    /// Ticks before it can attack.
     pub idle: u32,
     pub strafe: f32,
     pub strafe_timer: u32,
-    /// Dégâts encaissés récemment (interruption au-delà de `poise`).
+    /// Damage taken recently (staggered beyond `poise`).
     pub poise: f32,
     pub poise_timer: u32,
-    /// A donné l'alerte ce tick : le groupe se réveille.
+    /// Raised the alarm this tick: the group wakes up.
     pub alerted: bool,
     pub group: u8,
     pub unique: bool,
-    /// Ticks écoulés depuis la fin de l'animation de mort.
+    /// Ticks elapsed since the end of the death animation.
     pub dead_ticks: u32,
 }
 
-/// Délai entre la fin de l'animation de mort et la disparition.
+/// Delay between the end of the death animation and disappearing.
 pub const VANISH_TICKS: u32 = 30;
-/// Écart de hauteur au-delà duquel un ennemi ne repère pas le joueur.
+/// Height difference beyond which an enemy doesn't spot the player.
 const SIGHT_DY: f32 = 3.0;
-/// Demi-angle du champ de vision d'un ennemi qui guette (degrés).
+/// Half-angle of the field of view of a watching enemy (degrees).
 const SIGHT_ANGLE: f32 = 70.0;
-/// En deçà, un ennemi qui guette entend le joueur même dans son dos.
+/// Within this range, a watching enemy hears the player even behind its back.
 const HEAR_RANGE: f32 = 3.0;
 
 impl Enemy {
-    /// Encaisse un coup : poursuite de l'attaquant, alerte du groupe, et interruption si la
-    /// réserve d'équilibre est dépassée (hors hyperarmure). Vrai si interrompu.
+    /// Takes a hit: chases the attacker, alerts the group, and is staggered if the
+    /// poise reserve is exceeded (outside hyper armour). True if staggered.
     pub fn take_hit(&mut self, attacker: Entity, amount: f32, action: &mut Action, t: &Tuning) -> bool {
         if self.state != EState::Chase {
             self.alerted = true;
@@ -90,8 +90,8 @@ impl Enemy {
     }
 }
 
-/// Crée tous les ennemis du niveau (sauf les uniques déjà vaincus : bits de `slain`), dans
-/// l'ordre du fichier (déterminisme).
+/// Creates all the level's enemies (except unique ones already defeated: bits of `slain`), in
+/// file order (determinism).
 pub fn spawn_all(commands: &mut Commands, t: &Tuning, slain: u64) {
     for (i, s) in t.level.enemies.iter().enumerate() {
         if s.unique && slain & (1u64 << i) != 0 {
@@ -141,7 +141,7 @@ fn hunts(p: &PlayerView) -> bool {
     !p.2.dead() && !matches!(p.3.state, PState::Dead | PState::Falling)
 }
 
-/// Le joueur le plus proche que cet ennemi repère depuis son poste.
+/// The nearest player this enemy spots from its post.
 fn spot<'a>(e: &Enemy, body: &Body, sight: f32, players: impl Iterator<Item = PlayerView<'a>>) -> Option<Entity> {
     players
         .filter(hunts)
@@ -196,7 +196,7 @@ pub fn enemy_act(
             e.poise = 0.0;
         }
 
-        // Mort : fin de l'animation, puis disparition.
+        // Dead: end of the animation, then disappears.
         if health.dead() {
             let death = MoveRef::Enemy(e.kind, EnemyMove::Death);
             if !action.is(death) {
@@ -216,7 +216,7 @@ pub fn enemy_act(
 
         let target_pos = e.target.and_then(|p| players.get(p).ok()).filter(hunts).map(|(_, b, ..)| b.pos);
 
-        // Action en cours.
+        // Current action.
         if let Some(mv) = action.mv {
             let def = t.get(mv);
             if action.tick < def.total {
@@ -225,7 +225,7 @@ pub fn enemy_act(
                 {
                     action.target_dist = math::flat_len(tp - body.pos);
                 }
-                // Le cri d'alerte : il se tourne vers sa cible.
+                // The alert cry: it turns towards its target.
                 if matches!(mv, MoveRef::Enemy(_, EnemyMove::Alert))
                     && let Some(tp) = target_pos
                 {
@@ -273,7 +273,7 @@ pub fn enemy_act(
                 body.pos += step;
             }
             EState::Chase => {
-                // Cible : celle d'avant si elle est toujours là, sinon le joueur le plus proche.
+                // Target: the previous one if it's still there, otherwise the nearest player.
                 let tp = target_pos.or_else(|| {
                     let p = players
                         .iter()
@@ -293,7 +293,7 @@ pub fn enemy_act(
                 let want = math::yaw_of(to);
                 body.yaw = math::turn_towards(body.yaw, want, d.turn_rate.to_radians() * DT);
                 if dist > d.preferred_range + 0.6 {
-                    // Au trot de loin, au pas pour la dernière approche.
+                    // Jogging from afar, walking for the final approach.
                     let speed = if dist > d.preferred_range + 2.5 { d.run_speed } else { d.walk_speed * 1.4 };
                     let step = math::forward(body.yaw) * speed * DT;
                     body.pos += step;
@@ -341,7 +341,7 @@ pub fn enemy_act(
         }
     }
 
-    // Alerte : le reste du groupe se réveille (ceux frappés ce tick aussi donnent l'alerte).
+    // Alert: the rest of the group wakes up (those hit this tick also raise the alarm).
     for (_, e, ..) in &enemies {
         if e.alerted && e.group > 0 && !groups.contains(&e.group) {
             groups.push(e.group);
@@ -384,7 +384,7 @@ fn start_attack(e: &mut Enemy, body: &mut Body, action: &mut Action, idx: usize,
     run_frame(body, action, &a.mv, Some(target_pos), None);
 }
 
-/// Repos, voyage : tous les ennemis reviennent à leur poste (sauf les uniques vaincus).
+/// Rest, travel: all enemies return to their post (except defeated unique ones).
 pub fn respawn_on_request(
     mut commands: Commands,
     tuning: Res<Tuning>,

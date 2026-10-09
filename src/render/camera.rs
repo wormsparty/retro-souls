@@ -1,4 +1,4 @@
-//! Caméra à la troisième personne, avec verrouillage de cible et tremblement.
+//! Third-person camera, with target lock-on and shake.
 
 use bevy::prelude::*;
 
@@ -11,7 +11,7 @@ use crate::sim::fighter::{Body, Foe};
 use crate::sim::player::Player;
 use crate::sim::{math, world};
 
-/// Pièce du modèle d'un boss qui porte un point verrouillable (`PartDef::bone`).
+/// Piece of a boss model that carries a lockable point (`PartDef::bone`).
 #[derive(Component, Clone, Copy)]
 pub struct PartBone {
     pub owner: Entity,
@@ -21,8 +21,8 @@ pub struct PartBone {
 pub type LockFoes<'w, 's> = Query<'w, 's, (&'static Interp, &'static Body, Option<&'static Boss>), With<Foe>>;
 pub type PartBones<'w, 's> = Query<'w, 's, (&'static PartBone, &'static GlobalTransform)>;
 
-/// Position affichée du point verrouillé `part` de `e` : la pièce animée du modèle si elle
-/// existe, sinon le point de simulation, à la position interpolée.
+/// Displayed position of the locked point `part` of `e`: the model's animated piece if it
+/// exists, otherwise the simulation point, at the interpolated position.
 pub fn lock_target(t: &Tuning, e: Entity, part: u8, foes: &LockFoes, bones: &PartBones) -> Option<Vec3> {
     if let Some((_, gt)) = bones.iter().find(|(b, _)| b.owner == e && b.part == part) {
         return Some(gt.translation());
@@ -35,14 +35,14 @@ pub fn lock_target(t: &Tuning, e: Entity, part: u8, foes: &LockFoes, bones: &Par
 
 #[derive(Resource, Clone, Debug)]
 pub struct CameraRig {
-    /// Yaw horizontal de la caméra (même convention que la sim : 0 = regarde vers +Z).
+    /// Horizontal yaw of the camera (same convention as the sim: 0 = facing +Z).
     pub yaw: f32,
     pub pitch: f32,
     pub distance: f32,
     pub shake: f32,
     pub focus: Vec3,
-    /// Part de la distance laissée par les murs (la caméra se rapproche d'un coup quand un mur
-    /// s'interpose, et ne recule que progressivement).
+    /// Share of the distance allowed by the walls (the camera snaps closer when a wall
+    /// gets in the way, and only backs off gradually).
     pub reach: f32,
     pub initialized: bool,
 }
@@ -88,12 +88,12 @@ fn update_camera(
     }
 
     if let Some((point, _)) = lock {
-        // Verrouillé : la caméra se place derrière le joueur, orientée vers le point verrouillé.
+        // Locked on: the camera goes behind the player, facing the locked point.
         let want = math::yaw_of(point - pi.pos);
         let d = math::wrap(want - rig.yaw);
         rig.yaw = math::wrap(rig.yaw + d * (1.0 - (-8.0 * dt).exp()));
         let dist = math::flat_len(point - pi.pos).max(1.0);
-        // Plus le point est haut (la tête d'un dragon), plus la caméra plonge… vers le haut.
+        // The higher the point (a dragon's head), the more the camera dives… upwards.
         let rise = ((point.y - pi.pos.y - 1.7) / dist).atan();
         let target_pitch = (0.22 - rise * 0.6 - dist * 0.004).clamp(-0.2, 0.4);
         rig.pitch += (target_pitch - rig.pitch) * (1.0 - (-4.0 * dt).exp());
@@ -103,11 +103,11 @@ fn update_camera(
     }
 
     let mut target = pi.pos + Vec3::Y * 1.7;
-    // Chute : la caméra reste au bord et regarde le corps disparaître dans le noir.
+    // Fall: the camera stays at the edge and watches the body vanish into the black.
     if player.falling {
         target.y = target.y.max(player.fall_from + 0.4);
     }
-    // Saut : la caméra ne suit qu'une partie de la hauteur (moins de secousses).
+    // Jump: the camera only follows part of the height (less shaking).
     if player.airborne {
         target.y = player.air_from + 1.7 + (pi.pos.y - player.air_from) * 0.4;
     }
@@ -123,8 +123,8 @@ fn update_camera(
         pi.pos.y
     };
     pos.y = pos.y.max(ground + 0.4);
-    // Un mur (arène, escalier) entre le joueur et la caméra la cacherait : elle passe devant.
-    // Ailleurs, rien ne l'arrête : autour, c'est le vide.
+    // A wall (arena, stairs) between the player and the camera would hide it: it moves in front.
+    // Elsewhere, nothing stops it: all around is the void.
     let offset = pos - rig.focus;
     let len = math::flat_len(offset).max(0.01);
     let allowed = if player.falling {

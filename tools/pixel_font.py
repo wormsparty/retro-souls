@@ -1,10 +1,10 @@
-"""Génère assets/fonts/giants-flame.ttf : police bitmap façon PS1 (chaque pixel est un carré).
+"""Generates assets/fonts/giants-flame.ttf: a PS1-style bitmap font (each pixel is a square).
 
-python3 tools/pixel_font.py   (nécessite fontTools)
+python3 tools/pixel_font.py   (requires fontTools)
 
-Grille : cadratin de 12 pixels (hauteur des capitales 7, hauteur d'x 5, jambages 2, accents
-des capitales sur les lignes 8-9). Un pixel = 100 unités ; à une taille de police multiple de
-12 px, chaque pixel tombe exactement sur un carré de pixels de l'écran.
+Grid: 12-pixel em (cap height 7, x-height 5, descenders 2, capital accents
+on rows 8-9). One pixel = 100 units; at a font size that's a multiple of
+12 px, each pixel lands exactly on a square of screen pixels.
 """
 
 import os
@@ -16,8 +16,8 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "
 UNIT = 100
 EM = 12
 
-# Dessins : lignes de haut en bas, la dernière ligne listée est posée sur `bottom`
-# (0 = ligne de base, -2 pour un jambage de deux pixels).
+# Drawings: rows from top to bottom, the last listed row sits on `bottom`
+# (0 = baseline, -2 for a two-pixel descender).
 G = {}
 
 
@@ -30,7 +30,7 @@ def caps(c, *rows):
     g(c, list(rows))
 
 
-# --- Capitales (7 lignes) ---------------------------------------------------------------
+# --- Capitals (7 rows) ---------------------------------------------------------------
 caps("A", ".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#")
 caps("B", "####.", "#...#", "#...#", "####.", "#...#", "#...#", "####.")
 caps("C", ".###.", "#...#", "#....", "#....", "#....", "#...#", ".###.")
@@ -60,7 +60,7 @@ caps("Z", "#####", "....#", "...#.", "..#..", ".#...", "#....", "#####")
 caps("Œ", ".######", "#..#...", "#..#...", "#..###.", "#..#...", "#..#...", ".######")
 caps("Æ", "..#####", ".#.#...", "#..#...", "#####..", "#..#...", "#..#...", "#..####")
 
-# --- Minuscules (hauteur d'x 5, hampes 7) -------------------------------------------------
+# --- Lowercase (x-height 5, ascenders 7) -------------------------------------------------
 g("a", [".###.", "....#", ".####", "#...#", ".####"])
 g("b", ["#....", "#....", "####.", "#...#", "#...#", "#...#", "####."])
 g("c", [".###", "#...", "#...", "#...", ".###"])
@@ -91,7 +91,7 @@ g("z", ["#####", "...#.", "..#..", ".#...", "#####"])
 g("œ", [".##.##.", "#..#..#", "#..####", "#..#...", ".##.###"])
 g("æ", [".##.##.", "...#..#", ".######", "#..#...", ".##.###"])
 
-# --- Chiffres (largeur fixe) --------------------------------------------------------------
+# --- Digits (fixed width) --------------------------------------------------------------
 caps("0", ".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###.")
 caps("1", "..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###.")
 caps("2", ".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####")
@@ -103,7 +103,7 @@ caps("7", "#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#...")
 caps("8", ".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###.")
 caps("9", ".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##..")
 
-# --- Ponctuation et symboles ----------------------------------------------------------------
+# --- Punctuation and symbols ----------------------------------------------------------------
 g("!", ["#", "#", "#", "#", "#", ".", "#"])
 g("?", [".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."])
 g(".", ["#"])
@@ -153,7 +153,7 @@ g("↑", ["..#..", ".###.", "#.#.#", "..#..", "..#..", "..#..", "..#.."])
 g("↓", ["..#..", "..#..", "..#..", "..#..", "#.#.#", ".###.", "..#.."])
 g("↵", ["....#", "....#", "..#.#", ".#..#", "#####", ".#...", "..#.."])
 
-# --- Lettres accentuées (composées) -------------------------------------------------------
+# --- Accented letters (composed) -------------------------------------------------------
 ACCENTS = {
     "acute": [".#", "#."],
     "grave": ["#.", ".#"],
@@ -173,7 +173,7 @@ COMPOSED = {
 
 
 def pixels(c):
-    """Ensemble des pixels (x, y) d'un caractère et sa largeur."""
+    """Set of pixels (x, y) of a character and its width."""
     rows, bottom = G[c]
     w = max(len(r) for r in rows)
     px = set()
@@ -192,7 +192,7 @@ def compose(base, accent):
     w = max(bw, aw)
     bx, ax = (w - bw) // 2, (w - aw) // 2 + (1 if accent == "acute" and w > aw else 0)
     top = max(y for _, y in bpx)
-    # Une ligne vide entre la lettre et l'accent ; le tréma est posé sur la ligne du bas.
+    # One blank row between the letter and the accent; the diaeresis sits on the bottom row.
     y0 = top + 2
     px = {(x + bx, y) for x, y in bpx}
     for i, r in enumerate(reversed(arows)):
@@ -211,7 +211,7 @@ def cedilla(base):
 
 def draw(px):
     pen = TTGlyphPen(None)
-    # Un rectangle par suite horizontale de pixels (sens horaire, comme l'exige TrueType).
+    # One rectangle per horizontal run of pixels (clockwise, as TrueType requires).
     rows = {}
     for x, y in px:
         rows.setdefault(y, []).append(x)
@@ -264,7 +264,7 @@ def main():
                 sxHeight=5 * UNIT, sCapHeight=7 * UNIT, fsSelection=0x40)
     fb.setupPost()
     fb.save(OUT)
-    print(f"{len(shapes)} glyphes -> {os.path.normpath(OUT)}")
+    print(f"{len(shapes)} glyphs -> {os.path.normpath(OUT)}")
 
 
 main()

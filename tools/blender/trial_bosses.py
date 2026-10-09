@@ -1,10 +1,10 @@
-"""Génère les autres boss (assets/config/bosses.ron) : modèles et animations.
+"""Generates the other bosses (assets/config/bosses.ron): models and animations.
 
-blender -b --factory-startup -P tools/blender/trial_bosses.py [-- nom ...]
+blender -b --factory-startup -P tools/blender/trial_bosses.py [-- name ...]
 
-Sans argument, tous les modèles sont générés. Les animations sont calées sur les timings des
-attaques (tools/blender/timings.json, `bosses`) : "h0" début du coup 0, "c0" tick du sort 0…
-Les objets vides `lock_*` sont les points verrouillables (`parts` des boss) que suit le réticule.
+Without arguments, all models are generated. Animations are timed on the attack timings
+(tools/blender/timings.json, `bosses`): "h0" start of hit 0, "c0" tick of spell 0…
+The empty objects `lock_*` are the lockable points (the bosses' `parts`) followed by the reticle.
 """
 
 import math
@@ -30,7 +30,7 @@ TIMINGS = load_timings().get("bosses", {})
 
 
 def finish(rig, name, idle_keys, clips=()):
-    """Exporte le modèle : l'attente en boucle, puis les `clips` (nom, clés[, boucle])."""
+    """Exports the model: the looping idle, then the `clips` (name, keys[, loop])."""
     T = TIMINGS.get(name, {})
     markers = {}
     end = add_animation(rig, "idle", idle_keys)
@@ -43,18 +43,18 @@ def finish(rig, name, idle_keys, clips=()):
         markers[cname] = {"frames": end, "marks": anim_markers(info) if cname in T else [0, end], "loop": loop}
     missing = sorted(set(T) - set(markers))
     if missing:
-        raise SystemExit(f"{name} : animations manquantes : {missing}")
+        raise SystemExit(f"{name}: missing animations: {missing}")
     rest_pose(rig)
     export(name, markers)
 
 
 def lock(rig, name, at, parent):
-    """Point verrouillable (objet vide) que suit le réticule du jeu."""
+    """Lockable point (empty object) followed by the game's reticle."""
     rig.part(name, at, parent)
 
 
 def tween(a, b, k):
-    """Pose intermédiaire entre deux poses (rotations et translations interpolées)."""
+    """Intermediate pose between two poses (interpolated rotations and translations)."""
     out = {}
     for key in set(a) | set(b):
         va, vb = a.get(key, (0, 0, 0)), b.get(key, (0, 0, 0))
@@ -67,7 +67,7 @@ def tween(a, b, k):
 
 
 def biped_walk(base, frames=80, stride=22, arms=6):
-    """Marche d'un bipède : jambes alternées, léger roulis, bras qui balancent."""
+    """Biped walk: alternating legs, slight roll, swinging arms."""
     def fn(p, ph):
         a = s(ph)
         out = add(p, thigh_R=(-stride * a, 0, 0), shin_R=(14 * max(0.0, s(ph, 1, 0.25)), 0, 0),
@@ -79,7 +79,7 @@ def biped_walk(base, frames=80, stride=22, arms=6):
 
 
 def biped_states(base, hip, look_arms=None):
-    """Groggy, coup fatal reçu, rugissement et mort d'un bipède dont les hanches sont à `hip` m."""
+    """Stagger, fatal blow received, roar and death of a biped whose hips are at `hip` m."""
     k = hip / 1.65
     kneel = merge(base, legs(-80, 85, 75, 100, -0.75 * k), {"chest": (38, 0, 8), "head": (35, 0, 0)},
                   arm("R", (-40, 15, 0), (-30, 0, 0), (40, 0, 0)), arm("L", (-10, -10, 0), (-20, 0, 0)))
@@ -101,7 +101,7 @@ def biped_states(base, hip, look_arms=None):
 
 
 def sheet(mb, pts, mat):
-    """Membrane plate visible des deux côtés (polygone convexe, triangulé en éventail)."""
+    """Flat membrane visible from both sides (convex polygon, fan-triangulated)."""
     for order in (pts, list(reversed(pts))):
         for i in range(1, len(order) - 1):
             tri = [order[0], order[i], order[i + 1]]
@@ -109,7 +109,7 @@ def sheet(mb, pts, mat):
 
 
 def mx(p, s):
-    """Point (x, y, z) défini pour le côté gauche, reporté du côté `s`."""
+    """Point (x, y, z) defined for the left side, mirrored to side `s`."""
     return (p[0] * s, p[1], p[2])
 
 
@@ -126,7 +126,7 @@ def legs(tr=0, sr=0, tl=0, sl=0, drop=0.0, twist=0, fwd=0.0, sway=0):
 
 
 def add(pose, **parts):
-    """Ajoute des rotations (en degrés) à certaines pièces d'une pose."""
+    """Adds rotations (in degrees) to some pieces of a pose."""
     out = dict(pose)
     for k, d in parts.items():
         v = out.get(k, (0, 0, 0))
@@ -138,7 +138,7 @@ def add(pose, **parts):
 
 
 def lift(pose, part, dt):
-    """Décale une pièce (translation, en mètres)."""
+    """Offsets a piece (translation, in metres)."""
     out = dict(pose)
     v = out.get(part, (0, 0, 0))
     r, t = (v["r"], v["t"]) if isinstance(v, dict) else (v, (0, 0, 0))
@@ -147,7 +147,7 @@ def lift(pose, part, dt):
 
 
 def cycle(base, n, frames, fn):
-    """Boucle de `n` clés sur `frames` frames : `fn(pose, phase 0→1)` ; la dernière = la première."""
+    """Loop of `n` keys over `frames` frames: `fn(pose, phase 0→1)`; the last one = the first."""
     keys = [(round(frames * i / n), fn(base, i / n)) for i in range(n)]
     keys.append((frames, keys[0][1]))
     return keys
@@ -157,10 +157,10 @@ def s(ph, k=1, off=0.0):
     return math.sin(2 * math.pi * (ph * k + off))
 
 
-# ============================================================================= wyverne de cendre
+# ============================================================================= ash wyvern
 
 def dragon():
-    # Immense : ses faces sont découpées, sinon la texture s'y étire et se déforme.
+    # Huge: its faces are split, otherwise the texture stretches and distorts on them.
     rig = start("dragon", cell=0.6)
     SCALE = material("d_scale", tex=tex_noise((0.24, 0.22, 0.22), 0.5, seed=101))
     SCALE_DARK = material("d_scale_dark", tex=tex_noise((0.12, 0.11, 0.11), 0.4, seed=102))
@@ -179,7 +179,7 @@ def dragon():
             y = -1.8 + i * 0.5
             h = 0.5 - abs(i - 2) * 0.04
             mb.box((0, y, 2.95 + h / 2), (0.12, 0.3, h), HORN, taper=(0.2, 0.3), shift_top=(0, 0.12))
-        # Fissures de braise sur les flancs.
+        # Ember cracks along the flanks.
         for sd in (R, L):
             for y, z, ln in ((-1.2, 2.3, 0.6), (-0.2, 1.9, 0.8), (0.9, 2.2, 0.5)):
                 mb.box((sd * 0.93, y, z), (0.04, ln, 0.06), EMBER)
@@ -189,8 +189,8 @@ def dragon():
         mb.box((0, -2.4, 3.4), (0.1, 0.25, 0.35), HORN, taper=(0.2, 0.3), shift_top=(0, 0.1))
 
     def neck2(mb):
-        # Nettement plus fin que le bout de neck1 : à épaisseur égale, leurs flancs se
-        # superposent à la jonction et la texture y scintille.
+        # Clearly thinner than the end of neck1: at equal thickness, their sides
+        # overlap at the joint and the texture flickers there.
         mb.seg((0, -2.85, 3.25), (0, -3.65, 3.9), 0.66, 0.7, SCALE, taper=0.85)
         mb.box((0, -3.2, 4.0), (0.08, 0.2, 0.3), HORN, taper=(0.2, 0.3), shift_top=(0, 0.1))
 
@@ -199,7 +199,7 @@ def dragon():
         mb.box((0, -4.75, 3.9), (0.55, 0.95, 0.4), SCALE_DARK, taper=(0.8, 0.85))
         for sd in (R, L):
             mb.box((sd * 0.24, -4.15, 4.27), (0.2, 0.45, 0.12), SCALE_DARK)
-            # Yeux en saillie (pas dans le plan de la joue : ils y scintilleraient).
+            # Protruding eyes (not in the plane of the cheek: they would flicker there).
             mb.box((sd * 0.41, -4.22, 4.06), (0.08, 0.18, 0.08), EYES)
             mb.seg((sd * 0.22, -3.75, 4.2), (sd * 0.5, -2.9, 4.8), 0.17, 0.17, HORN, taper=0.15)
             mb.seg((sd * 0.34, -3.85, 4.0), (sd * 0.75, -3.35, 4.1), 0.1, 0.1, HORN, taper=0.2)
@@ -286,7 +286,7 @@ def dragon():
         lock(rig, f"lock_hleg_{sd_name}", (sd * 1.05, 1.4, 1.1), f"hleg_low_{sd_name}")
     lock(rig, "lock_tail", (0, 4.3, 1.45), "tail2")
 
-    # Tête haute, ailes à demi déployées : il domine.
+    # Head high, wings half spread: it looms.
     BASE = {
         "neck1": (-22, 0, 0), "neck2": (-12, 0, 0), "head": (30, 0, 0), "jaw": (6, 0, 0),
         "wing_R": (0, 16, 8), "wing_L": (0, -16, -8), "wing_fore_R": (0, 10, 0), "wing_fore_L": (0, -10, 0),
@@ -320,7 +320,7 @@ def dragon():
     def body_lift(p, z):
         return lift(p, "body", (0, 0, z))
 
-    # Coup de tête : elle dresse la tête, puis l'abat jusqu'au sol devant elle.
+    # Headbutt: it rears its head, then slams it down to the ground in front of it.
     REAR = add(BASE, neck1=(-20, 0, 0), neck2=(-12, 0, 0), head=(10, 0, 0), jaw=(8, 0, 0), body=(-6, 0, 0))
     BUTT = body_lift(add(BASE, body=(10, 0, 0), neck1=(56, 0, 0), neck2=(26, 0, 0), head=(-30, 0, 0), jaw=(10, 0, 0),
                          fleg_R=(-16, 0, 0), fleg_L=(-16, 0, 0), fleg_low_R=(10, 0, 0), fleg_low_L=(10, 0, 0),
@@ -328,8 +328,8 @@ def dragon():
     headbutt = [(0, BASE), (30, REAR), ("h0-8", add(REAR, neck1=(-8, 0, 0), head=(6, 0, 0))),
                 ("h0-2", tween(REAR, BUTT, 0.7)), ("h0", BUTT), ("h0e+20", add(BUTT, head=(4, 0, 0))), ("T", BASE)]
 
-    # Pivot : la cible est sur son flanc (`sd` = 1 à gauche, -1 à droite). Le jeu la fait tourner
-    # d'un quart de tour à l'opposé ; la queue, armée de l'autre côté, fouette le flanc visé.
+    # Pivot: the target is on its flank (`sd` = 1 left, -1 right). The game turns it
+    # a quarter turn the other way; the tail, cocked on the other side, whips the targeted flank.
     def pivot(sd):
         def pose(z1, z2, z3, look, lean=0):
             return add(BASE, body=(0, lean * sd, 0), tail1=(0, 0, z1 * sd), tail2=(0, 0, z2 * sd), tail3=(0, 0, z3 * sd),
@@ -338,7 +338,7 @@ def dragon():
                 ("h0+12", pose(-10, -20, -12, 12)), ("h0e", pose(-45, -32, -26, -8, -6)),
                 ("h0e+16", pose(-30, -25, -20, 0)), ("T", BASE)]
 
-    # Coup de queue : elle part de sa droite et balaie tout l'arrière.
+    # Tail swipe: it starts from its right and sweeps the whole rear.
     def tail_pose(z1, z2, z3, body_z=0, look=0):
         return add(BASE, body=(0, 0, body_z), tail1=(0, 0, z1), tail2=(0, 0, z2), tail3=(0, 0, z3),
                    neck1=(0, 0, look), head=(0, 0, look * 0.6))
@@ -346,7 +346,7 @@ def dragon():
                   ("h0+11", tail_pose(0, 20, 30, 0, -10)), ("h0e", tail_pose(-60, -26, -12, -16, 18)),
                   ("h0e+16", tail_pose(-45, -35, -30, -10, 12)), ("T", BASE)]
 
-    # Souffle : il inspire, tête haute, puis crache un flot de feu qui balaie lentement.
+    # Breath: it inhales, head high, then spits a stream of fire that sweeps slowly.
     INHALE = body_lift(add(BASE, neck1=(-26, 0, 0), neck2=(-18, 0, 0), head=(-16, 0, 0), body=(-6, 0, 0),
                            wing_R=(0, 14, 0), wing_L=(0, -14, 0)), 0.15)
     AIM = add(BASE, neck1=(16, 0, 0), neck2=(8, 0, 0), head=(-12, 0, 0), jaw=(48, 0, 0), body=(4, 0, 0))
@@ -354,13 +354,13 @@ def dragon():
               ("c0+30", add(AIM, neck2=(0, 0, -6), head=(0, 0, -6))), ("c0+60", add(AIM, neck2=(0, 0, 6), head=(0, 0, 6))),
               ("c0+78", add(AIM, jaw=(-44, 0, 0))), ("T", BASE)]
 
-    # Cabrade : il se dresse sur ses pattes arrière et retombe de tout son poids.
+    # Rear up: it rises on its hind legs and comes down with all its weight.
     REAR_UP = body_lift(add(BASE, body=(-28, 0, 0), fleg_R=(-50, 0, 0), fleg_L=(-40, 0, 0), fleg_low_R=(50, 0, 0),
                             fleg_low_L=(40, 0, 0), hleg_R=(28, 0, 0), hleg_L=(28, 0, 0), neck1=(-14, 0, 0), head=(20, 0, 0),
                             jaw=(30, 0, 0), wing_R=(0, 34, 10), wing_L=(0, -34, -10), tail1=(-16, 0, 0)), 0.7)
     SLAM = body_lift(add(BASE, body=(8, 0, 0), fleg_R=(-22, 0, 0), fleg_L=(-22, 0, 0), neck1=(18, 0, 0), head=(-12, 0, 0),
                          jaw=(30, 0, 0), wing_R=(0, -12, 0), wing_L=(0, 12, 0), hleg_R=(-6, 0, 0), hleg_L=(-6, 0, 0)), -0.2)
-    # Plaquage : dressée, elle se laisse tomber de tout son long devant elle.
+    # Body slam: rearing up, it lets itself fall full length in front of it.
     FLOP = body_lift(add(BASE, body=(12, 0, 0), fleg_R=(-70, 0, 0), fleg_L=(-70, 0, 0), fleg_low_R=(20, 0, 0),
                          fleg_low_L=(20, 0, 0), hleg_R=(30, 0, 0), hleg_L=(30, 0, 0), hleg_low_R=(-30, 0, 0),
                          hleg_low_L=(-30, 0, 0), neck1=(40, 0, 0), neck2=(10, 0, 0), head=(-20, 0, 0), jaw=(24, 0, 0),
@@ -369,7 +369,7 @@ def dragon():
                   ("h0-14", body_lift(add(REAR_UP, body=(-4, 0, 0)), 0.2)), ("h0", FLOP), ("h0e+30", FLOP),
                   ("T-24", tween(FLOP, BASE, 0.5)), ("T", BASE)]
 
-    # Envol : accroupi, battements d'ailes, plongée et impact.
+    # Take-off: crouching, wing beats, dive and impact.
     CROUCH = body_lift(add(BASE, fleg_low_R=(30, 0, 0), fleg_low_L=(30, 0, 0), hleg_low_R=(-30, 0, 0),
                            hleg_low_L=(-30, 0, 0), neck1=(10, 0, 0), wing_R=(0, 40, 0), wing_L=(0, -40, 0)), -0.5)
     AIR = add(BASE, fleg_R=(-30, 0, 0), fleg_low_R=(60, 0, 0), fleg_L=(-30, 0, 0), fleg_low_L=(60, 0, 0),
@@ -384,8 +384,8 @@ def dragon():
                 (104, body_lift(merge(DIVE, DOWN), 4.0)), ("h0-4", body_lift(merge(DIVE, UP), 0.8)),
                 ("h0", LAND), ("h0e+30", LAND), ("T", BASE)]
 
-    # Vol de feu : il s'élève, plane hors d'atteinte en battant des ailes et crache trois boules
-    # de feu sur sa cible, puis se repose.
+    # Fire flight: it rises, hovers out of reach flapping its wings and spits three
+    # fireballs at its target, then lands.
     HIGH = 6.5
     SPIT = add(AIR, neck1=(34, 0, 0), neck2=(16, 0, 0), head=(-6, 0, 0), jaw=(46, 0, 0), body=(10, 0, 0))
     casts = TIMINGS.get("dragon", {}).get("fly_fire", {}).get("casts", [])
@@ -399,7 +399,7 @@ def dragon():
     fly_fire += [(196, body_lift(merge(AIR, DOWN), HIGH - 0.5)), (206, body_lift(merge(AIR, UP), 3.0)),
                  (214, body_lift(merge(AIR, DOWN), 0.6)), (220, LAND), ("T", BASE)]
 
-    # Pluie de cendre : il rugit vers le ciel.
+    # Ash rain: it roars at the sky.
     SKY = body_lift(add(BASE, neck1=(-40, 0, 0), neck2=(-30, 0, 0), head=(-30, 0, 0), jaw=(52, 0, 0), body=(-10, 0, 0),
                         wing_R=(0, 44, 0), wing_L=(0, -44, 0), wing_fore_R=(0, 24, 0), wing_fore_L=(0, -24, 0)), 0.3)
     fire_rain = [(0, BASE), (30, tween(BASE, SKY, 0.6)), ("c0-6", SKY), ("c0+40", add(SKY, head=(0, 0, 12))), ("T", BASE)]
@@ -408,7 +408,7 @@ def dragon():
     roar = [(0, BASE), (24, add(BASE, neck1=(-24, 0, 0), head=(-10, 0, 0))), (40, ROAR),
             ("T-30", add(ROAR, neck2=(0, 0, 14), head=(0, 0, 10))), ("T", BASE)]
 
-    # Groggy : il s'effondre sur le ventre.
+    # Stagger: it collapses on its belly.
     FLOOR = body_lift(add(BASE, body=(4, 0, 0), fleg_R=(-50, 0, 0), fleg_low_R=(80, 0, 0), fleg_L=(-50, 0, 0),
                           fleg_low_L=(80, 0, 0), hleg_R=(40, 0, 0), hleg_low_R=(-60, 0, 0), hleg_L=(40, 0, 0),
                           hleg_low_L=(-60, 0, 0), neck1=(50, 0, 0), neck2=(18, 0, 0), head=(-30, 0, 0), jaw=(20, 0, 0),
@@ -429,7 +429,7 @@ def dragon():
     ])
 
 
-# ============================================================================= boucher cornu
+# ============================================================================= horned butcher
 
 def horned_butcher():
     rig = start("horned_butcher")
@@ -457,13 +457,13 @@ def horned_butcher():
         mb.box((0, 0.06, 3.02), (1.3, 0.6, 0.25), SKIN, taper=(0.6, 0.8))
         mb.box((0, -0.33, 2.25), (0.6, 0.12, 0.42), SKIN_DARK)
         mb.seg((-0.62, -0.42, 2.92), (0.52, -0.42, 2.08), 0.12, 0.05, HIDE)
-        # Trophée : un petit crâne pendu à la sangle.
+        # Trophy: a small skull hanging from the strap.
         mb.box((0.36, -0.47, 2.15), (0.14, 0.12, 0.16), SKULL)
 
     def head(mb):
         mb.box((0, -0.1, 3.18), (0.36, 0.36, 0.26), SKIN)
         mb.box((0, -0.3, 3.42), (0.42, 0.46, 0.42), SKULL, taper=(0.8, 0.9))
-        # Museau de crâne : mâchoire, gueule sombre en retrait, crocs.
+        # Skull muzzle: jaw, dark recessed maw, fangs.
         mb.box((0, -0.68, 3.3), (0.3, 0.46, 0.26), SKULL, taper=(0.8, 0.85))
         mb.box((0, -0.64, 3.1), (0.26, 0.42, 0.12), SKULL, taper=(0.9, 0.9))
         mb.box((0, -0.63, 3.165), (0.2, 0.36, 0.06), MOUTH)
@@ -531,15 +531,15 @@ def horned_butcher():
         out = add(p, chest=(3 * b, 0, 3 * s(ph, 1, 0.3)), head=(-3 * b, 4 * s(ph, 2), 12 * s(ph, 1, 0.1)),
                   upper_arm_R=(-4 * b, 0, 0), upper_arm_L=(-3 * b, 0, 0), forearm_R=(-6 * s(ph, 1, 0.2), 0, 0),
                   forearm_L=(-5 * s(ph, 1, 0.6), 0, 0))
-        # Tic : la tête se tord brièvement.
+        # Twitch: the head twists briefly.
         if 0.55 < ph < 0.7:
             out = add(out, head=(8, 18, -10))
         return lift(out, "hips", (0, 0, 0.04 * b))
 
     lock(rig, "lock_head", (0, -0.35, 3.4), "head")
 
-    # Couperets en diagonale : armé au-dessus de l'épaule, tiré vers l'extérieur, il l'abat en
-    # travers de son corps jusqu'au sol devant lui, à l'opposé.
+    # Diagonal cleavers: cocked above the shoulder, pulled outwards, he brings it down
+    # across his body to the ground in front of him, on the opposite side.
     W_R = merge(BASE, legs(-14, 24, -12, 22, -0.06, twist=-10), {"chest": (0, 0, -36), "head": (-14, 0, 18)},
                 arm("R", (-150, -48, 0), (-24, 0, 0), (40, 0, 0)))
     C_R = merge(BASE, legs(-34, 40, 0, 20, -0.16, fwd=0.15, twist=10), {"chest": (36, 0, 30), "head": (-26, 0, -16)},
@@ -552,8 +552,8 @@ def horned_butcher():
     double_chop = [(0, BASE), ("h0-16", W_R), ("h0-3", add(W_R, upper_arm_R=(-8, 0, 0))), ("h0", C_R), ("h0e+6", C_R),
                    ("h1-14", W_L), ("h1", C_L), ("h1e+14", C_L), ("T", BASE)]
 
-    # Tourbillon : accroupi et penché, les couperets tendus vers le bas, à hauteur d'homme
-    # (bras levés à l'horizontale, ils passeraient bien au-dessus de sa cible).
+    # Whirlwind: crouched and leaning, cleavers held low, at head height
+    # (arms raised horizontally, they would pass well above his target).
     SPIN = merge(BASE, legs(-45, 70, 40, 70, -0.65), {"chest": (38, 0, 0), "head": (-30, 0, 0)},
                  arm("R", (-30, 55, 0), (-10, 0, 0), (40, 0, 0)), arm("L", (-30, -55, 0), (-10, 0, 0), (40, 0, 0)))
 
@@ -590,7 +590,7 @@ def horned_butcher():
     frenzy = [(0, BASE), ("h0-10", W_R), ("h0", C_R), ("h1-10", W_L), ("h1", C_L), ("h2-10", W_R2), ("h2", C_R),
               ("h3-16", SW_A), ("h3", tween(SW_A, SW_B, 0.2)), ("h3e", SW_B), ("h3e+16", SW_B), ("T", BASE)]
 
-    # Bond arrière : il s'accroupit, saute loin en arrière et retombe lourdement.
+    # Back leap: he crouches, jumps far back and lands heavily.
     CROUCH = merge(BASE, legs(-50, 75, -40, 70, -0.5), {"chest": (30, 0, 0), "head": (-20, 0, 0)})
     LEAP = lift(merge(BASE, legs(-20, 60, 10, 50, 0.0), {"chest": (-10, 0, 0), "head": (6, 0, 0)},
                       arm("R", (-40, 40, 0), (-20, 0, 0), (90, 0, 0)), arm("L", (-40, -40, 0), (-20, 0, 0), (90, 0, 0))),
@@ -605,7 +605,7 @@ def horned_butcher():
     ] + biped_states(BASE, 1.75))
 
 
-# ============================================================================= l'allumeur
+# ============================================================================= the lamplighter
 
 def lamplighter():
     rig = start("lamplighter")
@@ -678,7 +678,7 @@ def lamplighter():
     hx = 0.31 * R
 
     def pole(mb):
-        # Perche d'allumeur : posée au sol, crochet et petite lanterne au sommet.
+        # Lamplighter's pole: resting on the ground, hook and small lantern at the top.
         mb.cylinder((hx, -0.03, 1.85), 0.032, 3.7, WOOD, sides=6)
         mb.box((hx, -0.03, 3.72), (0.07, 0.07, 0.06), BRASS)
         mb.seg((hx, -0.03, 3.7), (hx, -0.3, 3.98), 0.04, 0.04, BRASS)
@@ -708,7 +708,7 @@ def lamplighter():
 
     lock(rig, "lock_head", (0, -0.05, 2.8), "head")
 
-    # Perche pointée vers la cible (le haut de la perche bascule vers l'avant).
+    # Pole pointed at the target (the top of the pole tilts forward).
     def point(p, z=0, up=-75):
         return merge(p, {"chest": (6, 0, z * 0.6), "head": (-4, 0, z * 0.3)}, arm("R", (up, 0, z * 0.4), (-10, 0, 0), (150, 0, 0)))
     RAISE = merge(BASE, {"chest": (-10, 0, -10), "head": (-8, 0, 0)}, arm("R", (-150, 10, 0), (-10, 0, 0), (100, 0, 0)))
@@ -735,8 +735,8 @@ def lamplighter():
                     "hips", (0, 0, 0.7))
     blink = [(0, BASE), (8, CROUCH), (16, AIRBORNE), (26, lift(AIRBORNE, "hips", (0, 0, 0.2))), (34, CROUCH),
              (46, BASE), ("T", BASE)]
-    # Glissade : il file de côté sans marcher, penché, la lanterne traînant derrière lui.
-    # `sd` = 1 vers sa gauche, -1 vers sa droite.
+    # Glide: he slides sideways without walking, leaning, the lantern trailing behind him.
+    # `sd` = 1 to his left, -1 to his right.
     def glide(sd):
         lean = merge(BASE, legs(-8, 20, -6, 18, 0.0, sway=10 * sd), {"chest": (10, 8 * sd, 0), "head": (-6, -10 * sd, 0)},
                      arm("L", (-40, -40, 0), (-20, 0, 0), (54, 0, 0)), arm("R", (-50, 20, 0), (-30, 0, 0), (62, 0, 0)))
@@ -755,7 +755,7 @@ def lamplighter():
     ] + biped_states(BASE, 1.5))
 
 
-# ============================================================================= l'enclume
+# ============================================================================= the anvil
 
 def anvil():
     rig = start("anvil")
@@ -765,7 +765,7 @@ def anvil():
     IRON = material("a_iron", tex=tex_noise((0.3, 0.3, 0.32), 0.45, seed=144))
     DARK = material("a_dark", (0.06, 0.05, 0.05))
     WOOD = material("a_wood", tex=tex_planks((0.32, 0.22, 0.14), seed=145))
-    EMBER = material("a_ember", (1.0, 0.45, 0.12), emissive=(1.0, 0.4, 0.08))
+    EMBER = material("a_ember", (1.0, 0.85, 0.4), emissive=(1.0, 0.8, 0.3))
 
     def hips(mb):
         mb.box((0, 0, 1.12), (1.1, 0.8, 0.5), TROUSERS, taper=(1.05, 1.05))
@@ -825,7 +825,7 @@ def anvil():
     hx = 0.88 * 1.05 * R
 
     def hammer(mb):
-        # Marteau dont la tête est une enclume, tenu manche en haut, posé au sol.
+        # Hammer whose head is an anvil, held handle up, resting on the ground.
         mb.cylinder((hx, -0.02, 0.95), 0.07, 1.5, WOOD, sides=6)
         mb.box((hx, -0.02, 1.72), (0.12, 0.12, 0.1), IRON)
         mb.box((hx, -0.05, 0.4), (0.56, 1.0, 0.36), IRON, taper=(0.9, 1.15))
@@ -879,7 +879,7 @@ def anvil():
     ] + biped_states(BASE, 1.2))
 
 
-# ============================================================================= bête à l'échine creuse
+# ============================================================================= hollow-spined beast
 
 def spine_beast():
     rig = start("spine_beast")
@@ -890,7 +890,7 @@ def spine_beast():
     GLOW = material("s_glow", (0.55, 0.85, 1.0), emissive=(0.4, 0.8, 1.0))
     MOUTH = material("s_mouth", (0.12, 0.04, 0.06))
 
-    # Ventre à terre : le torse frôle le sol, les pattes s'écartent comme celles d'un lézard.
+    # Belly to the ground: the torso skims the floor, legs splayed like a lizard's.
     def torso(mb):
         mb.box((0, -0.7, 0.8), (1.0, 1.4, 1.0), FLESH, taper=(0.8, 0.85))
         mb.box((0, 0.6, 0.62), (0.7, 1.4, 0.7), FLESH_DARK, taper=(0.8, 0.8))
@@ -965,7 +965,7 @@ def spine_beast():
         rig.part(f"forearm_{sd_name}", el, f"upper_arm_{sd_name}", build=fore)
         rig.part(f"hand_{sd_name}", wr, f"forearm_{sd_name}", build=hand)
 
-        # Bras surnuméraires qui sortent du dos et se recourbent vers l'avant.
+        # Extra arms coming out of the back and curling forward.
         bs, be, bt = mx((0.32, 0.1, 1.22), sd), mx((1.6, 0.0, 2.2), sd), mx((2.2, -0.9, 1.4), sd)
 
         def back_up(mb, bs=bs, be=be):
@@ -997,7 +997,7 @@ def spine_beast():
     lock(rig, "lock_head", (0, -2.55, 1.25), "head")
     lock(rig, "lock_hips", (0, 1.4, 0.9), "torso")
 
-    # Tapie, tête basse, bras dorsaux levés comme une mante : elle guette sa proie.
+    # Crouched, head low, dorsal arms raised like a mantis: it stalks its prey.
     BASE = {"torso": (-3, 0, 0), "neck": (-4, 0, 0), "head": (6, 0, 0), "jaw": (6, 0, 0),
             "upper_arm_R": (8, 0, 0), "upper_arm_L": (8, 0, 0),
             "back_arm_R": (-14, 28, 10), "back_arm_L": (-14, -28, -10), "back_fore_R": (-10, 0, 0), "back_fore_L": (-10, 0, 0),
@@ -1049,8 +1049,8 @@ def spine_beast():
                  ("h0+9", tail_pose(0, 20, 30, 0, -10)), ("h0e", tail_pose(-60, -26, -12, -18, 20)),
                  ("h0e+16", tail_pose(-45, -35, -30, -10, 12)), ("T", BASE)]
 
-    # Pivot : la cible est sur son flanc (`sd` = 1 à gauche, -1 à droite) ; le jeu la fait tourner
-    # d'un quart de tour à l'opposé, et la queue fouette le flanc visé.
+    # Pivot: the target is on its flank (`sd` = 1 left, -1 right); the game turns it
+    # a quarter turn the other way, and the tail whips the targeted flank.
     def pivot(sd):
         def pose(z1, z2, z3, look):
             return add(BASE, tail1=(0, 0, z1 * sd), tail2=(0, 0, z2 * sd), tail3=(0, 0, z3 * sd),
@@ -1075,7 +1075,7 @@ def spine_beast():
               ("h1", claws_pose(30)), ("h1e", claws_pose(-40)), ("h2-6", claws_pose(-50)), ("h2", claws_pose(-30)),
               ("h2e", claws_pose(40)), ("h3-12", COIL), ("h3", add(STRIKE, jaw=(40, 0, 0))), ("h3e+16", STRIKE), ("T", BASE)]
 
-    # Dressée sur ses pattes arrière (le torse pivote autour des hanches), puis elle retombe.
+    # Rearing on its hind legs (the torso pivots around the hips), then it comes back down.
     def upright(p, pitch, rise):
         return lift(add(p, torso=(-pitch, 0, 0), thigh_R=(pitch * 0.6, 0, 0), thigh_L=(pitch * 0.6, 0, 0),
                         tail1=(pitch * 0.5, 0, 0)), "torso", (0, -rise * 0.4, rise))
@@ -1108,11 +1108,11 @@ def spine_beast():
     ])
 
 
-# ============================================================================= grande marionnette
+# ============================================================================= great marionette
 
 def marionette():
     rig = start("marionette")
-    # Violette et or : sa couleur, celle de ses alertes au sol.
+    # Violet and gold: her colour, that of her ground warnings.
     DRESS = material("m_dress", tex=tex_stripes((0.4, 0.12, 0.55), (0.78, 0.66, 0.42), n=10, seed=171))
     BODICE = material("m_bodice", tex=tex_noise((0.26, 0.07, 0.36), 0.4, seed=172))
     LACE = material("m_lace", (0.88, 0.85, 0.78))
@@ -1120,7 +1120,7 @@ def marionette():
     WOOD = material("m_wood", tex=tex_planks((0.5, 0.36, 0.22), seed=173))
     GOLD = material("m_gold", (0.82, 0.62, 0.25))
     DARK = material("m_dark", (0.05, 0.04, 0.05))
-    # Pommettes lilas, dans les tons de la robe.
+    # Lilac cheekbones, matching the dress.
     BLUSH = material("m_blush", (0.68, 0.44, 0.7))
     EYES = material("m_eyes", (0.86, 0.5, 1.0), emissive=(0.72, 0.3, 1.0))
     STRING = material("m_string", (0.85, 0.82, 0.74))
@@ -1160,13 +1160,13 @@ def marionette():
     def control(mb):
         mb.box((0, 0, TOP), (2.6, 0.14, 0.14), WOOD)
         mb.box((0, 0, TOP), (0.14, 1.6, 0.14), WOOD)
-        # Les fils (immobiles par rapport à la croix) : tête, mains, genoux.
+        # The strings (fixed relative to the cross): head, hands, knees.
         string(mb, (0, 0.05, 4.2), (0, 0.05))
         for sd in (R, L):
             string(mb, (sd * 0.56, 0.05, 1.5), (sd * 1.25, 0))
             string(mb, (sd * 0.26, -0.1, 0.7), (sd * 0.5, -0.75))
 
-    # Tout pend à la croix : elle se balance comme un pendule.
+    # Everything hangs from the cross: she swings like a pendulum.
     rig.part("control", (0, 0, TOP), build=control)
     rig.part("hips", (0, 0, 2.2), "control", build=hips)
     rig.part("chest", (0, 0, 2.3), "hips", build=chest)
@@ -1208,7 +1208,7 @@ def marionette():
         rig.part(f"foot_{sd_name}", (lx, 0, 0.32), f"shin_{sd_name}", build=foot)
 
 
-    # Suspendue : les pieds ne touchent pas le sol, les membres pendent.
+    # Suspended: the feet don't touch the ground, the limbs dangle.
     BASE = merge(legs(-6, 14, 4, 10), {"hips": {"r": (0, 0, 0), "t": (0, 0, 0.16)}, "head": (8, 8, 0), "jaw": (8, 0, 0)},
                  arm("R", (0, 4, 0), (-8, 0, 0), (6, 0, 0)), arm("L", (2, -4, 0), (-4, 0, 0)))
 
@@ -1226,7 +1226,7 @@ def marionette():
     lock(rig, "lock_chest", (0, 0, 2.72), "chest")
 
     def hang(p, z=0.0, swing=0.0):
-        """Toute la marionnette monte ou descend avec sa croix, et s'y balance."""
+        """The whole marionette rises or falls with its cross, and sways on it."""
         return lift(add(p, control=(swing, 0, 0)), "control", (0, 0, z))
 
     def walk(p, ph):
@@ -1236,7 +1236,7 @@ def marionette():
                   upper_arm_R=(10 * a, 0, 0), upper_arm_L=(-10 * a, 0, 0))
         return lift(out, "control", (0, 0, 0.08 * abs(s(ph, 2))))
 
-    # Elle se penche et fléchit les genoux : la main balaie à hauteur d'homme.
+    # She leans and bends her knees: the hand sweeps at head height.
     def slap_pose(z):
         return hang(merge(add(BASE, chest=(30, 0, z), head=(-20, 0, -z * 0.3)), legs(-35, 55, -25, 50),
                           arm("R", (-45, 0, z * 0.2), (-10, 0, 0), (10, 0, 0))), -0.3)
@@ -1270,14 +1270,14 @@ def marionette():
     strings = [(0, BASE), (24, PULL), ("c0-4", hang(TUG, 0.3)), ("c0", hang(PULL, -0.1)), ("c0+30", hang(TUG, 0.2)),
                ("c0+60", PULL), ("T", BASE)]
 
-    # Aiguilles : elle lève les deux bras au-dessus de sa tête (elles y apparaissent, bien
-    # visibles), puis les abat vers sa cible.
+    # Needles: she raises both arms above her head (they appear there, clearly
+    # visible), then brings them down towards her target.
     NEEDLES_UP = merge(LIMP, {"chest": (-12, 0, 0), "head": (-22, 0, 0), "jaw": (16, 0, 0)},
                        arm("R", (-172, 14, 0), (-10, 0, 0)), arm("L", (-172, -14, 0), (-10, 0, 0)))
     NEEDLES_THROWN = merge(LIMP, {"chest": (22, 0, 0), "head": (14, 0, 0), "jaw": (24, 0, 0)},
                            arm("R", (-70, 6, 0), (-10, 0, 0)), arm("L", (-70, -6, 0), (-10, 0, 0)))
 
-    # Envolée : les fils la hissent tout là-haut ; elle y jette trois aiguilles, puis tombe.
+    # Ascent: the strings hoist her way up; she throws three needles from there, then falls.
     HIGH = 3.2
     ascent = [(0, BASE), (16, hang(LIMP, -0.2)), (40, hang(LIMP, HIGH * 0.8, 4)), ("c0-16", hang(NEEDLES_UP, HIGH)),
               ("c0", hang(NEEDLES_UP, HIGH, -2)), ("c0+6", hang(NEEDLES_THROWN, HIGH)), ("c1-8", hang(NEEDLES_UP, HIGH)),
@@ -1289,13 +1289,13 @@ def marionette():
                  arm("R", (-100, 70, 0), (-10, 0, 0)), arm("L", (-100, -70, 0), (-10, 0, 0)))
     roar = [(0, BASE), (24, add(BASE, chest=(20, 0, 0))), (40, ROAR), ("T-30", add(ROAR, head=(10, 0, 10))), ("T", BASE)]
 
-    # Bond : les fils la soulèvent et la reposent plus loin ; en l'air, elle lève les bras et jette
-    # deux aiguilles.
+    # Leap: the strings lift her and set her down further away; in the air, she raises her arms and throws
+    # two needles.
     hop = [(0, BASE), (8, hang(LIMP, -0.25)), ("c0-14", hang(NEEDLES_UP, 1.4, 6)), ("c0", hang(NEEDLES_UP, 1.8, -2)),
            ("c0+6", hang(NEEDLES_THROWN, 1.8, -4)), (48, hang(LIMP, 0.6, 2)),
            (56, hang(add(LIMP, thigh_R=(-20, 0, 0), thigh_L=(-20, 0, 0)), -0.15)), ("T", BASE)]
 
-    # Hissée : les fils la tirent à la verticale, très haut, puis la lâchent sur place.
+    # Hoisted: the strings pull her straight up, very high, then drop her on the spot.
     hoist = [(0, BASE), (20, hang(LIMP, -0.3)), (36, hang(PULLED, 2.2, 4)), (60, hang(LIMP, 5.6, -3)),
              ("h0-14", hang(add(LIMP, chest=(-12, 0, 0)), 6.2)), ("h0-4", hang(LIMP, 1.4)), ("h0", CRASH),
              ("h0e+30", CRASH), ("T", BASE)]
@@ -1317,7 +1317,7 @@ def marionette():
     ])
 
 
-# ============================================================================= géant porte-flamme
+# ============================================================================= flame-bearing giant
 
 def giant():
     rig = start("giant")
@@ -1329,8 +1329,8 @@ def giant():
     CORE = material("t_core", (1.0, 0.9, 0.6), emissive=(1.0, 0.9, 0.55))
     COLUMN = material("t_column", tex=tex_stone(64, 184, (0.6, 0.57, 0.52)))
 
-    # Ceinture et pagne courts : le pantalon est porté par les cuisses (sinon les jambes le
-    # traversent quand elles bougent).
+    # Short belt and loincloth: the trousers are carried by the thighs (otherwise the legs
+    # go through them when they move).
     def hips(mb):
         mb.box((0, 0, 2.95), (1.5, 0.9, 0.6), STONE_DARK)
         mb.box((0, -0.05, 2.62), (1.62, 1.02, 0.6), CLOTH, taper=(0.95, 0.95))
@@ -1339,7 +1339,7 @@ def giant():
     def chest(mb):
         mb.box((0, 0.1, 4.1), (1.8, 1.0, 1.9), STONE, taper=(1.3, 1.1))
         mb.box((0, 0.15, 5.1), (2.3, 1.0, 0.4), STONE_DARK, taper=(0.6, 0.8))
-        # Poitrine ouverte : la flamme brûle entre les côtes.
+        # Open chest: the flame burns between the ribs.
         mb.box((0, -0.42, 4.1), (0.9, 0.2, 1.1), FLAME)
         mb.box((0, -0.5, 4.1), (0.4, 0.1, 0.5), CORE)
         for i, z in enumerate((3.6, 3.9, 4.2, 4.5)):
@@ -1396,7 +1396,7 @@ def giant():
     hx = 1.25 * 1.05 * R
 
     def column(mb):
-        # Une colonne brisée en guise de massue, posée au sol.
+        # A broken column as a club, resting on the ground.
         mb.cylinder((hx, -0.05, 1.45), 0.22, 2.6, COLUMN, sides=8)
         mb.cylinder((hx, -0.05, 2.75), 0.24, 0.2, COLUMN, sides=8)
         mb.cylinder((hx, -0.05, 0.15), 0.5, 0.3, COLUMN, sides=8)
@@ -1424,7 +1424,7 @@ def giant():
     column_smash = [(0, BASE), ("h0-36", OVER), ("h0-10", lift(OVER, "hips", (0, 0, 0.1))), ("h0", SMASH), ("h0e+34", SMASH),
                     ("T", BASE)]
 
-    # Recul : il s'accroupit et bondit en arrière, loin de sa cible.
+    # Recoil: he crouches and leaps back, away from his target.
     CROUCH = merge(BASE, legs(-40, 60, -30, 55, -0.45), {"chest": (20, 0, 0), "head": (-10, 0, 0)},
                    arm("L", (-20, -30, 0), (-30, 0, 0)), arm("R", (-10, 20, 0), (-10, 0, 0)))
     AIR = lift(merge(BASE, legs(-50, 80, -20, 50, 0.0), {"chest": (-8, 0, 0), "head": (6, 0, 0)},
@@ -1452,11 +1452,11 @@ def giant():
     stomp = [(0, BASE), ("c0-20", raise_leg("R")), ("c0", STOMPED), ("c1-10", raise_leg("L")), ("c1", STOMPED),
              ("c1+30", STOMPED), ("T", BASE)]
 
-    # Piétinement : il lève haut le pied droit et l'abat juste devant lui.
+    # Stomp: he raises his right foot high and slams it down just in front of him.
     trample = [(0, BASE), ("h0-26", raise_leg("R")), ("h0-8", lift(add(raise_leg("R"), chest=(-6, 0, 0)), "hips", (0, 0, 0.15))),
                ("h0", STOMPED), ("h0e+30", STOMPED), ("T", BASE)]
 
-    # Balayage : la colonne, tenue bas, fauche le sol de sa droite vers sa gauche.
+    # Sweep: the column, held low, mows the ground from his right to his left.
     def sweep_pose(z, arm_z):
         return merge(BASE, legs(-40, 60, 30, 50, -0.5, twist=z * 0.3), {"chest": (34, 0, z), "head": (-20, 0, -z * 0.4)},
                      arm("R", (-50, 30, arm_z), (-10, 0, 0), (-40, 0, 0)), arm("L", (-30, -20, 0), (-20, 0, 0)))

@@ -1,7 +1,7 @@
-"""Génère les armes : assets/models/rapier.glb et greatsword.glb.
+"""Generates the weapons: assets/models/rapier.glb and greatsword.glb.
 
-Origine = centre de la poignée (là où la main tient l'arme), lame vers l'avant (-Y Blender,
-+Z dans Bevy).
+Origin = centre of the grip (where the hand holds the weapon), blade pointing forward (-Y Blender,
++Z in Bevy).
 """
 
 import os
@@ -28,23 +28,23 @@ def weapon(name, build):
 def rapier(mb):
     mb.cylinder((0, 0.02, 0), 0.016, 0.15, GRIP, sides=6, axis="Y")
     mb.box((0, 0.11, 0), (0.035, 0.035, 0.035), BRASS)
-    # Coquille + quillons.
+    # Shell guard + quillons.
     mb.cylinder((0, -0.07, 0), 0.055, 0.02, BRASS, sides=8, axis="Y", radius_top=0.035)
     mb.box((0, -0.08, 0), (0.2, 0.012, 0.012), BRASS)
     mb.seg((0.0, -0.05, 0.0), (0.0, -0.02, -0.07), 0.01, 0.01, BRASS)
-    # Lame fine.
+    # Thin blade.
     mb.seg((0, -0.08, 0), (0, -1.08, 0), 0.035, 0.02, STEEL, taper=0.3)
 
 
 def greatsword(mb):
-    # Greatsword : ~1,75 m de lame, large et épaisse, longue poignée à deux mains.
+    # Greatsword: ~1.75 m blade, wide and thick, long two-handed grip.
     mb.cylinder((0, 0.14, 0), 0.024, 0.38, GRIP, sides=6, axis="Y")
     mb.box((0, 0.35, 0), (0.07, 0.07, 0.07), STEEL_DARK, taper=(0.7, 0.7))
     mb.box((0, -0.08, 0), (0.46, 0.06, 0.06), STEEL_DARK)
     mb.box((0, -0.08, 0), (0.1, 0.08, 0.08), BRASS)
     mb.box((-0.23, -0.08, 0), (0.05, 0.08, 0.08), STEEL_DARK)
     mb.box((0.23, -0.08, 0), (0.05, 0.08, 0.08), STEEL_DARK)
-    # Ricasso puis lame large.
+    # Ricasso then wide blade.
     mb.seg((0, -0.11, 0), (0, -0.3, 0), 0.085, 0.03, STEEL_DARK)
     mb.seg((0, -0.3, 0), (0, -1.62, 0), 0.13, 0.028, STEEL, taper=0.82)
     mb.seg((0, -1.62, 0), (0, -1.86, 0), 0.107, 0.024, STEEL, taper=0.08)
