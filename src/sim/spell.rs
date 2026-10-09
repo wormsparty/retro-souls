@@ -57,8 +57,10 @@ impl Spell {
 
 /// Height aimed at on a player.
 const AIM_HEIGHT: f32 = 1.0;
-/// Projectiles leaving the arena disappear.
+/// Projectiles leaving the arena, or crashing into a pillar, disappear.
 const ARENA_MARGIN: f32 = 2.0;
+/// Height of the arenas' pillars (tools/blender/arena.py): projectiles fly over them above that.
+const PILLAR_HEIGHT: f32 = 6.0;
 /// The stream extends slightly beyond the point where it hits the ground (it spreads there).
 const BEAM_SPLASH: f32 = 2.5;
 /// Projectile crashed on the ground: it burns there for `SPLASH_LIFE` ticks, on a small circle (at least
@@ -251,7 +253,9 @@ pub fn spell_tick(
                     let pitch = to.y.clamp(-1.0, 1.0).asin();
                     s.dir = math::forward(math::yaw_of(to) + off) * pitch.cos() + Vec3::Y * pitch.sin();
                 }
-                if s.age > sd.delay + sd.life || math::flat_len(s.pos) > t.arena.radius + ARENA_MARGIN {
+                let out = t.arenas.iter().map(world::arena_bounds).all(|(c, r)| math::flat_len(s.pos - c) > r + ARENA_MARGIN);
+                let pillar = t.arenas.iter().flat_map(|a| &a.pillars).any(|&[x, z, r]| s.pos.y < PILLAR_HEIGHT && math::flat_len(s.pos - Vec3::new(x, s.pos.y, z)) < r + sd.radius * 0.5);
+                if s.age > sd.delay + sd.life || out || pillar {
                     events.push(SimEvent::SpellFizzle { pos: s.pos, element: sd.element, boss: s.boss });
                     commands.entity(e).despawn();
                     continue;

@@ -50,6 +50,8 @@ pub struct SparkAssets {
     /// The same in each boss's colour (index of its definition): its spells, its
     /// shockwaves and its warnings are all in its colour.
     boss: Vec<SpellMats>,
+    /// Embers of each boss's torch, in its colour (`Tuning::encounter_color`).
+    torch: Vec<Handle<Ps1Material>>,
 }
 
 impl SparkAssets {
@@ -213,6 +215,14 @@ fn setup(
                 let [r, g, bl] = b.color;
                 let pale = |x: f32| x + (1.0 - x) * 0.55;
                 spell_mats(&mut mats, (pale(r), pale(g), pale(bl)), (r, g, bl), Color::srgba(r, g, bl, 0.5))
+            })
+            .collect(),
+        torch: (0..tuning.arenas.len())
+            .map(|i| {
+                let [r, g, b] = tuning.encounter_color(i);
+                let mut m = Ps1Material::unlit(Color::srgb(r, g, b).mix(&Color::WHITE, 0.3));
+                m.params.emissive = Vec4::new(r, g, b, 0.0) * 0.7;
+                mats.add(m)
             })
             .collect(),
     });
@@ -413,7 +423,20 @@ pub fn consume_events(
                 play(&mut commands, &sounds, "roar", 1.0);
                 rig.shake = rig.shake.max(0.8);
             }
-            SimEvent::BossRevived => play(&mut commands, &sounds, "roar", 0.5),
+            SimEvent::BossRevived { arena } => {
+                // The torch flares up again, in the boss's colour.
+                play(&mut commands, &sounds, "kindle", 1.0);
+                play(&mut commands, &sounds, "roar", 0.35);
+                let at = encounter::torch_pos(&tuning, arena as usize) + Vec3::Y * TORCH_FLAME;
+                let m = sparks.torch.get(arena as usize).unwrap_or(&sparks.ember).clone();
+                spray(&mut commands, &sparks, &m, at, 40, 2.5, seed, floor(at), true);
+            }
+            SimEvent::Passage { .. } => {
+                play(&mut commands, &sounds, "dodge", 0.7);
+                rig.initialized = false;
+            }
+            SimEvent::DoorOpened => play(&mut commands, &sounds, "guard_break", 0.9),
+            SimEvent::TorchTouched { .. } | SimEvent::SignRead { .. } => {}
             SimEvent::BossDefeated { .. } => {}
             SimEvent::EnemyAlert { entity } => {
                 let hound = enemies.get(entity).is_ok_and(|e| tuning.enemies[e.kind as usize].model == "hound");
@@ -604,6 +627,8 @@ fn update_particles(mut commands: Commands, time: Res<Time>, mut q: Query<(Entit
 
 /// Height of a checkpoint brazier's embers above the ground (`tools/blender/arena.py`).
 const COALS: f32 = 1.0;
+/// Height of a boss torch's flame (`tools/blender/arena.py`).
+pub const TORCH_FLAME: f32 = 1.7;
 /// Fountain (`tools/blender/arena.py`): basin surface, upper bowl (radius, water
 /// height) and spout.
 const FOUNTAIN_WATER: f32 = 0.42;
@@ -626,6 +651,10 @@ enum Ambient {
     Soul,
     /// Pale sparks swirling above an item to pick up.
     Wisp,
+    /// Embers rising from a boss's lit torch, in its colour.
+    TorchEmber(u8),
+    /// Sparks swirling slowly above an extinguished torch (it can be rekindled), in its colour.
+    TorchWisp(u8),
 }
 
 /// Ambient particles, emitted continuously (rate per second) near the camera: checkpoint
@@ -640,6 +669,7 @@ fn ambient(
     sparks: Res<SparkAssets>,
     rig: Res<CameraRig>,
     players: Query<&crate::sim::player::Player, With<crate::render::LocalPlayer>>,
+    encounter: Res<crate::sim::encounter::Encounter>,
     mut acc: Local<Vec<f32>>,
     mut seed: Local<u32>,
 ) {
@@ -654,6 +684,15 @@ fn ambient(
         let lit = found & (1 << i) != 0;
         emitters.push((at, Ambient::Ember, if lit { 16.0 } else { 2.5 }));
         emitters.push((at, Ambient::Ash, if lit { 7.0 } else { 1.5 }));
+    }
+    let enc = encounter.into_inner();
+    for i in 0..t.arenas.len() {
+        let at = encounter::torch_pos(t, i) + Vec3::Y * TORCH_FLAME;
+        if enc.is_defeated(i as u8) {
+            emitters.push((at - Vec3::Y * 0.1, Ambient::TorchWisp(i as u8), 9.0));
+        } else {
+            emitters.push((at, Ambient::TorchEmber(i as u8), 14.0));
+        }
     }
     if let Some(d) = player.and_then(|p| p.dropped) {
         emitters.push((d.pos() + Vec3::Y * 0.1, Ambient::Soul, 22.0));
@@ -685,7 +724,20 @@ fn ambient(
                 let x = (x ^ (x >> 15)).wrapping_mul(2246822519);
                 ((x >> 9) & 0xffff) as f32 / 65535.0 * 2.0 - 1.0
             };
+            let torch = |i: u8| sparks.torch.get(i as usize).unwrap_or(&sparks.glow);
             let (mat, start, mut p, scale) = match kind {
+                Ambient::TorchEmber(i) => {
+                    let start = pos + Vec3::new(h(1) * 0.12, 0.1, h(2) * 0.12);
+                    let vel = Vec3::new(h(3) * 0.2, 0.9 + h(4).abs() * 0.8, h(5) * 0.2);
+                    (torch(i), start, Particle::new(vel, 0.9 + h(6).abs() * 0.9, -0.3, -1000.0), 0.6 + h(7).abs() * 0.5)
+                }
+                Ambient::TorchWisp(i) => {
+                    // Around the cold cup, on a small circle, they rise slowly, swirling.
+                    let a = h(1) * std::f32::consts::PI;
+                    let start = pos + Vec3::new(a.cos() * 0.22, h(2) * 0.08, a.sin() * 0.22);
+                    let vel = Vec3::new(-a.sin() * 0.3, 0.3 + h(3).abs() * 0.35, a.cos() * 0.3);
+                    (torch(i), start, Particle::new(vel, 1.2 + h(4).abs() * 0.9, -0.05, -1000.0), 0.5 + h(5).abs() * 0.5)
+                }
                 Ambient::Ember => {
                     let start = pos + Vec3::new(h(1) * 0.3, 0.05, h(2) * 0.3);
                     let vel = Vec3::new(h(3) * 0.25, 0.9 + h(4).abs() * 0.9, h(5) * 0.25);
@@ -722,7 +774,7 @@ fn ambient(
                 }
             };
             match kind {
-                Ambient::Ember | Ambient::Soul | Ambient::Wisp => (p.sway, p.phase) = (0.35, h(9) * 3.0),
+                Ambient::Ember | Ambient::Soul | Ambient::Wisp | Ambient::TorchEmber(_) | Ambient::TorchWisp(_) => (p.sway, p.phase) = (0.35, h(9) * 3.0),
                 Ambient::Ash => (p.sway, p.phase) = (0.5, h(9) * 3.0),
                 Ambient::Jet | Ambient::Spill => p.splash = true,
             }

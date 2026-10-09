@@ -1,0 +1,124 @@
+// Boss arenas: one per encounter (assets/config/bosses.ron, the Automaton first), in the same order.
+//
+// - name: name of the place.
+// - theme: look of the scenery (tools/blender/arena.py).
+// - gate: in the level, the fog at the end of the boss's corridor (`pos`: centre of the fog on the
+//   ground, `look`: a point beyond it). Going through it (interact) takes you into the arena. It's
+//   barred once the boss is defeated.
+// - torch: in front of the corridor (x, z); lit as long as the boss lives. Once it's out, you can
+//   rekindle it to revive the boss. Its flame, like the boss's medallion on the final door and
+//   its spells, takes the main boss's `color` (bosses.ron): each one its own, to tell them apart.
+// - floors: the arena's own floors (same format as level.ron), in absolute coordinates: the
+//   arenas are far from the level and from each other, out of sight (only the one you're in is
+//   drawn).
+//   `ledge`: raised floor (stairs, gallery) where the bosses don't go; you can jump down from it.
+//   An arena floor that isn't walled has open edges: you fall (the castle's moat).
+// - pillars: (x, z, radius). They also stop projectiles. Any decor standing on the floor is one
+//   of them (tools/blender/arena.py draws each theme's pillars), so that nothing is crossed.
+// - door: the fog you come in through (it closes behind you during the fight), and leave by
+//   after the victory: back in front of the gate, in the level.
+// - boss_spawn: where the bosses wait (offsets of bosses.ron), facing the door.
+(
+    arenas: [
+        // The Carousel Automaton: the circular courtyard of a ruined theatre. Its gate is at the
+        // top of the stairs of the Lamplighters' Square.
+        (
+            name: (en: "Theatre Courtyard", fr: "Cour du Théâtre"),
+            theme: "theatre",
+            gate: (pos: (0, -16.2), look: (0, -10)),
+            torch: (1.9, -24.3),
+            floors: [(shape: Ellipse(center: (-525, 260), radii: (16, 16), y: 0), walled: true)],
+            pillars: [
+                (-513.7, 271.3, 0.8), (-536.3, 271.3, 0.8), (-513.7, 248.7, 0.8), (-536.3, 248.7, 0.8),
+                (-510.2, 260, 0.7), (-539.8, 260, 0.7), (-525, 274.8, 0.7),
+            ],
+            door: (pos: (-525, 243.8), look: (-525, 260)),
+            boss_spawn: (-525, 266),
+        ),
+        // The Soot Wyvern: the courtyard of a ruined castle, open to the sky, a few broken pillars
+        // to shelter from its fire. A moat (the void) runs all around it, between it and the
+        // curtain wall: you come in over the drawbridge. Corridor west of the Broken Belvedere.
+        (
+            name: (en: "Ash Summit", fr: "Faîte de Cendre"),
+            theme: "summit",
+            gate: (pos: (-3.0, -118.5), look: (-10, -120)),
+            torch: (7.0, -118.6),
+            floors: [
+                (shape: Ellipse(center: (-375, 262), radii: (19, 19), y: 0)),
+                // The drawbridge, from the gatehouse (the door) to the courtyard.
+                (shape: Strip(from: (-375, 235.6, 0), to: (-375, 244.6, 0), half_width: 1.6), walled: true),
+            ],
+            pillars: [(-387, 257, 1.4), (-362, 259, 1.4), (-379, 274, 1.2)],
+            door: (pos: (-375, 235.6), look: (-375, 262)),
+            boss_spawn: (-375, 270),
+        ),
+        // The Knacker and his dogs: a cramped slaughter yard. Stairs climb along the
+        // west wall to a gallery, out of the dogs' reach: from there, you drop onto the butcher
+        // (plunging attack). Corridor west of the bandstand.
+        (
+            name: (en: "Slaughter Yard", fr: "Cour de l'Abattoir"),
+            theme: "slaughter",
+            gate: (pos: (-23.0, -55.0), look: (-30, -55)),
+            torch: (-14.0, -57.2),
+            floors: [
+                (shape: Ellipse(center: (-225, 260), radii: (12, 10), y: 0), walled: true),
+                (shape: Strip(from: (-234.3, 257.0, 0), to: (-233.4, 264.3, 3.2), half_width: 1.0), ledge: true, steps: 10),
+                (shape: Ellipse(center: (-231.5, 265.5), radii: (2.5, 2.0), y: 3.2), ledge: true),
+            ],
+            pillars: [(-218.5, 256.5, 0.8), (-228.5, 261.0, 0.7)],
+            door: (pos: (-225, 249.8), look: (-225, 260)),
+            boss_spawn: (-223, 264),
+        ),
+        // The Wick-Trimmer and the Anvil: a lantern foundry. Six lantern columns to break the
+        // lamplighter's line of fire (the first six pillars), then two crucibles and two anvils
+        // near the wall. Corridor east of the fountain garden.
+        (
+            name: (en: "Lantern Foundry", fr: "Fonderie des Lanternes"),
+            theme: "foundry",
+            gate: (pos: (31.5, -35.0), look: (40, -36)),
+            torch: (21.4, -36.6),
+            floors: [(shape: Ellipse(center: (-75, 260), radii: (17, 17), y: 0), walled: true)],
+            pillars: [(-65, 260, 0.7), (-70, 268.66, 0.7), (-80, 268.66, 0.7), (-85, 260, 0.7), (-80, 251.34, 0.7), (-70, 251.34, 0.7),
+                (-64.5, 270.5, 0.9), (-85.5, 270.5, 0.65), (-85.5, 249.5, 0.9), (-64.5, 249.5, 0.65)],
+            door: (pos: (-75, 242.8), look: (-75, 260)),
+            boss_spawn: (-75, 265),
+        ),
+        // The Great Marionette: the stalls of a puppet theatre, the stage beyond. Nothing in the
+        // way: room to dance.
+        // Corridor west of the ticket booths.
+        (
+            name: (en: "Grand Guignol", fr: "Grand Guignol"),
+            theme: "guignol",
+            gate: (pos: (-15.0, -74.5), look: (-22, -76)),
+            torch: (-4.2, -74.2),
+            floors: [(shape: Ellipse(center: (75, 260), radii: (17, 13), y: 0), walled: true)],
+            pillars: [],
+            door: (pos: (75, 246.8), look: (75, 260)),
+            boss_spawn: (75, 265),
+        ),
+        // The Rimeback: a frozen cistern, a ring of broken columns. Corridor east of
+        // the colossus's track.
+        (
+            name: (en: "Frozen Cistern", fr: "Citerne Gelée"),
+            theme: "cistern",
+            gate: (pos: (21.5, -100.2), look: (30, -101)),
+            torch: (11.6, -101.5),
+            floors: [(shape: Ellipse(center: (225, 260), radii: (18, 18), y: 0), walled: true)],
+            pillars: [(237.2, 264.4, 0.6), (229.4, 272.2, 0.6), (220.6, 272.2, 0.6), (212.8, 264.4, 0.6), (220.6, 247.8, 0.6), (229.4, 247.8, 0.6)],
+            door: (pos: (225, 241.8), look: (225, 260)),
+            boss_spawn: (225, 266),
+        ),
+        // The Dead-Hearth Giant: the hearth of a burnt-out city, vast, a ditch of ash-grey lava
+        // between its low parapet and the wall. Corridor east of the parvis, next to the final door.
+        (
+            name: (en: "Giant's Hearth", fr: "Foyer du Géant"),
+            theme: "hearth",
+            gate: (pos: (27.5, -135.5), look: (35, -136)),
+            torch: (17.0, -131.6),
+            floors: [(shape: Ellipse(center: (375, 260), radii: (21, 21), y: 0), walled: true)],
+            pillars: [(386, 271, 1.1), (364, 271, 1.1), (386, 251, 1.1), (364, 251, 1.1)],
+            door: (pos: (375, 238.8), look: (375, 260)),
+            boss_spawn: (375, 268),
+        ),
+    ],
+)

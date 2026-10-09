@@ -3,10 +3,12 @@
 A combat prototype inspired by *Lies of P* / *Dark Souls*, rendered PlayStation 1 style, in
 Rust + [Bevy 0.19](https://bevy.org) (native, and in the browser via WASM).
 
-One player, two weapons (rapier and greatsword), a slow, telegraphed boss — the Carousel
-Automaton — in a circular arena. Leaving the arena, a staircase leads down to the Lamplighters'
-Square (first checkpoint), hanging above the void; from there, a long path of bridges and
-platforms, guarded by dogs and puppets, leads to the second checkpoint.
+One player, two weapons (rapier and greatsword), seven telegraphed bosses. From the
+Lamplighters' Square (first checkpoint), hanging above the void, a long path of bridges and
+platforms, guarded by dogs and puppets, leads to the second checkpoint and to a great door.
+Along the way, a corridor per boss ends in a fog, a torch in the boss's colour in front of it:
+going through the fog takes you into the boss's arena. Once all the bosses are defeated, the
+great door opens.
 
 ## Running
 
@@ -62,24 +64,29 @@ menu shows the controls of the last device used (gamepad, or keyboard and mouse)
   *Fork me*, Return to title screen, Quit). Esc / (B) closes the menu. While paused,
   characters and spells are frozen; particles keep going.
 - **Checkpoint** (when resting there): Leave (selected by default), Travel (to another brazier
-  already kindled, with a view of the place), Choose the boss, Level up (greyed out, coming
-  soon), Equipment, Revive the boss (if it has been defeated).
-- **Choose the boss**: who waits in the arena (it appears there at once, at full strength), as a
-  grid of portraits (`assets/ui/boss_<n>.png`, rendered by `tools/blender/boss_icons.py`). The
-  encounters are in `assets/config/bosses.ron` (in debug: `SOULS_BOSS=n`). Each boss has its
-  own colour (`color`), that of its ground circles:
-  - the Carousel Automaton (`boss.ron`);
-  - the Ash Wyrm: huge, you lock onto its head (right stick ↑), its legs or its tail. It
+  already kindled, with a view of the place), Level up (greyed out, coming soon), Equipment.
+- **Rekindle the torch** (interacting with the extinguished torch of a defeated boss): the
+  boss's portrait (`assets/ui/boss_<n>.png`, rendered by `tools/blender/boss_icons.py`);
+  confirming revives it: it awaits again beyond its fog, at full strength.
+
+### The bosses
+
+The encounters are in `assets/config/bosses.ron`, their arenas in `assets/config/arenas.ron`
+(in debug, `SOULS_BOSS=n` starts in arena n, in front of its boss). Each boss has its own colour
+(`color`): that of its torch, its spells, its ground circles and its medallion on the final door:
+  - the Carousel Automaton (`boss.ron`), in the theatre courtyard, whose gate is at the top of
+    the square's stairs;
+  - the Soot Wyvern: huge, you lock onto its head (right stick ↑), its legs or its tail. It
     doesn't aim: it moves roughly towards its prey, and ends up facing it. In front of it, a
     headbutt down to the ground or a body slam (it lets itself fall); on its flank, it pivots a
     quarter turn whipping its tail; behind, the tail sweeps; from afar, a stream of fire down to
     the ground; it takes flight and lands on its target, or rises out of reach and spits three
     fireballs; ash rain in phase 2;
-  - the Horned Butcher and his two dogs: diagonal cleavers (left then right), leaning whirlwind
+  - the Knacker and his two dogs: diagonal cleavers (left then right), leaning whirlwind
     at head height, head-down charge, cleave (shockwave), thrown cleaver; he leaps far back
     then charges or throws a cleaver; frenzy in phase 2. The dogs only have a small health bar
     and collapse with their master;
-  - the Lamplighter and the Anvil: the lamplighter is a magician who keeps his distance and
+  - the Wick-Trimmer and the Anvil: the Wick-Trimmer is a magician who keeps his distance and
     never stays still: he regularly slides sideways (glide), then often shoots from there
     (homing glows, a volley of three glows one after the other, rockets bursting from the
     ground, back leap); the smith hits hard (hammer, backhand, charge, earthquake). When one
@@ -89,10 +96,10 @@ menu shows the controls of the last device used (gamepad, or keyboard and mouse)
     high, you see them coming); slap, drop onto her target, pirouette, dance; hoisted straight
     up, she drops back down on the spot (big shockwave); ascent: out of reach, she throws three
     needles then drops onto her target; slashing strings in phase 2;
-  - the Hollow-Spined Beast (the lizard, belly to the ground): you lock onto its head or its
+  - the Rimeback (the lizard, belly to the ground): you lock onto its head or its
     hindquarters; bite, dorsal arms, pivot and tail swipe, leap; it rears up and comes down:
     ice bursts out in front of it; frenzy and howl (circles of ice) in phase 2;
-  - the Flame-Bearing Giant: a column that splits the ground sending out a trail of fire,
+  - the Dead-Hearth Giant: a column that splits the ground sending out a trail of fire,
     pillars of fire under its target (which don't land on top of each other), three fireballs
     one after the other, rings of flames, the first one at his feet; stick to him and you take
     a stomp that splits the ground all around, or the column mowing at knee height; too close,
@@ -189,26 +196,46 @@ Esc exits it, an action in game brings it back.
 ## The path
 
 ```
-                 arena (boss)
+                 theatre: the Automaton
                    │ stairs
-       Lamplighters' Square ◆ checkpoint ── bridge ── fountain garden
+       Lamplighters' Square ◆ checkpoint ── bridge ── fountain garden ── † the Wick-Trimmer and the Anvil
                    │ bridge
-          bandstand: 2 sleeping dogs
+ † the Butcher ── bandstand: 2 sleeping dogs
                    │ ramp
-   ticket booths: 2 puppets, 1 dog ── narrow walkway ── ledge: dog ⤳ jump: flask shard
+ † the Marionette ── ticket booths: 2 puppets, 1 dog ── narrow walkway ── ledge: dog ⤳ jump: flask shard
                    │ long bridge: a puppet in the way
-   colossus's track (unique) ── narrow plank ── ledge: crest plume
+   colossus's track (unique) ── † the Rimeback
+        └── narrow plank ── ledge: crest plume
                    │ stairs
-        broken belvedere ◆ checkpoint ── collapsed bridge…
-                   ⤳ running jump: isolated rock, iron brooch
+ † the Soot Wyvern ── broken belvedere ◆ checkpoint ⤳ running jump: isolated rock, iron brooch
+                   │ bridge
+                 parvis ── † the Giant
+                   │
+             the great door (7 medallions) ── the last terrace: a sign
 ```
+(† a corridor, a torch, the boss's fog.)
 
+- **The bosses' fogs**: at the end of each corridor, a gateway veiled in fog; in front of it, a
+  torch burns in the boss's colour. Going through the fog ("Go through the fog") takes you into
+  its arena, far away (`arenas.ron`: each one has its own place, out of sight of the level and of
+  the others; only the zone you're in is drawn), and the boss wakes up at once: the fog has closed behind you. Once it's defeated,
+  you leave by the same fog ("Leave through the fog"), back in front of the gateway; it's then
+  barred by a portcullis, and the torch is out: a few sparks in its colour swirl above it.
+  Rekindling it ("Rekindle the torch") revives the boss, after confirmation.
+- **The great door**: a medallion per boss above it, which lights up in its colour once it's
+  defeated. When all are lit, the door swings open; beyond, a terrace and a sign
+  ("Read").
+- **Galleries** (in the Slaughter Yard, a nod to the Capra Demon's stairs): stairs climb to a
+  raised floor where the bosses don't go. Walking off its edge, you jump down; striking during
+  the drop is a **plunging attack** (×1.8 damage and stagger) if you started at least 1.8 m
+  above the opponent. From below, a gallery is a wall.
+- **Pillars** stop projectiles (the Wick-Trimmer's glows, the wyvern's fireballs…).
 - **Jump** (A / G when there's nothing to pick up and no brazier in range): ~0.8 m high,
   ~3.5 m cleared at a run (`jump` in `player.ron`), 12 stamina. Coming down above the void
   means falling.
 - **Respawning at a brazier**: next to the fire, facing the way forward (`look` in
   `level.ron`); a game quit at the foot of a brazier resumes the same way.
-- **The void**: outside the arena and the stairs, there are no railings. Walking, rolling or
+- **The void**: outside the arenas, the stairs and the corridors, there are no railings. Walking, rolling or
   being pushed past an edge means falling, and death. Below there is only darkness and, far
   off, a few street lamps lost on floating rocks.
 - **Checkpoints** (braziers): an iron bowl on a pedestal, an old sword planted in the embers.
@@ -241,16 +268,17 @@ Esc exits it, an action in game brings it back.
 
 ## Progress and saving
 
-- You start at the square's **checkpoint**, at the foot of the arena stairs. Resting there
+- You start at the square's **checkpoint**, at the foot of the theatre stairs. Resting there
   restores HP, stamina and items.
-- Entering the arena wakes the boss and a **fog** closes the stairs until the end of the fight.
-- Victory: **+1000 embers** (`embers` in `boss.ron`, flame icon), shown at the bottom right above
-  the counter, which absorbs them with a little sound; the boss stays dead, you can revive it
-  from the checkpoint.
+- Going through a boss's fog wakes it; the fog closes behind you until the end of the fight.
+- Victory: **embers** (`embers` of the encounter in `bosses.ron`, 1000 for the Automaton, flame
+  icon), shown at the bottom right above the counter, which absorbs them with a little sound;
+  the boss stays dead (its torch goes out), you can revive it by rekindling its torch. Dying
+  in an arena, you leave your embers in front of its fog.
 - Death: "YOU DIED" (~4 s, the screen darkens then goes black), then back to the last
   checkpoint you rested at (embers kept), items refilled, boss and enemies reset.
 - **Autosave** Dark Souls style (a single slot): on every important event (rest, entering the
-  arena, victory, enemy defeated, item picked up or used, fall, death, menu opened/closed),
+  arena or leaving it, victory, enemy defeated, item picked up or used, fall, death, menu opened/closed),
   every 5 seconds and when quitting; the file is only rewritten if it changed. You resume where
   you quit, except mid boss fight (you come back in front of the fog, the boss starts over) or
   mid-fall (at the last checkpoint). Picked-up items, kindled braziers, defeated unique enemies
@@ -265,15 +293,17 @@ All gameplay values are in `assets/config/` and expressed in **ticks** (60/s):
 - `weapons.ron`: each attack (startup/active/recovery, hitbox, damage, stagger, root motion)
 - `boss.ron`: HP, phases, stagger, pauses between attacks, each attack and its reach
 - `bosses.ron`: the other bosses (same format, plus model and scale, lockable parts, spells)
-  and the encounters offered at the checkpoint
-- `arena.ron`: arena size, pillars, opening, boss spawn
-- `level.ron`: the rest of the level — floors (square, bridges, ramps, stairs; walled edges or
-  open onto the void), checkpoints (name, travel menu view), decor, enemies, items
+  and the encounters
+- `arenas.ron`: per encounter, its fog in the level, its torch, and its arena:
+  floors (galleries), pillars, door, boss spawn
+- `level.ron`: the level — floors (square, bridges, ramps, stairs, the corridors to the fogs;
+  walled edges or open onto the void), checkpoints (name, travel menu view), decor, enemies,
+  items, the great door and its sign
 - `enemies.ron`: enemy types (sight, chase, poise, embers, attacks)
 
 With `cargo run --features dev`, saving a file restarts the fight with the new values.
 Animations are retimed automatically if you change the hit windows. The scenery is generated
-from `arena.ron` and `level.ron`: after changing the geometry, rerun `tools/build_assets.sh`
+from `arenas.ron` and `level.ron`: after changing the geometry, rerun `tools/build_assets.sh`
 so the visuals match the collisions.
 
 ## Architecture
@@ -287,13 +317,15 @@ src/sim/      deterministic simulation at 60 Hz (no dependency on rendering)
                 lockable points of large bosses)
   spell.rs      boss spells: projectiles, eruptions announced on the ground
   enemy.rs      path enemy AI (post, group alert, chase, giving up)
-  world.rs      walkable floors and heights, walled or open edges (falling), obstacles
+  world.rs      walkable floors and heights (level, arenas), walled or open edges (falling),
+                galleries (jumping down), obstacles
   combat.rs     collisions, hitboxes (capsules, arc sweeps), guard / perfect / regain
-  encounter.rs  checkpoints, travel, fog, victory, death/respawn, progress, menus
+  encounter.rs  checkpoints, travel, the bosses' fogs and torches, victory, the great door,
+                death/respawn, progress, menus
   items.rs      items (consumables, talismans, key items), inventory, quick slots
 src/input.rs  keyboard/mouse/gamepad → PlayerInput (presses latched between two ticks)
 src/render/   PS1 rendering, camera, models and animations driven by the sim state,
-              checkpoint previews (travel menu)
+              checkpoint previews (travel menu), fogs, portcullises, torches and the great door
 src/fx.rs     sounds, sparks, shakes triggered by sim events
 src/hud.rs    in-game interface
 src/menu.rs   title screen, pause, checkpoint, equipment, options, help

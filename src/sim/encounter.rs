@@ -1,6 +1,6 @@
-//! Game flow: checkpoints (rest, discovery, travel), entering the arena
-//! (the boss wakes up and the fog closes the stairs), victory (embers), death and
-//! respawn at the last checkpoint, picked-up items, commands coming from the menus.
+//! Game flow: checkpoints (rest, discovery, travel), the bosses' fogs (into their arena and back),
+//! the torches (reviving a defeated boss), victory (embers), the final door, death and respawn at
+//! the last checkpoint, picked-up items, commands coming from the menus.
 //!
 //! This is simulation: everything that changes the state goes through here, tick-accurate.
 
@@ -12,19 +12,33 @@ use super::data::{BossMove, MoveRef, Tuning};
 use super::fighter::{Action, Body, Health};
 use super::items::{Inventory, Item};
 use super::player::{PState, Player};
-use super::{ResetFight, SimEvent, SimEvents, math, world};
+use super::world::{self, Zone};
+use super::{ResetFight, SimEvent, SimEvents, math};
 
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Encounter {
-    pub boss_defeated: bool,
-    /// Fight in progress: the boss is awake and the fog blocks the stairs.
+    /// Defeated bosses (bit i: `Tuning::encounters[i]`, fought in `Tuning::arenas[i]`).
+    pub defeated: u32,
+    /// Arena whose bosses are there: a player went through its fog.
+    pub arena: Option<u8>,
+    /// Fight in progress: the bosses are awake and the fog blocks the way out.
     pub active: bool,
     /// A path enemy is chasing a player: resting is impossible.
     pub hunted: bool,
     /// Enemies must return to their post (rest at the checkpoint).
     pub respawn_enemies: bool,
-    /// Encounter waiting in the arena (`Tuning::encounters`).
-    pub boss_choice: u8,
+}
+
+impl Encounter {
+    pub fn is_defeated(&self, i: u8) -> bool {
+        self.defeated & (1u32 << i) != 0
+    }
+}
+
+/// All the bosses are defeated: the final door is open.
+pub fn door_open(t: &Tuning, defeated: u32) -> bool {
+    let all = if t.encounters.len() >= 32 { u32::MAX } else { (1u32 << t.encounters.len()) - 1 };
+    defeated & all == all
 }
 
 /// Delay between the end of the death animation and the respawn.
@@ -37,10 +51,12 @@ pub const PICKUP_RANGE: f32 = 1.4;
 pub const CHECKPOINT_RADIUS: f32 = 0.6;
 /// Distance to recover the embers dropped on death.
 pub const RECOVER_RANGE: f32 = 1.6;
+/// Distance to go through a fog, to rekindle a torch, to read the sign.
+pub const FOG_RANGE: f32 = 1.8;
+pub const TORCH_RANGE: f32 = 1.6;
+pub const SIGN_RANGE: f32 = 1.8;
 /// Embers dropped by a fall stay at least this far from the edge.
 const DROP_MARGIN: f32 = 0.9;
-/// You have to go this deep into the arena to wake the boss.
-const ENTER_MARGIN: f32 = 1.5;
 
 /// Embers left on the spot on death (with the corpse). Recovering them gives them back; dying
 /// before that loses them for good.
@@ -70,9 +86,12 @@ pub struct Progress {
     /// Currency (embers). The old name `souls` is accepted for old saves.
     #[serde(alias = "souls")]
     pub embers: u32,
+    /// Defeated bosses (bit i: `Tuning::encounters[i]`).
+    pub defeated: u32,
+    /// Old saves: a single boss, chosen at the checkpoint (read only, see `defeated_bits`).
+    #[serde(skip_serializing)]
     pub boss_defeated: bool,
-    /// Encounter chosen at the checkpoint (`Tuning::encounters`).
-    #[serde(default)]
+    #[serde(skip_serializing)]
     pub boss_choice: u8,
     pub weapon: u8,
     pub inventory: Inventory,
@@ -90,6 +109,9 @@ pub struct Progress {
     pub slain: u64,
     /// Embers dropped on the last death.
     pub dropped: Option<Dropped>,
+    /// Start in this arena, in front of its bosses (debug: `SOULS_BOSS`). Never saved.
+    #[serde(skip)]
+    pub arena: Option<u8>,
 }
 
 impl Progress {
@@ -97,27 +119,38 @@ impl Progress {
         Self { inventory: Inventory::new_game(t), found: 1, ..default() }
     }
 
+    /// Defeated bosses, including the one of an old save.
+    pub fn defeated_bits(&self) -> u32 {
+        self.defeated | if self.boss_defeated { 1u32 << self.boss_choice.min(31) } else { 0 }
+    }
+
     /// State to resume for this player. Dead (or mid-fall): as after the
     /// respawn (last checkpoint, items refilled), their embers stay where they
-    /// fell (and those they hadn't recovered are lost). Mid boss fight:
-    /// in front of the fog, the boss will be reset.
+    /// fell (and those they hadn't recovered are lost); fallen in an arena, in front of its
+    /// fog. In an arena: in front of its fog, the boss will be reset.
     pub fn of_player(p: &Player, body: &Body, hp: &Health, enc: &Encounter, t: &Tuning) -> Self {
         let dead = matches!(p.state, PState::Dead | PState::Falling) || hp.dead();
         let mut inventory = p.inventory.clone();
         if dead {
             inventory.refill(t);
         }
+        let outside = match p.zone {
+            Zone::Arena(i) => Some(gate_outside(t, i as usize)),
+            Zone::Level => None,
+        };
         let pos = if dead {
             None
-        } else if enc.active {
-            let g = world::gate_outside(&t.arena);
-            Some([g.x, g.z, math::yaw_of(Vec3::Z)])
+        } else if let Some((g, yaw)) = outside {
+            Some([g.x, g.z, yaw])
         } else {
             Some([body.pos.x, body.pos.z, body.yaw])
         };
         let (embers, dropped) = if dead {
             // A fall: at the edge you fell from, a little back from the void.
-            let at = world::settle(t, if p.falling { p.fall_at } else { body.pos }, DROP_MARGIN);
+            let at = match outside {
+                Some((g, _)) => g,
+                None => world::settle(t, Zone::Level, if p.falling { p.fall_at } else { body.pos }, DROP_MARGIN),
+            };
             (0, (p.embers > 0).then_some(Dropped { at: at.to_array(), embers: p.embers }))
         } else {
             (p.embers, p.dropped)
@@ -125,8 +158,7 @@ impl Progress {
         Self {
             embers,
             dropped,
-            boss_defeated: enc.boss_defeated,
-            boss_choice: enc.boss_choice,
+            defeated: enc.defeated,
             weapon: p.weapon,
             inventory,
             hp: (!dead).then_some(hp.cur),
@@ -135,6 +167,7 @@ impl Progress {
             found: p.found,
             picked: p.picked,
             slain: p.slain,
+            ..default()
         }
     }
 }
@@ -181,56 +214,76 @@ pub fn near_pickup(t: &Tuning, picked: u64, pos: Vec3) -> Option<u16> {
         .map(|(i, _)| i as u16)
 }
 
-pub fn in_arena(a: &super::data::ArenaDef, pos: Vec3) -> bool {
-    math::flat_len(Vec3::new(pos.x, 0.0, pos.z)) < a.radius - ENTER_MARGIN && pos.y > -1.0
+fn within(pos: Vec3, p: Vec3, range: f32) -> bool {
+    math::flat_len(pos - p) <= range && (pos.y - p.y).abs() < 1.5
 }
 
-/// Entering the arena, victory, respawn.
+/// Fog at the end of boss `i`'s corridor, in the level (ground point, direction into it).
+pub fn gate(t: &Tuning, i: usize) -> (Vec3, Vec3) {
+    world::portal(t, &t.arenas[i].gate)
+}
+
+/// Where you come back out of arena `i`: in front of its fog in the level, your back to it.
+pub fn gate_outside(t: &Tuning, i: usize) -> (Vec3, f32) {
+    let (g, dir) = gate(t, i);
+    let p = g - dir * 1.4;
+    let y = world::floor_at(t, p.x, p.z, g.y).unwrap_or(g.y);
+    (Vec3::new(p.x, y, p.z), math::yaw_of(-dir))
+}
+
+/// Where you enter arena `i`: past its fog, facing the bosses.
+pub fn door_entry(t: &Tuning, i: usize) -> (Vec3, f32) {
+    let (d, dir) = world::portal(t, &t.arenas[i].door);
+    let p = d + dir * 2.4;
+    let y = world::floor_at(t, p.x, p.z, d.y).unwrap_or(d.y);
+    (Vec3::new(p.x, y, p.z), math::yaw_of(dir))
+}
+
+/// Boss fog within range, in the level.
+pub fn near_gate(t: &Tuning, pos: Vec3) -> Option<u8> {
+    (0..t.arenas.len()).find(|&i| within(pos, gate(t, i).0, FOG_RANGE)).map(|i| i as u8)
+}
+
+/// In arena `i`, close to the fog you came in through.
+pub fn near_door(t: &Tuning, i: usize, pos: Vec3) -> bool {
+    within(pos, world::portal(t, &t.arenas[i].door).0, FOG_RANGE)
+}
+
+/// Torch of boss `i`, on the ground.
+pub fn torch_pos(t: &Tuning, i: usize) -> Vec3 {
+    let [x, z] = t.arenas[i].torch;
+    Vec3::new(x, world::floor_at(t, x, z, 0.0).unwrap_or(0.0), z)
+}
+
+pub fn near_torch(t: &Tuning, pos: Vec3) -> Option<u8> {
+    (0..t.arenas.len()).find(|&i| within(pos, torch_pos(t, i), TORCH_RANGE)).map(|i| i as u8)
+}
+
+/// The sign behind the final door, on the ground.
+pub fn sign_pos(t: &Tuning) -> Vec3 {
+    let [x, z] = t.level.sign;
+    Vec3::new(x, world::floor_at(t, x, z, 0.0).unwrap_or(0.0), z)
+}
+
+pub fn near_sign(t: &Tuning, pos: Vec3) -> bool {
+    within(pos, sign_pos(t), SIGN_RANGE)
+}
+
+/// Bosses waiting in the arena a player went into; the fight starts at once (the fog closes
+/// behind them); victory; the arena empties once everyone has left it; respawn.
 #[allow(clippy::type_complexity)]
 pub fn encounter_tick(
+    mut commands: Commands,
     tuning: Res<Tuning>,
     mut enc: ResMut<Encounter>,
     mut reset: ResMut<ResetFight>,
     mut events: ResMut<SimEvents>,
     mut players: Query<(&mut Player, &Body, &Health), Without<Boss>>,
-    mut bosses: Query<(&Boss, &mut Action, &mut Health)>,
+    mut bosses: Query<(Entity, &Boss, &mut Action, &mut Health)>,
 ) {
     let t = &*tuning;
     for (mut p, _, _) in &mut players {
         p.dead_ticks = if p.state == PState::Dead { p.dead_ticks + 1 } else { 0 };
-    }
-    // Supporting roles (the butcher's dogs) don't count for victory.
-    let boss_alive = bosses.iter().any(|(b, _, h)| !h.dead() && !b.def(t).minor);
-
-    // Entering the arena: the boss wakes up roaring and the fog closes again.
-    if !enc.active
-        && boss_alive
-        && players.iter().any(|(_, b, h)| !h.dead() && in_arena(&t.arena, b.pos))
-    {
-        enc.active = true;
-        for (b, mut a, h) in &mut bosses {
-            if !h.dead() && a.mv.is_none() {
-                a.start(MoveRef::Boss(b.def, BossMove::Roar), 0.0);
-            }
-        }
-        events.push(SimEvent::BossAwake);
-    }
-
-    if enc.active && !boss_alive {
-        enc.active = false;
-        enc.boss_defeated = true;
-        // With the master fallen, his dogs collapse with him.
-        for (b, mut a, mut h) in &mut bosses {
-            if !h.dead() {
-                h.cur = 0.0;
-                a.start(MoveRef::Boss(b.def, BossMove::Death), 0.0);
-            }
-        }
-        let embers = t.encounters.get(enc.boss_choice as usize).map_or(0, |e| e.embers);
-        for (mut p, ..) in &mut players {
-            p.embers = p.embers.saturating_add(embers);
-        }
-        events.push(SimEvent::BossDefeated { embers });
     }
 
     // Everyone is dead: back to the checkpoint, the boss starts over.
@@ -242,6 +295,66 @@ pub fn encounter_tick(
         reset.requested = true;
         reset.progress = Some(Progress::of_player(p, b, h, &enc, t));
     }
+    let alive_in = |p: &Player, h: &Health| match p.zone {
+        Zone::Arena(i) if !h.dead() => Some(i),
+        _ => None,
+    };
+
+    // A player went through a fog: its bosses are there (created at the next tick).
+    if let Some(i) = players.iter().find_map(|(p, _, h)| alive_in(p, h))
+        && enc.arena != Some(i)
+        && !enc.is_defeated(i)
+    {
+        for (e, ..) in &bosses {
+            commands.entity(e).despawn();
+        }
+        super::spawn_boss(&mut commands, t, i);
+        enc.arena = Some(i);
+        enc.active = false;
+        return;
+    }
+    let Some(arena) = enc.arena else { return };
+    // Supporting roles (the butcher's dogs) don't count for victory.
+    let boss_alive = bosses.iter().any(|(_, b, _, h)| !h.dead() && !b.def(t).minor);
+
+    // The bosses wake up roaring, the fog closes again.
+    if !enc.active && boss_alive && players.iter().any(|(p, _, h)| alive_in(p, h) == Some(arena)) {
+        enc.active = true;
+        for (_, b, mut a, h) in &mut bosses {
+            if !h.dead() && a.mv.is_none() {
+                a.start(MoveRef::Boss(b.def, BossMove::Roar), 0.0);
+            }
+        }
+        events.push(SimEvent::BossAwake);
+    }
+
+    if enc.active && !boss_alive {
+        enc.active = false;
+        enc.defeated |= 1u32 << arena;
+        // With the master fallen, his dogs collapse with him.
+        for (_, b, mut a, mut h) in &mut bosses {
+            if !h.dead() {
+                h.cur = 0.0;
+                a.start(MoveRef::Boss(b.def, BossMove::Death), 0.0);
+            }
+        }
+        let embers = t.encounters.get(arena as usize).map_or(0, |e| e.embers);
+        for (mut p, ..) in &mut players {
+            p.embers = p.embers.saturating_add(embers);
+        }
+        events.push(SimEvent::BossDefeated { embers });
+        if door_open(t, enc.defeated) {
+            events.push(SimEvent::DoorOpened);
+        }
+    }
+
+    // Everyone has left the arena (after the victory): it empties.
+    if !enc.active && !players.iter().any(|(p, ..)| p.zone == Zone::Arena(arena)) {
+        for (e, ..) in &bosses {
+            commands.entity(e).despawn();
+        }
+        enc.arena = None;
+    }
 }
 
 /// Actions decided in the menus. Over the network, they'll travel with the inputs.
@@ -249,10 +362,8 @@ pub fn encounter_tick(
 pub enum SimCommand {
     Equip { player: u8, slot: u8, item: Option<Item> },
     EquipTalisman { player: u8, item: Option<Item> },
-    /// Brings back the defeated boss (from the checkpoint).
-    ReviveBoss,
-    /// Chooses the boss waiting in the arena (from the checkpoint): it appears fresh.
-    ChooseBoss(u8),
+    /// Brings back a defeated boss (rekindling its torch): it awaits again in its arena.
+    ReviveBoss(u8),
     /// Travel to a discovered checkpoint: you respawn there rested, the world is reset.
     Travel { player: u8, checkpoint: u8 },
 }
@@ -260,16 +371,13 @@ pub enum SimCommand {
 #[derive(Resource, Default, Debug)]
 pub struct SimCommands(pub Vec<SimCommand>);
 
-#[allow(clippy::too_many_arguments)]
 pub fn apply_commands(
-    mut commands: Commands,
     tuning: Res<Tuning>,
     mut queue: ResMut<SimCommands>,
     mut enc: ResMut<Encounter>,
     mut events: ResMut<SimEvents>,
     mut reset: ResMut<ResetFight>,
     mut players: Query<(&mut Player, &Body, &Health)>,
-    bosses: Query<Entity, With<Boss>>,
 ) {
     for c in std::mem::take(&mut queue.0) {
         match c {
@@ -289,7 +397,11 @@ pub fn apply_commands(
             }
             SimCommand::Travel { player, checkpoint } => {
                 let Some((p, b, h)) = players.iter().find(|(p, ..)| p.id == player) else { continue };
-                if enc.active || p.found & (1u32 << checkpoint) == 0 || checkpoint as usize >= tuning.level.checkpoints.len() {
+                if enc.active
+                    || p.zone != Zone::Level
+                    || p.found & (1u32 << checkpoint) == 0
+                    || checkpoint as usize >= tuning.level.checkpoints.len()
+                {
                     continue;
                 }
                 let mut progress = Progress::of_player(p, b, h, &enc, &tuning);
@@ -300,25 +412,10 @@ pub fn apply_commands(
                 reset.requested = true;
                 reset.progress = Some(progress);
             }
-            SimCommand::ChooseBoss(choice) => {
-                if !enc.active && (choice as usize) < tuning.encounters.len() {
-                    enc.boss_choice = choice;
-                    enc.boss_defeated = false;
-                    for e in &bosses {
-                        commands.entity(e).despawn();
-                    }
-                    super::spawn_boss(&mut commands, &tuning, choice);
-                    events.push(SimEvent::BossRevived);
-                }
-            }
-            SimCommand::ReviveBoss => {
-                if enc.boss_defeated && !enc.active {
-                    enc.boss_defeated = false;
-                    for e in &bosses {
-                        commands.entity(e).despawn();
-                    }
-                    super::spawn_boss(&mut commands, &tuning, enc.boss_choice);
-                    events.push(SimEvent::BossRevived);
+            SimCommand::ReviveBoss(i) => {
+                if enc.is_defeated(i) && enc.arena != Some(i) {
+                    enc.defeated &= !(1u32 << i);
+                    events.push(SimEvent::BossRevived { arena: i });
                 }
             }
         }
@@ -337,7 +434,29 @@ mod tests {
             assert_eq!(near_checkpoint(&t, p), Some(i as u8));
             assert!(world::floor_at(&t, p.x, p.z, p.y).is_some());
         }
-        assert!(!in_arena(&t.arena, world::gate_outside(&t.arena)));
-        assert!(in_arena(&t.arena, Vec3::new(0.0, 0.0, -10.0)));
+    }
+
+    #[test]
+    fn fogs_torches_and_sign_are_on_the_ground_of_their_zone() {
+        let t = Tuning::builtin();
+        for i in 0..t.arenas.len() {
+            let (g, _) = gate(&t, i);
+            assert_eq!(world::zone_at(&t, g), Zone::Level, "gate {i}");
+            let (out, _) = gate_outside(&t, i);
+            assert!(world::floor_below(&t, out.x, out.z, out.y, Some(world::Mover::Player { zone: Zone::Level, door_open: false })).is_some(), "gate {i}");
+            assert_eq!(near_gate(&t, out), Some(i as u8));
+            let (entry, _) = door_entry(&t, i);
+            assert_eq!(world::zone_at(&t, entry), Zone::Arena(i as u8), "arena {i}");
+            let (d, dir) = world::portal(&t, &t.arenas[i].door);
+            assert!(near_door(&t, i, d + dir * 0.8) && !near_door(&t, i, entry), "arena {i}");
+            let torch = torch_pos(&t, i);
+            assert!(world::floor_at(&t, torch.x, torch.z, 0.0).is_some(), "torch {i}");
+            assert_eq!(near_torch(&t, torch + Vec3::X * 0.8), Some(i as u8));
+            let [x, z] = t.arenas[i].boss_spawn;
+            assert_eq!(world::zone_at(&t, Vec3::new(x, 0.0, z)), Zone::Arena(i as u8), "boss {i}");
+        }
+        let s = sign_pos(&t);
+        assert!(world::floor_at(&t, s.x, s.z, 0.0).is_some());
+        assert!(!door_open(&t, 0) && door_open(&t, u32::MAX));
     }
 }

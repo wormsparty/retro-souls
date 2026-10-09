@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use super::boss::Boss;
 use super::data::{BossMove, EnemyMove, HitWindow, MoveDef, MoveRef, PartDef, PlayerMove, Reaction, Tuning, WeaponMove};
-use super::encounter::{CHECKPOINT_RADIUS, Encounter};
+use super::encounter::{self, CHECKPOINT_RADIUS, Encounter};
 use super::enemy::Enemy;
 use super::fighter::{Action, Body, Foe, Health, Hitstop, PrevBody};
 use super::player::{PState, Player, force_move};
@@ -18,7 +18,7 @@ pub fn separate_bodies(
     tuning: Res<Tuning>,
     enc: Res<Encounter>,
     mut events: ResMut<SimEvents>,
-    mut q: Query<(Entity, &mut Body, &PrevBody, &Health, Option<&mut Player>, &mut Action, Has<Boss>)>,
+    mut q: Query<(Entity, &mut Body, &PrevBody, &Health, Option<&mut Player>, &mut Action, Option<&Boss>)>,
 ) {
     let solid = |h: &Health, p: Option<&Mut<Player>>| !h.dead() && !p.is_some_and(|p| p.falling);
     let mut combos = q.iter_combinations_mut();
@@ -40,7 +40,7 @@ pub fn separate_bodies(
     }
     let t = &*tuning;
     let obstacles = world::obstacles(t, CHECKPOINT_RADIUS);
-    for (entity, mut b, prev, hp, mut player, mut action, is_boss) in &mut q {
+    for (entity, mut b, prev, hp, mut player, mut action, boss) in &mut q {
         if player.as_ref().is_some_and(|p| p.falling) {
             continue;
         }
@@ -52,13 +52,13 @@ pub fn separate_bodies(
                 b.pos += d / dist * (pr + r - dist);
             }
         }
-        // The fog closes the arena during the fight; the boss never leaves it, path
-        // enemies never enter it.
-        let mover = match (&player, is_boss) {
-            (Some(_), _) if enc.active => Mover::PlayerInFight,
-            (Some(_), _) => Mover::Player,
-            (None, true) => Mover::Boss,
-            (None, false) => Mover::Enemy,
+        // Players walk in the level or in the arena they went into; the bosses never leave
+        // theirs, path enemies never go into the corridors to the fogs.
+        let door_open = encounter::door_open(t, enc.defeated);
+        let mover = match (&player, boss) {
+            (Some(p), _) => Mover::Player { zone: p.zone, door_open },
+            (None, Some(b)) => Mover::Boss(b.arena),
+            (None, None) => Mover::Enemy,
         };
         if let Some(p) = player.as_mut().filter(|p| p.airborne) {
             air_step(t, &mut b, prev, p, &mut action, mover, hp.dead(), entity, &mut events);
@@ -66,6 +66,21 @@ pub fn separate_bodies(
         }
         match world::step(t, b.pos, r, mover) {
             Step::Ground(p) => b.pos = p,
+            Step::Drop(p) => {
+                b.pos = p;
+                // Walking off a gallery: you jump down, momentum kept.
+                if let Some(mut pl) = player {
+                    pl.vel = if matches!(pl.state, PState::Free | PState::Guard) {
+                        Vec3::new(b.pos.x - prev.pos.x, 0.0, b.pos.z - prev.pos.z) / DT
+                    } else {
+                        Vec3::ZERO
+                    };
+                    pl.airborne = true;
+                    pl.air_vy = 0.0;
+                    pl.air_from = prev.pos.y;
+                    pl.air_ticks = 0;
+                }
+            }
             Step::Fall => {
                 if let Some(mut p) = player {
                     let momentum = (b.pos - prev.pos) / DT;
@@ -77,6 +92,11 @@ pub fn separate_bodies(
     }
 }
 
+/// Plunging attack: a jump attack started at least this high above the opponent's feet deals
+/// (and staggers) this much more.
+const PLUNGE_HEIGHT: f32 = 1.8;
+const PLUNGE_MULT: f32 = 1.8;
+
 /// A floor higher than this above the feet stops a jumper (they hit its edge);
 /// below that, they climb onto it while coming down.
 const LEDGE: f32 = 0.35;
@@ -87,17 +107,17 @@ const AIR_FALL: f32 = 1.0;
 /// meet while coming down; if they pass too low above the void, they fall.
 #[allow(clippy::too_many_arguments)]
 fn air_step(t: &Tuning, b: &mut Body, prev: &PrevBody, p: &mut Player, action: &mut Action, mover: Mover, dead: bool, entity: Entity, events: &mut SimEvents) {
-    if let Step::Ground(g) = world::step(t, b.pos, b.radius, mover) {
+    if let Step::Ground(g) | Step::Drop(g) = world::step(t, b.pos, b.radius, mover) {
         b.pos.x = g.x;
         b.pos.z = g.z;
     }
-    let mut floor = world::floor_at(t, b.pos.x, b.pos.z, b.pos.y);
+    let mut floor = world::floor_below(t, b.pos.x, b.pos.z, b.pos.y, Some(mover));
     if floor.is_some_and(|y| y > b.pos.y + LEDGE) {
         // Against the side of a higher platform: stick to it, fall back down.
         b.pos.x = prev.pos.x;
         b.pos.z = prev.pos.z;
         p.vel = Vec3::ZERO;
-        floor = world::floor_at(t, b.pos.x, b.pos.z, b.pos.y).filter(|y| *y <= b.pos.y + LEDGE);
+        floor = world::floor_below(t, b.pos.x, b.pos.z, b.pos.y, Some(mover)).filter(|y| *y <= b.pos.y + LEDGE);
     }
     match floor {
         Some(y) if p.air_vy <= 0.0 && b.pos.y <= y => {
@@ -257,7 +277,10 @@ pub fn resolve_hits(
                 continue;
             }
             pact.hits.push((hit.window, hit.victim));
-            let dmg = h.damage * p.damage_mult();
+            // Plunging attack: a jump attack from high above the opponent (from a gallery).
+            let plunge = matches!(hit.mv, MoveRef::Weapon(_, WeaponMove::Jump)) && p.air_from - fbody.pos.y >= PLUNGE_HEIGHT;
+            let mult = if plunge { PLUNGE_MULT } else { 1.0 };
+            let dmg = h.damage * p.damage_mult() * mult;
             fhp.cur = (fhp.cur - dmg).max(0.0);
             if let Some(b) = boss.as_mut() {
                 b.last_attacker = Some((pe, now));
@@ -292,7 +315,7 @@ pub fn resolve_hits(
                     }
                     events.push(SimEvent::EnemyDied { pos: fbody.pos, embers });
                 }
-            } else if foe_stagger(boss.as_deref_mut(), enemy.as_deref_mut(), pe, h.stagger, dmg, &mut fact, t) {
+            } else if foe_stagger(boss.as_deref_mut(), enemy.as_deref_mut(), pe, h.stagger * mult, dmg, &mut fact, t) {
                 events.push(SimEvent::Groggy { entity: fe });
             }
         } else if let Ok((fe, mut boss, mut enemy, fbody, _, mut fact, mut fstop)) = foes.get_mut(hit.attacker) {

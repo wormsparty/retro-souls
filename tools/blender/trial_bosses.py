@@ -167,8 +167,9 @@ def dragon():
     BELLY = material("d_belly", tex=tex_noise((0.36, 0.28, 0.22), 0.45, seed=103))
     MEMBRANE = material("d_membrane", tex=tex_noise((0.34, 0.12, 0.08), 0.45, seed=104))
     HORN = material("d_horn", (0.74, 0.68, 0.58))
-    EYES = material("d_eyes", (1.0, 0.6, 0.2), emissive=(1.0, 0.5, 0.1))
-    EMBER = material("d_ember", (1.0, 0.42, 0.1), emissive=(1.0, 0.35, 0.05))
+    EYES = material("d_eyes", (1.0, 0.35, 0.2), emissive=(1.0, 0.22, 0.1))
+    # Red, like its fire and its torch (assets/config/bosses.ron).
+    EMBER = material("d_ember", (1.0, 0.3, 0.1), emissive=(1.0, 0.18, 0.06))
 
     def body(mb):
         mb.box((0, -0.2, 2.05), (1.8, 3.4, 1.5), SCALE, taper=(0.8, 0.85))
@@ -443,7 +444,7 @@ def horned_butcher():
     BLADE = material("c_blade", tex=tex_noise((0.42, 0.38, 0.35), 0.55, seed=126))
     BLOOD = material("c_blood", (0.33, 0.04, 0.03))
     WOOD = material("c_wood", tex=tex_planks((0.3, 0.2, 0.12), seed=127))
-    EYES = material("c_eyes", (1.0, 0.25, 0.1), emissive=(1.0, 0.2, 0.05))
+    EYES = material("c_eyes", (1.0, 0.3, 0.65), emissive=(0.95, 0.2, 0.6))
     MOUTH = material("c_mouth", (0.12, 0.04, 0.04))
 
     def hips(mb):
@@ -616,8 +617,9 @@ def lamplighter():
     BRASS = material("l_brass", (0.8, 0.62, 0.28))
     GLOVE = material("l_glove", (0.2, 0.15, 0.12))
     WOOD = material("l_wood", tex=tex_planks((0.35, 0.24, 0.15), seed=133))
-    LIGHT = material("l_light", (1.0, 0.85, 0.45), emissive=(1.0, 0.8, 0.35))
-    EYES = material("l_eyes", (1.0, 0.9, 0.55), emissive=(1.0, 0.85, 0.4))
+    # Pale green, like its glows and its torch (assets/config/bosses.ron).
+    LIGHT = material("l_light", (0.7, 1.0, 0.6), emissive=(0.4, 1.0, 0.35))
+    EYES = material("l_eyes", (0.75, 1.0, 0.65), emissive=(0.45, 1.0, 0.4))
 
     def hips(mb):
         mb.box((0, 0, 1.55), (0.4, 0.26, 0.2), COAT)
@@ -765,7 +767,7 @@ def anvil():
     IRON = material("a_iron", tex=tex_noise((0.3, 0.3, 0.32), 0.45, seed=144))
     DARK = material("a_dark", (0.06, 0.05, 0.05))
     WOOD = material("a_wood", tex=tex_planks((0.32, 0.22, 0.14), seed=145))
-    EMBER = material("a_ember", (1.0, 0.85, 0.4), emissive=(1.0, 0.8, 0.3))
+    EMBER = material("a_ember", (0.6, 1.0, 0.5), emissive=(0.35, 1.0, 0.3))
 
     def hips(mb):
         mb.box((0, 0, 1.12), (1.1, 0.8, 0.5), TROUSERS, taper=(1.05, 1.05))
@@ -1325,8 +1327,9 @@ def giant():
     STONE_DARK = material("t_stone_dark", tex=tex_noise((0.22, 0.2, 0.19), 0.45, seed=182))
     CLOTH = material("t_cloth", tex=tex_noise((0.3, 0.26, 0.2), 0.5, seed=183))
     RIB = material("t_rib", (0.62, 0.58, 0.5))
-    FLAME = material("t_flame", (1.0, 0.6, 0.2), emissive=(1.0, 0.55, 0.15))
-    CORE = material("t_core", (1.0, 0.9, 0.6), emissive=(1.0, 0.9, 0.55))
+    # His fire is ash-grey (assets/config/bosses.ron: his colour, his spells, his torch).
+    FLAME = material("t_flame", (0.62, 0.62, 0.66), emissive=(0.42, 0.42, 0.46))
+    CORE = material("t_core", (0.9, 0.9, 0.93), emissive=(0.75, 0.75, 0.8))
     COLUMN = material("t_column", tex=tex_stone(64, 184, (0.6, 0.57, 0.52)))
 
     # Short belt and loincloth: the trousers are carried by the thighs (otherwise the legs

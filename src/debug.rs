@@ -212,12 +212,19 @@ impl Plugin for AutoShotPlugin {
                             p.dropped = Some(crate::sim::encounter::Dropped { at: [x, y, z], embers: n as u32 });
                         }
                     }
-                    // Trial boss in the arena: SOULS_BOSS=n (index in `roster::ROSTER`).
+                    // Start in a boss's arena, in front of it: SOULS_BOSS=n (index in `Tuning::encounters`).
                     if let (Some(n), Some(p)) = (
                         std::env::var("SOULS_BOSS").ok().and_then(|h| h.parse().ok()),
                         w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
                     ) {
-                        p.boss_choice = n;
+                        p.arena = Some(n);
+                    }
+                    // Defeated bosses: SOULS_DEFEATED=bits (e.g. 127: all of them, the final door is open).
+                    if let (Some(n), Some(p)) = (
+                        std::env::var("SOULS_DEFEATED").ok().and_then(|h| h.parse().ok()),
+                        w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
+                    ) {
+                        p.defeated = n;
                     }
                     // Optional starting HP: SOULS_HP=1 (check death and respawn).
                     if let (Some(hp), Some(p)) = (
@@ -333,7 +340,7 @@ fn autoshot(
             "system" => Page::System,
             "checkpoint" => Page::Checkpoint,
             "travel" => Page::Travel,
-            "bosses" => Page::Bosses,
+            "revive" => Page::Revive,
             "language" => Page::Language,
             "style" => Page::Style,
             _ => Page::Pause,

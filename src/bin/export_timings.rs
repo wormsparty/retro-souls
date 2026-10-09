@@ -83,7 +83,9 @@ fn main() {
         "enemies": enemies,
         "switch_at": p.switch_at,
         "heal_at": p.heal_at,
-        "arena": serde_json::to_value(&t.arena).unwrap(),
+        "arenas": serde_json::to_value(&t.arenas).unwrap(),
+        // Colour of each encounter's main boss (torches, banners, medallions).
+        "colors": (0..t.encounters.len()).map(|i| t.encounter_color(i)).collect::<Vec<_>>(),
         "level": serde_json::to_value(&t.level).unwrap(),
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());

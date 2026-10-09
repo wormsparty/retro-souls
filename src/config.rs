@@ -39,7 +39,7 @@ impl Plugin for ConfigPlugin {
             .register_asset_loader(RonTextLoader)
             .add_systems(Startup, |mut commands: Commands, server: Res<AssetServer>| {
                 commands.insert_resource(TuningFiles(
-                    ["player", "weapons", "boss", "arena", "level", "enemies", "bosses"].map(|n| server.load(format!("config/{n}.ron"))),
+                    ["player", "weapons", "boss", "arenas", "level", "enemies", "bosses"].map(|n| server.load(format!("config/{n}.ron"))),
                 ));
             })
             .add_systems(Update, reload);
@@ -70,7 +70,7 @@ fn reload(
     if *last_hash == Some(hash) {
         return;
     }
-    let src = TuningSources { player: t[0], weapons: t[1], boss: t[2], bosses: t[6], arena: t[3], level: t[4], enemies: t[5] };
+    let src = TuningSources { player: t[0], weapons: t[1], boss: t[2], bosses: t[6], arenas: t[3], level: t[4], enemies: t[5] };
     match Tuning::parse(&src) {
         Ok(new) => {
             // The first load is identical to the built-in tuning: no reset.

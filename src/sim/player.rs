@@ -4,10 +4,11 @@ use bevy::prelude::*;
 
 use super::boss::Boss;
 use super::data::{BossMove, MoveRef, PlayerMove, Tuning, WeaponMove};
-use super::encounter::{Dropped, Encounter, near_checkpoint, near_dropped, near_pickup};
+use super::encounter::{self, Dropped, Encounter, near_checkpoint, near_dropped, near_pickup};
 use super::fighter::{Action, Body, Foe, Health, Hitstop};
 use super::input::{InputBuffer, PlayerInputs, btn};
 use super::items::{self, Inventory, Item};
+use super::world::Zone;
 use super::{DT, SimEvent, SimEvents, SimTick, math};
 
 /// Gravity during a fall (m/s²).
@@ -99,6 +100,8 @@ pub struct Player {
     pub air_vy: f32,
     pub air_from: f32,
     pub air_ticks: u32,
+    /// Where they are: the level or a boss arena (they went through its fog).
+    pub zone: Zone,
 }
 
 impl Player {
@@ -149,6 +152,7 @@ impl Player {
             air_vy: 0.0,
             air_from: 0.0,
             air_ticks: 0,
+            zone: Zone::Level,
         }
     }
 
@@ -554,8 +558,8 @@ pub fn player_act(
                     } else {
                         air_control(&mut p, &mut body, stick_len, move_dir, t);
                     }
-                } else if try_interact(&mut p, &body, &mut health, &mut encounter, &mut ctx) {
-                    // Rest or item picked up: nothing else this tick.
+                } else if try_interact(&mut p, &mut body, &mut health, &mut encounter, &mut ctx) {
+                    // Rest, item picked up, fog crossed…: nothing else this tick.
                 } else if try_jump(&mut p, &mut body, &mut ctx) {
                     air_control(&mut p, &mut body, stick_len, move_dir, t);
                 } else if try_defensive(&mut p, &mut body, &mut action, &mut ctx)
@@ -716,9 +720,10 @@ fn use_item_effect(p: &mut Player, health: &mut Health, entity: Entity, ctx: &mu
     ctx.events.push(SimEvent::ItemUsed { entity, item });
 }
 
-/// Interact: recover your embers or pick up the item in range, otherwise rest at the checkpoint.
+/// Interact: recover your embers or pick up the item in range, otherwise rest at the checkpoint,
+/// go through a boss's fog, rekindle the torch of a defeated boss, read the sign.
 /// Nothing in range: the button is left to the jump.
-fn try_interact(p: &mut Player, body: &Body, health: &mut Health, enc: &mut Encounter, ctx: &mut Ctx) -> bool {
+fn try_interact(p: &mut Player, body: &mut Body, health: &mut Health, enc: &mut Encounter, ctx: &mut Ctx) -> bool {
     if !p.buffer.buffered(btn::INTERACT, ctx.now, ctx.t.player.input_buffer) {
         return false;
     }
@@ -736,6 +741,9 @@ fn try_interact(p: &mut Player, body: &Body, health: &mut Health, enc: &mut Enco
             p.inventory.add(*item, *n);
         }
         ctx.events.push(SimEvent::PickedUp { entity: ctx.entity, pickup: i });
+        return true;
+    }
+    if try_passage(p, body, enc, ctx) {
         return true;
     }
     // No resting during a fight, nor with enemies on your heels.
@@ -759,6 +767,46 @@ fn try_interact(p: &mut Player, body: &Body, health: &mut Health, enc: &mut Enco
     p.vel = Vec3::ZERO;
     p.sprinting = false;
     ctx.events.push(SimEvent::Rested { entity: ctx.entity });
+    true
+}
+
+/// The bosses' fogs (into their arena, and back out of it after the victory), their torches and
+/// the sign behind the final door. The button has already been checked.
+fn try_passage(p: &mut Player, body: &mut Body, enc: &Encounter, ctx: &mut Ctx) -> bool {
+    let t = ctx.t;
+    let entity = ctx.entity;
+    let to = match p.zone {
+        // A living boss's fog: into its arena (unless another one is being fought).
+        Zone::Level => {
+            if let Some(i) = encounter::near_gate(t, body.pos).filter(|&i| !enc.is_defeated(i) && enc.arena.is_none_or(|a| a == i)) {
+                Some((encounter::door_entry(t, i as usize), Zone::Arena(i)))
+            } else if let Some(i) = encounter::near_torch(t, body.pos).filter(|&i| enc.is_defeated(i)) {
+                p.buffer.consume(btn::INTERACT);
+                ctx.events.push(SimEvent::TorchTouched { entity, arena: i });
+                return true;
+            } else if encounter::near_sign(t, body.pos) && encounter::door_open(t, enc.defeated) {
+                p.buffer.consume(btn::INTERACT);
+                ctx.events.push(SimEvent::SignRead { entity });
+                return true;
+            } else {
+                None
+            }
+        }
+        // Once the fight is over, back out in front of the fog.
+        Zone::Arena(i) if !enc.active && encounter::near_door(t, i as usize, body.pos) => {
+            Some((encounter::gate_outside(t, i as usize), Zone::Level))
+        }
+        Zone::Arena(_) => None,
+    };
+    let Some(((pos, yaw), zone)) = to else { return false };
+    p.buffer.consume(btn::INTERACT);
+    body.pos = pos;
+    body.yaw = yaw;
+    p.zone = zone;
+    p.vel = Vec3::ZERO;
+    p.lock = None;
+    p.sprinting = false;
+    ctx.events.push(SimEvent::Passage { entity, arena: if let Zone::Arena(i) = zone { Some(i) } else { None } });
     true
 }
 

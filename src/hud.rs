@@ -18,10 +18,11 @@ use std::collections::{HashMap, VecDeque};
 use crate::sim::SimEvent;
 use crate::sim::boss::Boss;
 use crate::sim::data::Tuning;
-use crate::sim::encounter::{Encounter, RESPAWN_TICKS, near_checkpoint, near_dropped, near_pickup};
+use crate::sim::encounter::{self, Encounter, RESPAWN_TICKS, near_checkpoint, near_dropped, near_pickup};
 use crate::sim::fighter::{Body, Foe, Health};
 use crate::sim::items::{Item, QUICK_SLOTS};
 use crate::sim::player::{PState, Player};
+use crate::sim::world::Zone;
 use crate::ui::{Glyph, Hint, PixelSize, UiFont, hint_node, i, image_bundle, set_hint, t};
 
 const HP_PX: f32 = 0.6; // px per HP
@@ -161,6 +162,8 @@ struct Outcome {
     timer: f32,
     /// Display duration (`None`: until the respawn).
     duration: Option<f32>,
+    /// Banner shown after this one (the final door opening after the last victory).
+    next: Option<((&'static str, &'static str), Color)>,
 }
 
 /// Animated values: embers counter, fade to black.
@@ -1058,14 +1061,33 @@ fn prompt(
             if near_pickup(&tuning, p.picked, b.pos).is_some() {
                 return Some((tr("Pick up", "Ramasser"), true));
             }
-            let cp = near_checkpoint(&tuning, b.pos).filter(|_| !enc.active)?;
-            Some(if enc.hunted {
-                (tr("Enemies nearby: cannot rest", "Des ennemis rôdent : impossible de se reposer"), false)
-            } else if p.found & (1 << cp) == 0 {
-                (tr("Kindle the brazier", "Ranimer le brasier"), true)
-            } else {
-                (tr("Rest", "Se reposer"), true)
-            })
+            if let Some(cp) = near_checkpoint(&tuning, b.pos).filter(|_| !enc.active) {
+                return Some(if enc.hunted {
+                    (tr("Enemies nearby: cannot rest", "Des ennemis rôdent : impossible de se reposer"), false)
+                } else if p.found & (1 << cp) == 0 {
+                    (tr("Kindle the brazier", "Ranimer le brasier"), true)
+                } else {
+                    (tr("Rest", "Se reposer"), true)
+                });
+            }
+            match p.zone {
+                Zone::Level => {
+                    if let Some(i) = encounter::near_gate(&tuning, b.pos) {
+                        return Some(if enc.is_defeated(i) {
+                            (tr("The way is barred", "Le passage est barré"), false)
+                        } else {
+                            (tr("Go through the fog", "Traverser la brume"), true)
+                        });
+                    }
+                    if encounter::near_torch(&tuning, b.pos).is_some_and(|i| enc.is_defeated(i)) {
+                        return Some((tr("Rekindle the torch", "Raviver la torche"), true));
+                    }
+                    (encounter::near_sign(&tuning, b.pos) && encounter::door_open(&tuning, enc.defeated)).then_some((tr("Read", "Lire"), true))
+                }
+                Zone::Arena(i) => {
+                    (!enc.active && encounter::near_door(&tuning, i as usize, b.pos)).then_some((tr("Leave through the fog", "Repartir par la brume"), true))
+                }
+            }
         },
     );
     let show = !menu.open && label.is_some();
@@ -1199,6 +1221,7 @@ fn update_boss(
 fn outcome(
     time: Res<Time>,
     fx: Res<FxState>,
+    enc: Res<Encounter>,
     mut out: ResMut<Outcome>,
     mut banner: Query<(&mut Visibility, &mut BackgroundColor), With<Banner>>,
     mut texts: Query<(&mut Text, &mut TextColor), With<BannerText>>,
@@ -1210,10 +1233,17 @@ fn outcome(
             }
             // Embers gained are shown at the bottom right (see `embers`).
             SimEvent::BossDefeated { .. } => {
-                *out = Outcome { text: Some((("AUTOMATON DESTROYED", "AUTOMATE DÉTRUIT"), Color::srgb(0.9, 0.75, 0.35))), timer: 0.0, duration: Some(5.0) };
+                let text = if enc.arena == Some(0) { ("AUTOMATON DESTROYED", "AUTOMATE DÉTRUIT") } else { ("GREAT FOE FELLED", "GRAND ENNEMI TERRASSÉ") };
+                *out = Outcome { text: Some((text, Color::srgb(0.9, 0.75, 0.35))), duration: Some(5.0), ..default() };
+            }
+            SimEvent::DoorOpened => {
+                out.next = Some((("A GREAT DOOR HAS OPENED", "UNE GRANDE PORTE S'EST OUVERTE"), Color::srgb(0.8, 0.85, 0.95)));
+            }
+            SimEvent::SignRead { .. } => {
+                *out = Outcome { text: Some((("THANK YOU FOR PLAYING!", "MERCI D'AVOIR JOUÉ !"), Color::srgb(0.95, 0.85, 0.55))), duration: Some(6.0), ..default() };
             }
             SimEvent::Kindled { .. } => {
-                *out = Outcome { text: Some((("BRAZIER KINDLED", "BRASIER RANIMÉ"), Color::srgb(0.95, 0.78, 0.4))), timer: 0.0, duration: Some(3.5) };
+                *out = Outcome { text: Some((("BRAZIER KINDLED", "BRASIER RANIMÉ"), Color::srgb(0.95, 0.78, 0.4))), duration: Some(3.5), ..default() };
             }
             SimEvent::Respawned => *out = Outcome::default(),
             _ => {}
@@ -1227,7 +1257,10 @@ fn outcome(
     };
     out.timer += time.delta_secs();
     if out.duration.is_some_and(|d| out.timer > d) {
-        *out = Outcome::default();
+        *out = match out.next {
+            Some(text) => Outcome { text: Some(text), duration: Some(4.0), ..default() },
+            None => Outcome::default(),
+        };
         return;
     }
     let fade_out = out.duration.map_or(1.0, |d| (d - out.timer).min(1.0));
@@ -1262,7 +1295,8 @@ fn overlay(
     }
     // Death: the scene darkens during "YOU DIED", fully black just before the
     // respawn at the checkpoint, then gradually back.
-    if fx.last.contains(&SimEvent::Respawned) {
+    // Through a fog: from black, into the arena (or back out).
+    if fx.last.iter().any(|e| matches!(e, SimEvent::Respawned | SimEvent::Passage { .. })) {
         anim.fade = 1.0;
     }
     let dying = fx_dying(&fx, &mut anim);

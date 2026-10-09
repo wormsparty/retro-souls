@@ -110,7 +110,8 @@ fn autosave_triggers(
             SimEvent::Rested { .. }
                 | SimEvent::BossAwake
                 | SimEvent::BossDefeated { .. }
-                | SimEvent::BossRevived
+                | SimEvent::BossRevived { .. }
+                | SimEvent::Passage { .. }
                 | SimEvent::PlayerDied
                 | SimEvent::Respawned
                 | SimEvent::Heal { .. }

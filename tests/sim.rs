@@ -2,23 +2,59 @@
 
 use bevy::prelude::*;
 use giants_flame::sim::boss::Boss;
-use giants_flame::sim::data::{BossMove, MoveRef, PlayerMove, Tuning};
-use giants_flame::sim::encounter::{Encounter, SimCommand, SimCommands, checkpoint_pos, checkpoint_spawn};
+use giants_flame::sim::data::{BossMove, MoveRef, PlayerMove, Shape, Tuning};
+use giants_flame::sim::encounter::{self, Encounter, Progress, SimCommand, SimCommands, checkpoint_pos, checkpoint_spawn};
 use giants_flame::sim::items::Item;
 use giants_flame::sim::fighter::{Action, Body, Health};
 use giants_flame::sim::input::{PlayerInput, PlayerInputs, btn};
 use giants_flame::sim::player::{PState, Player};
-use giants_flame::sim::{SimDebug, SimEvent, SimEvents, SimPlugin, SimSchedule, math, state_hash};
+use giants_flame::sim::world::Zone;
+use giants_flame::sim::{ResetFight, SimDebug, SimEvent, SimEvents, SimPlugin, SimSchedule, math, state_hash};
 
-/// Fight in progress: the player is placed in the arena, facing the boss (which wakes up).
+/// Fight in progress against the Automaton (passive): the player went through the fog of the
+/// theatre, facing the boss (which wakes up).
 fn new_app() -> App {
+    let mut app = encounter_app(0);
+    app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+    app
+}
+
+/// The theatre's arena, moved so that it's centred on the origin.
+fn theatre_at_origin(t: &Tuning) -> giants_flame::sim::data::ArenaDef {
+    let mut a = t.arenas[0].clone();
+    let (c, _) = giants_flame::sim::world::arena_bounds(&a);
+    let [dx, dz] = [-c.x, -c.z];
+    for f in &mut a.floors {
+        match &mut f.shape {
+            Shape::Ellipse { center, .. } => *center = [center[0] + dx, center[1] + dz],
+            Shape::Strip { from, to, .. } => {
+                (from[0], from[1], to[0], to[1]) = (from[0] + dx, from[1] + dz, to[0] + dx, to[1] + dz);
+            }
+        }
+    }
+    for p in &mut a.pillars {
+        (p[0], p[1]) = (p[0] + dx, p[1] + dz);
+    }
+    a.door.pos = [a.door.pos[0] + dx, a.door.pos[1] + dz];
+    a.door.look = [a.door.look[0] + dx, a.door.look[1] + dz];
+    a.boss_spawn = [a.boss_spawn[0] + dx, a.boss_spawn[1] + dz];
+    a
+}
+
+/// Game with encounter `choice`, the player having gone through its fog (fight started). For the
+/// tests of the bosses' mechanics, its arena is replaced by the theatre, centred on the origin.
+fn encounter_app(choice: u8) -> App {
     let mut app = App::new();
     app.add_plugins(SimPlugin);
-    app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
-    step(&mut app, PlayerInput::default()); // spawn
-    let p = player(&mut app);
-    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -10.0);
-    step(&mut app, PlayerInput::default());
+    let t = {
+        let mut t = app.world_mut().resource_mut::<Tuning>();
+        let theatre = theatre_at_origin(&t);
+        let a = &mut t.arenas[choice as usize];
+        (a.floors, a.pillars, a.door, a.boss_spawn) = (theatre.floors, theatre.pillars, theatre.door, theatre.boss_spawn);
+        t.clone()
+    };
+    app.world_mut().resource_mut::<ResetFight>().progress = Some(Progress { arena: Some(choice), ..Progress::new_game(&t) });
+    steps(&mut app, 3, IDLE); // spawn, the bosses, they wake up
     assert!(app.world().resource::<Encounter>().active);
     app
 }
@@ -272,22 +308,20 @@ fn scripted_input(i: u32) -> PlayerInput {
 }
 
 fn run_scripted(n: u32) -> (u64, f32, f32) {
-    let mut app = App::new();
-    app.add_plugins(SimPlugin);
+    // Straight into the theatre (after a death, back at the checkpoint: no more boss).
+    let mut app = encounter_app(0);
     let mut hashes = 0u64;
     let mut min_hp = (f32::MAX, f32::MAX);
     for i in 0..n {
-        if i == 1 {
-            // Straight into the arena.
-            let p = player(&mut app);
-            app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -8.0);
-        }
         step(&mut app, scripted_input(i));
         hashes = hashes.rotate_left(5) ^ state_hash(app.world_mut());
-        // Lowest HP reached (the player can die and respawn along the way).
-        let (p, b) = (player(&mut app), boss(&mut app));
+        // Lowest HP reached.
+        let p = player(&mut app);
         min_hp.0 = min_hp.0.min(hp(&mut app, p));
-        min_hp.1 = min_hp.1.min(hp(&mut app, b));
+        let b = app.world_mut().query_filtered::<Entity, With<Boss>>().iter(app.world()).next();
+        if let Some(b) = b {
+            min_hp.1 = min_hp.1.min(hp(&mut app, b));
+        }
     }
     (hashes, min_hp.0, min_hp.1)
 }
@@ -398,38 +432,42 @@ fn body(app: &mut App, e: Entity) -> Body {
 }
 
 #[test]
-fn boss_sleeps_until_player_enters_and_fog_closes_corridor() {
+fn the_theatre_fog_leads_into_the_arena_where_the_boss_awaits() {
     let mut app = fresh_app();
     let t = tuning(&app);
-    let (p, b) = (player(&mut app), boss(&mut app));
-    // Start in front of the first checkpoint, on the square below the arena.
+    let p = player(&mut app);
+    // Start in front of the first checkpoint, on the square below the theatre: no boss yet.
     let start = body(&mut app, p).pos;
     assert!(start.distance(checkpoint_pos(&t, 0)) < 2.5);
     assert!(start.y < -1.0);
-    assert!(!app.world().resource::<Encounter>().active);
-    let boss_start = body(&mut app, b).pos;
-    steps(&mut app, 120, IDLE);
-    assert_eq!(body(&mut app, b).pos, boss_start, "the boss is asleep");
-    // Climb the stairs towards the arena (the camera faces +z) from the bottom of the steps.
+    assert_eq!(app.world_mut().query::<&Boss>().iter(app.world()).count(), 0);
+    // Climb the stairs (the camera faces +z): the fog stops you at the top.
     app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, -2.4, -25.0);
-    let fwd = PlayerInput { move_y: 127, ..IDLE };
-    let mut n = 0;
-    while !app.world().resource::<Encounter>().active {
-        step(&mut app, fwd);
-        n += 1;
-        assert!(n < 600, "never entered the arena");
-    }
+    steps(&mut app, 300, PlayerInput { move_y: 127, ..IDLE });
+    let top = body(&mut app, p).pos;
+    assert!(top.y.abs() < 1e-3 && top.z <= -16.2 + 1e-3 && top.z > -17.5, "{top:?}");
+    assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Level);
+    // Through the fog: in the theatre, the boss wakes up roaring.
+    events(&mut app);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Passage { arena: Some(0), .. })));
+    assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Arena(0));
+    steps(&mut app, 2, IDLE);
+    assert!(app.world().resource::<Encounter>().active);
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossAwake)));
+    let b = boss(&mut app);
     assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(0, BossMove::Roar)));
-    assert!(body(&mut app, p).pos.y.abs() < 1e-3, "at the top of the stairs");
-    // No way back out: the fog blocks the stairs.
+    // No way back out during the fight: the fog is a wall, and doesn't let you through.
     steps(&mut app, 240, PlayerInput { move_y: -127, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, move_y: -127, ..IDLE });
     let pos = body(&mut app, p).pos;
-    assert!(math::flat_len(pos) <= t.arena.radius, "{pos:?}");
+    let (centre, _) = giants_flame::sim::world::arena_bounds(&t.arenas[0]);
+    assert!(math::flat_len(pos - centre) <= 16.0, "{pos:?}");
+    assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Arena(0));
 }
 
 #[test]
-fn defeating_boss_gives_embers_and_persists_until_revived() {
+fn defeated_boss_bars_its_fog_until_its_torch_is_rekindled() {
     let mut app = new_app();
     let t = tuning(&app);
     let (p, b) = (player(&mut app), boss(&mut app));
@@ -437,27 +475,179 @@ fn defeating_boss_gives_embers_and_persists_until_revived() {
     app.world_mut().get_mut::<Health>(b).unwrap().cur = 1.0;
     app.world_mut().get_mut::<Action>(b).unwrap().stop();
     app.world_mut().get_mut::<Body>(b).unwrap().pos = Vec3::new(0.0, 0.0, -8.0);
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -10.0);
     app.world_mut().get_mut::<Body>(p).unwrap().yaw = 0.0;
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
     steps(&mut app, 40, IDLE);
     let enc = *app.world().resource::<Encounter>();
-    assert!(enc.boss_defeated && !enc.active);
+    assert!(enc.is_defeated(0) && !enc.active);
     assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.bosses[0].embers);
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossDefeated { .. })));
 
-    // Recreate the fighters (reload): no boss, the embers are kept.
-    app.world_mut().resource_mut::<giants_flame::sim::ResetFight>().requested = true;
-    step(&mut app, IDLE);
+    // Back out through the fog: in front of it, in the level; the arena empties.
+    let (door, dir) = giants_flame::sim::world::portal(&t, &t.arenas[0].door);
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = door + dir * 0.8;
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Level);
+    assert!(body(&mut app, p).pos.distance(encounter::gate_outside(&t, 0).0) < 0.1);
+    steps(&mut app, 2, IDLE);
     assert_eq!(app.world_mut().query::<&Boss>().iter(app.world()).count(), 0);
+    assert_eq!(app.world().resource::<Encounter>().arena, None);
+    // The fog of a defeated boss no longer lets you through.
+    steps(&mut app, 20, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    steps(&mut app, 40, IDLE);
+    assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Level);
+
+    // Reload: still defeated, the embers are kept.
+    app.world_mut().resource_mut::<ResetFight>().requested = true;
+    step(&mut app, IDLE);
     let p = player(&mut app);
     assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.bosses[0].embers);
+    assert!(app.world().resource::<Encounter>().is_defeated(0));
 
-    // Revive the boss from the checkpoint.
-    app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::ReviveBoss);
+    // Its extinguished torch: rekindling it asks the menu, which revives the boss.
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = encounter::torch_pos(&t, 0) + Vec3::X * 0.8;
+    events(&mut app);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::TorchTouched { arena: 0, .. })));
+    app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::ReviveBoss(0));
     step(&mut app, IDLE);
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossRevived { arena: 0 })));
+    assert!(!app.world().resource::<Encounter>().is_defeated(0));
+    // The fog lets you through again, the boss awaits at full strength.
+    let (out, _) = encounter::gate_outside(&t, 0);
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = out;
+    steps(&mut app, 20, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    steps(&mut app, 2, IDLE);
+    assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Arena(0));
     let b = boss(&mut app);
     assert_eq!(hp(&mut app, b), t.bosses[0].max_hp);
-    assert!(!app.world().resource::<Encounter>().boss_defeated);
+}
+
+#[test]
+fn every_fog_leads_to_its_arena_and_back() {
+    let t = Tuning::builtin();
+    for i in 0..t.arenas.len() {
+        let mut app = fresh_app();
+        let p = player(&mut app);
+        let (out, yaw) = encounter::gate_outside(&t, i);
+        {
+            let mut b = app.world_mut().get_mut::<Body>(p).unwrap();
+            b.pos = out;
+            b.yaw = yaw;
+        }
+        steps(&mut app, 20, IDLE);
+        step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+        steps(&mut app, 3, IDLE);
+        assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Arena(i as u8), "arena {i}");
+        assert!(app.world().resource::<Encounter>().active, "arena {i}");
+        let n = app.world_mut().query::<&Boss>().iter(app.world()).count();
+        assert_eq!(n, t.encounters[i].members.len(), "arena {i}");
+        // Everyone stands on the arena's floor.
+        for (b, _) in app.world_mut().query::<(&Body, &Boss)>().iter(app.world()) {
+            assert_eq!(giants_flame::sim::world::zone_at(&t, b.pos), Zone::Arena(i as u8), "arena {i}: {:?}", b.pos);
+        }
+        // Defeated: back out through the door.
+        let ids: Vec<Entity> = app.world_mut().query_filtered::<Entity, With<Boss>>().iter(app.world()).collect();
+        for e in ids {
+            app.world_mut().get_mut::<Health>(e).unwrap().cur = 0.0;
+        }
+        steps(&mut app, 3, IDLE);
+        assert!(app.world().resource::<Encounter>().is_defeated(i as u8), "arena {i}");
+        let (door, dir) = giants_flame::sim::world::portal(&t, &t.arenas[i].door);
+        app.world_mut().get_mut::<Body>(p).unwrap().pos = door + dir * 0.8;
+        step(&mut app, IDLE);
+        step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+        assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Level, "arena {i}");
+    }
+}
+
+#[test]
+fn the_final_door_opens_once_every_boss_is_defeated() {
+    let t = Tuning::builtin();
+    let (door, dir) = giants_flame::sim::world::portal(&t, &t.level.final_door);
+    let cam_yaw = PlayerInput::quantize_yaw(math::yaw_of(dir));
+    let walk = PlayerInput { move_y: 127, cam_yaw, ..IDLE };
+    for defeated in [0b011_1111u32, 0b111_1111] {
+        let mut app = App::new();
+        app.add_plugins(SimPlugin);
+        app.world_mut().resource_mut::<ResetFight>().progress = Some(Progress { defeated, ..Progress::new_game(&t) });
+        step(&mut app, IDLE);
+        let p = player(&mut app);
+        app.world_mut().get_mut::<Body>(p).unwrap().pos = door - dir * 2.0;
+        steps(&mut app, 100, walk);
+        let past = (body(&mut app, p).pos - door).dot(dir);
+        let open = defeated == 0b111_1111;
+        assert_eq!(past > 3.0, open, "{past}");
+        // Behind it, the sign.
+        if open {
+            app.world_mut().get_mut::<Body>(p).unwrap().pos = encounter::sign_pos(&t) - dir * 1.2;
+            steps(&mut app, 2, IDLE);
+            events(&mut app);
+            step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+            assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::SignRead { .. })));
+        }
+    }
+}
+
+#[test]
+fn a_plunging_attack_from_the_gallery_hits_harder() {
+    let t = Tuning::builtin();
+    let butcher = t.encounters.iter().position(|e| e.members.iter().any(|m| m.boss == "butcher")).unwrap();
+    let a = t.arenas[butcher].clone();
+    let Some(Shape::Ellipse { center: [gx, gz], y: top, .. }) = a.floors.iter().find(|f| f.ledge && matches!(f.shape, Shape::Ellipse { .. })).map(|f| f.shape) else {
+        panic!("no gallery");
+    };
+    let damage = |plunge: bool| {
+        let mut app = App::new();
+        app.add_plugins(SimPlugin);
+        app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+        app.world_mut().resource_mut::<ResetFight>().progress = Some(Progress { arena: Some(butcher as u8), ..Progress::new_game(&t) });
+        steps(&mut app, 3, IDLE);
+        let p = player(&mut app);
+        let main = app.world_mut().query::<(Entity, &Boss)>().iter(app.world()).find(|(_, b)| !b.def(&t).minor).unwrap().0;
+        // The player runs off the gallery towards the butcher, and strikes while dropping onto
+        // him; or, from the yard, jumps at him and strikes in the air.
+        let centre = Vec3::new(gx, 0.0, gz);
+        let dir = (Vec3::new(a.boss_spawn[0], 0.0, a.boss_spawn[1]) - centre).normalize();
+        let target = centre + dir * 4.3;
+        {
+            let mut b = app.world_mut().get_mut::<Body>(main).unwrap();
+            b.pos = target;
+            b.yaw = math::yaw_of(-dir);
+        }
+        *app.world_mut().get_mut::<Action>(main).unwrap() = Action::default();
+        let from = if plunge { centre.with_y(top) } else { target - dir * 3.2 };
+        let cam_yaw = PlayerInput::quantize_yaw(math::yaw_of(dir));
+        {
+            let mut b = app.world_mut().get_mut::<Body>(p).unwrap();
+            b.pos = from;
+            b.yaw = math::yaw_of(dir);
+        }
+        let run = PlayerInput { move_y: 127, cam_yaw, ..IDLE };
+        let before = hp(&mut app, main);
+        if plunge {
+            for _ in 0..120 {
+                step(&mut app, run);
+                if app.world().get::<Player>(p).unwrap().airborne {
+                    break;
+                }
+            }
+            assert!(app.world().get::<Player>(p).unwrap().airborne, "dropped from the gallery");
+        } else {
+            steps(&mut app, 10, run);
+            step(&mut app, PlayerInput { buttons: btn::INTERACT, ..run });
+            steps(&mut app, 6, run);
+        }
+        step(&mut app, PlayerInput { buttons: btn::LIGHT, ..run });
+        steps(&mut app, 80, IDLE);
+        assert!(!app.world().get::<Player>(p).unwrap().airborne);
+        before - hp(&mut app, main)
+    };
+    let (plunge, ground) = (damage(true), damage(false));
+    assert!(ground > 0.0 && plunge > ground * 1.5, "plunge {plunge}, from the ground {ground}");
 }
 
 #[test]
@@ -474,23 +664,23 @@ fn death_respawns_at_checkpoint_with_items_refilled_and_embers_left_behind() {
     app.world_mut().get_mut::<Health>(b).unwrap().cur = 500.0;
     app.world_mut().get_mut::<Health>(p).unwrap().cur = 10.0;
     let hit_start = boss_attack(&mut app, "ecrasement", 2.6);
-    let died_at = body(&mut app, p).pos;
     steps(&mut app, hit_start + 30 + t.player.death.total + giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     let pl = app.world().get::<Player>(p).unwrap().clone();
     assert_eq!(pl.state, PState::Free);
-    // The embers stayed where we died.
+    // Died in the arena: the embers wait in front of its fog.
     assert_eq!(pl.embers, 0);
     let d = pl.dropped.expect("dropped embers");
     assert_eq!(d.embers, 300);
-    assert!(math::flat_len(d.pos() - died_at) < 2.0, "{:?} / {died_at:?}", d.pos());
+    let fog = encounter::gate_outside(&t, 0).0;
+    assert!(d.pos().distance(fog) < 0.1, "{:?} / {fog:?}", d.pos());
     assert_eq!(pl.inventory.count(Item::HealFlask), t.player.heal_charges);
     assert_eq!(hp(&mut app, p), t.player.max_hp);
     assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t, 0)) < 2.5);
-    // The boss starts over and goes back to sleep.
-    let b = boss(&mut app);
-    assert_eq!(hp(&mut app, b), t.bosses[0].max_hp);
-    assert!(!app.world().resource::<Encounter>().active);
+    // The boss starts over: it will await beyond its fog.
+    assert_eq!(app.world_mut().query::<&Boss>().iter(app.world()).count(), 0);
+    let enc = *app.world().resource::<Encounter>();
+    assert!(!enc.active && enc.arena.is_none() && !enc.is_defeated(0));
 }
 
 #[test]
@@ -926,6 +1116,8 @@ fn add_islet(app: &mut App) {
         shape: Shape::Ellipse { center: [-15.0, -31.5], radii: [2.5, 2.5], y: -2.4 },
         walled: false,
         arena: false,
+        ledge: false,
+        sealed: false,
         steps: 0,
         style: FloorStyle::default(),
     });
@@ -1033,18 +1225,6 @@ fn reloading_at_a_brazier_faces_the_way_on() {
         let to_fire = (fire - b.pos).normalize();
         assert!(Vec3::new(to_fire.x, 0.0, to_fire.z).normalize().dot(behind) < 0.5);
     }
-}
-
-/// Game with encounter `choice` in the arena, the player having entered the arena (fight started).
-fn encounter_app(choice: u8) -> App {
-    let mut app = fresh_app();
-    app.world_mut().resource_mut::<SimCommands>().0.push(SimCommand::ChooseBoss(choice));
-    step(&mut app, IDLE);
-    let p = player(&mut app);
-    app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, -9.0);
-    step(&mut app, IDLE);
-    assert!(app.world().resource::<Encounter>().active);
-    app
 }
 
 fn bosses(app: &mut App) -> Vec<(Entity, u8)> {
@@ -1202,7 +1382,7 @@ fn duo_partner_enrages_and_minions_do_not_block_victory() {
     app.world_mut().get_mut::<Health>(pair[1].0).unwrap().cur = 0.0;
     steps(&mut app, 3, IDLE);
     let enc = *app.world().resource::<Encounter>();
-    assert!(enc.boss_defeated && !enc.active);
+    assert!(enc.defeated != 0 && !enc.active);
 
     // The butcher: his dogs don't prevent victory, and fall with him.
     let butcher = t.encounters.iter().position(|e| e.members.iter().any(|m| m.boss == "butcher")).unwrap() as u8;
@@ -1211,7 +1391,7 @@ fn duo_partner_enrages_and_minions_do_not_block_victory() {
     let main = all.iter().find(|(_, d)| !t.bosses[*d as usize].minor).unwrap().0;
     app.world_mut().get_mut::<Health>(main).unwrap().cur = 0.0;
     steps(&mut app, 3, IDLE);
-    assert!(app.world().resource::<Encounter>().boss_defeated);
+    assert!(app.world().resource::<Encounter>().is_defeated(butcher));
     for (e, _) in all {
         assert!(app.world().get::<Health>(e).unwrap().dead());
     }
@@ -1327,7 +1507,7 @@ fn up_and_down_switch_between_high_and_low_lock_points() {
     // The wyvern: its head is much higher than its legs.
     let dragon = t.boss_kind("dragon").unwrap();
     let b = boss(&mut app);
-    *app.world_mut().get_mut::<giants_flame::sim::boss::Boss>(b).unwrap() = giants_flame::sim::boss::Boss::new(&t, dragon);
+    *app.world_mut().get_mut::<giants_flame::sim::boss::Boss>(b).unwrap() = giants_flame::sim::boss::Boss::new(&t, dragon, 0);
     {
         let mut bb = app.world_mut().get_mut::<Body>(b).unwrap();
         bb.pos = Vec3::ZERO;

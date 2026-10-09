@@ -17,6 +17,8 @@
     idle_ticks: (36, 80),
     aggro_ticks: 240,
     embers: 1000,
+    // Teal, like its torch at the foot of the stairs: its shockwaves and its warnings.
+    color: (0.15, 0.95, 0.8),
 
     groggy: (anim: "groggy", total: 210),
     fatal_received: (anim: "fatal_received", total: 120),

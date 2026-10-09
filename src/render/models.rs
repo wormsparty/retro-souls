@@ -17,7 +17,8 @@ use crate::sim::data::{BossMove, MoveDef, MoveRef, Tuning};
 use crate::sim::enemy::{EState, Enemy};
 use crate::sim::fighter::{Action, Body, Health, Hitstop, PrevBody};
 use crate::sim::player::{PState, Player};
-use crate::sim::{SimEntity, math, world};
+use crate::sim::world::Zone;
+use crate::sim::{SimEntity, math};
 
 /// Weapon names, in the order of `weapons.ron` (clip suffix and model name).
 pub const WEAPON_MODELS: [&str; 2] = ["rapier", "greatsword"];
@@ -137,6 +138,10 @@ pub enum LightKind {
     Checkpoint(u8),
     /// Street lamp.
     Lamp,
+    /// Glow of the Giant's ash-grey lava.
+    Ash,
+    /// Torch of boss `i`, in its colour (`gates`): a dim glow once it's out.
+    Torch(u8),
 }
 
 /// Scene lights (located by the scenery's `light_*` empties).
@@ -155,9 +160,19 @@ struct CheckpointCoals(u8);
 #[derive(Component)]
 struct Corpse(Vec3);
 
-/// Fog that closes the arena during the fight.
+/// A mesh of the scenery and where it stands: the level, or a boss arena (objects
+/// `arena_<i>_*` of `tools/blender/arena.py`). Only the zone the local player is in is drawn:
+/// the others are out of sight anyway (far away, in the void), no point drawing them.
 #[derive(Component)]
-struct FogGate;
+struct ZoneVisual(Zone);
+
+/// Zone of a scenery mesh, from its name (the glTF mesh is named after its Blender object).
+fn zone_of(name: &str) -> Zone {
+    name.strip_prefix("arena_")
+        .and_then(|r| r.split_once('_'))
+        .and_then(|(i, _)| i.parse().ok())
+        .map_or(Zone::Level, Zone::Arena)
+}
 
 pub struct ModelsPlugin;
 
@@ -166,7 +181,7 @@ impl Plugin for ModelsPlugin {
         app.init_resource::<SceneLights>()
             .add_systems(Startup, load_assets)
             .add_systems(Update, wait_for_assets.run_if(in_state(AppState::Loading)))
-            .add_systems(OnExit(AppState::Loading), (spawn_arena, spawn_fog_gate, spawn_pickups))
+            .add_systems(OnExit(AppState::Loading), (spawn_arena, spawn_pickups))
             .add_systems(
                 Update,
                 (
@@ -177,10 +192,10 @@ impl Plugin for ModelsPlugin {
                     weapon_visibility,
                     foe_tint,
                     weapon_glow,
-                    fog_gate,
                     pickup_glows,
                     checkpoint_coals,
                     corpse,
+                    zone_visibility,
                 )
                     .run_if(in_state(AppState::Playing))
                     .after(super::interpolate),
@@ -328,7 +343,8 @@ fn on_scene_ready(
     for d in children.iter_descendants(root) {
         // The scenery is also filmed by the travel menu's preview camera.
         if vs.kind == VisualKind::Arena && meshes.contains(d) {
-            commands.entity(d).insert(RenderLayers::from_layers(&[0, super::preview::PREVIEW_LAYER]));
+            let zone = names.get(d).map_or(Zone::Level, |n| zone_of(n.as_str()));
+            commands.entity(d).insert((RenderLayers::from_layers(&[0, super::preview::PREVIEW_LAYER]), ZoneVisual(zone)));
         }
         if anim_players.contains(d) {
             let graph = match vs.kind {
@@ -363,6 +379,17 @@ fn on_scene_ready(
         {
             commands.entity(d).insert(CheckpointCoals(i.parse().unwrap_or(0)));
         }
+        // Leaves of the final door: they swing open (`gates`), in opposite directions.
+        if vs.kind == VisualKind::Arena
+            && let Some(side) = match name.as_str() {
+                "final_door_0" => Some(1.0),
+                "final_door_1" => Some(-1.0),
+                _ => None,
+            }
+            && let Ok(t) = transforms.get(d)
+        {
+            commands.entity(d).insert(super::gates::DoorLeaf { closed: t.rotation, side });
+        }
         if vs.kind == VisualKind::Player && name.as_str() == "grip_R" {
             for (i, w) in assets.weapons.iter().enumerate() {
                 commands.entity(d).with_child((
@@ -381,6 +408,8 @@ fn on_scene_ready(
                 LightKind::Checkpoint(i.parse().unwrap_or(0))
             } else if rest.starts_with("lamp") {
                 LightKind::Lamp
+            } else if rest.starts_with("ash") {
+                LightKind::Ash
             } else {
                 LightKind::Brazier
             };
@@ -660,12 +689,34 @@ fn weapon_glow(
     }
 }
 
+/// Only the scenery of the local player's zone is drawn (the level, or the arena they're in).
+fn zone_visibility(
+    players: Query<&Player, With<LocalPlayer>>,
+    mut q: Query<(&ZoneVisual, &mut Visibility)>,
+    added: Query<(), Added<ZoneVisual>>,
+    mut shown: Local<Option<Zone>>,
+) {
+    let zone = players.single().map_or(Zone::Level, |p| p.zone);
+    if *shown == Some(zone) && added.is_empty() {
+        return;
+    }
+    *shown = Some(zone);
+    for (v, mut vis) in &mut q {
+        let want = if v.0 == zone { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+    }
+}
+
 /// Point lights: the shader only handles 4, keep the ones closest to the camera.
 /// The flicker is computed by the shader: the list only changes if the kept lights
 /// change (and only then are all materials updated).
 fn flicker(
     scene: Res<SceneLights>,
     rig: Res<super::camera::CameraRig>,
+    tuning: Res<Tuning>,
+    enc: Res<crate::sim::encounter::Encounter>,
     players: Query<&Player, With<LocalPlayer>>,
     mut lighting: ResMut<Ps1Lighting>,
 ) {
@@ -684,6 +735,17 @@ fn flicker(
                 // Street lamp: pale gas light, almost steady.
                 LightKind::Lamp => (7.5, Vec3::new(0.95, 0.88, 0.62), 0.95, Vec4::new(0.04, 3.0, 0.0, 0.0)),
                 LightKind::Brazier => (9.0, Vec3::new(1.0, 0.55, 0.22), 1.1, Vec4::new(0.15, 9.0, 0.1, 23.0)),
+                // Grey lava: a cold, slowly breathing light.
+                LightKind::Ash => (9.0, Vec3::new(0.72, 0.72, 0.8), 1.0, Vec4::new(0.12, 1.3, 0.0, 0.0)),
+                // Boss torch: a lively flame in its colour; once it's out, a faint glow.
+                LightKind::Torch(i) => {
+                    let c = Vec3::from(tuning.encounter_color(*i as usize));
+                    if enc.is_defeated(*i) {
+                        (2.5, c, 0.45, Vec4::new(0.3, 1.2, 0.0, 0.0))
+                    } else {
+                        (7.0, c.lerp(Vec3::ONE, 0.2), 1.25, Vec4::new(0.2, 11.0, 0.12, 19.0))
+                    }
+                }
             };
             PointLightPs1 { pos: *p, radius, color, intensity, flicker }
         })
@@ -694,51 +756,6 @@ fn flicker(
     lights.sort_by(|a, b| (a.pos.x, a.pos.z).partial_cmp(&(b.pos.x, b.pos.z)).unwrap_or(std::cmp::Ordering::Equal));
     if lighting.lights != lights {
         lighting.lights = lights;
-    }
-}
-
-fn spawn_fog_gate(
-    mut commands: Commands,
-    tuning: Res<Tuning>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut mats: ResMut<Assets<Ps1Material>>,
-) {
-    let a = &tuning.arena;
-    let mut m = Ps1Material::unlit(Color::srgba(0.55, 0.58, 0.68, 0.3));
-    m.alpha_mode = AlphaMode::Blend;
-    // Two slightly offset veils, for a bit of thickness.
-    let mesh = meshes.add(Rectangle::new(a.gate_half_width * 2.0 + 0.6, 4.2));
-    let center = world::fog_gate(a) + Vec3::Y * 2.1;
-    for (dz, flip) in [(0.0, false), (-0.25, true)] {
-        let rot = if flip { Quat::from_rotation_y(std::f32::consts::PI) } else { Quat::IDENTITY };
-        commands.spawn((
-            FogGate,
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(mats.add(m.clone())),
-            Transform::from_translation(center + Vec3::Z * dz).with_rotation(rot),
-            Visibility::Hidden,
-        ));
-    }
-}
-
-/// The fog only appears during the fight, and ripples gently.
-fn fog_gate(
-    time: Res<Time>,
-    enc: Res<crate::sim::encounter::Encounter>,
-    mut q: Query<(&mut Visibility, &MeshMaterial3d<Ps1Material>), With<FogGate>>,
-    mut mats: ResMut<Assets<Ps1Material>>,
-) {
-    let t = time.elapsed_secs();
-    for (i, (mut vis, h)) in q.iter_mut().enumerate() {
-        let want = if enc.active { Visibility::Inherited } else { Visibility::Hidden };
-        if *vis != want {
-            *vis = want;
-        }
-        if enc.active {
-            if let Some(mut m) = mats.get_mut(&h.0) {
-                m.params.base_color.w = 0.26 + 0.08 * (t * 1.3 + i as f32 * 2.0).sin();
-            }
-        }
     }
 }
 

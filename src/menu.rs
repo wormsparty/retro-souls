@@ -44,8 +44,8 @@ pub enum Page {
     Checkpoint,
     /// Fast travel between checkpoints (with a preview of the place).
     Travel,
-    /// Choice of the boss waiting in the arena (trial bosses).
-    Bosses,
+    /// Rekindle the torch of a defeated boss (`MenuState::reviving`): it will await again.
+    Revive,
     Equipment,
     /// System: settings, help, back to the title screen, quit.
     System,
@@ -78,11 +78,13 @@ pub struct MenuState {
     settle: f32,
     /// Slot being chosen (`Choose` page): 0..QUICK_SLOTS, or QUICK_SLOTS for the talisman.
     choosing: u8,
+    /// Boss whose torch is being rekindled (`Revive` page).
+    reviving: u8,
 }
 
 impl Default for MenuState {
     fn default() -> Self {
-        Self { open: false, page: Page::Pause, stack: Vec::new(), selected: 0, repeat: 0.0, fresh: false, cursor: None, settle: 0.0, choosing: 0 }
+        Self { open: false, page: Page::Pause, stack: Vec::new(), selected: 0, repeat: 0.0, fresh: false, cursor: None, settle: 0.0, choosing: 0, reviving: 0 }
     }
 }
 
@@ -134,7 +136,6 @@ enum Act {
     Back,
     ToTitle,
     Quit,
-    ReviveBoss,
     /// Level up (not available yet: shown greyed out).
     LevelUp,
     /// Opens the project page on GitHub.
@@ -172,7 +173,7 @@ enum Entry {
     Pick(Option<Item>),
     /// Travel destination (checkpoint index).
     Place(u8),
-    /// Boss encounter (index in `Tuning::encounters`).
+    /// Defeated boss (index in `Tuning::encounters`), to revive.
     Boss(u8),
     /// Help line (index in `help_lines`), not selectable.
     Line(u8),
@@ -186,10 +187,9 @@ enum Entry {
 #[derive(Clone, Copy, PartialEq)]
 struct PageCtx {
     has_save: bool,
-    boss_defeated: bool,
-    boss_choice: u8,
-    /// Number of boss encounters offered, and of weapons.
-    encounters: u8,
+    /// Boss whose torch is being rekindled.
+    reviving: u8,
+    /// Number of weapons.
     weapons: u8,
     device: Device,
     /// Checkpoints discovered by the local player (bits), and the one they're at.
@@ -208,7 +208,7 @@ fn owned_bits(p: Option<&Player>) -> u16 {
 /// for `n` entries.
 fn grid_rows(page: Page, n: usize, weapons: usize) -> Option<Vec<usize>> {
     match page {
-        Page::Bosses => Some((0..n).step_by(BOSS_COLUMNS as usize).map(|i| (n - i).min(BOSS_COLUMNS as usize)).collect()),
+        Page::Revive => Some(vec![n]),
         // The important equipment (weapons, talisman), then the consumables.
         Page::Equipment => Some(vec![weapons + 1, QUICK_SLOTS]),
         // The pause menu: a row of icons.
@@ -229,8 +229,7 @@ fn grid_pos(rows: &[usize], i: usize) -> (usize, usize) {
     (rows.len().saturating_sub(1), 0)
 }
 
-const BOSS_COLUMNS: i32 = 4;
-/// Boss portrait (choice page), in dots.
+/// Boss portrait (revive page), in dots.
 const PORTRAIT: u32 = 64;
 /// Inner margin of the menu panel.
 const PANEL_PADDING: f32 = 16.0;
@@ -297,17 +296,11 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
         // Icons: the equipment, then the system (cogwheel).
         Page::Pause => vec![Entry::Act(Open(Page::Equipment)), Entry::Act(Open(Page::System))],
         Page::System => vec![Entry::Act(Open(Page::Options)), Entry::Act(Open(Page::Help)), Entry::Act(Fork), Entry::Act(ToTitle)],
-        Page::Checkpoint => {
-            // "Leave" first: it's the line selected on opening.
-            let mut v = vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(Open(Page::Bosses)), Entry::Act(LevelUp), Entry::Act(Open(Page::Equipment))];
-            if c.boss_defeated {
-                v.push(Entry::Act(ReviveBoss));
-            }
-            v
-        }
+        // "Leave" first: it's the line selected on opening.
+        Page::Checkpoint => vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(LevelUp), Entry::Act(Open(Page::Equipment))],
         Page::Travel => (0..32u8).filter(|i| c.found & (1 << i) != 0).map(Entry::Place).chain([Entry::Act(Back)]).collect(),
         // Grids: go back with Esc / (B).
-        Page::Bosses => (0..c.encounters).map(Entry::Boss).collect(),
+        Page::Revive => vec![Entry::Boss(c.reviving)],
         Page::Equipment => (0..c.weapons).map(Entry::Weapon).chain([Entry::Talisman]).chain((0..QUICK_SLOTS as u8).map(Entry::Slot)).collect(),
         Page::Choose => {
             let kind = if c.choosing as usize == QUICK_SLOTS { Kind::Talisman } else { Kind::Consumable };
@@ -361,12 +354,10 @@ fn act_label(a: Act) -> &'static str {
         Act::Open(Page::Options) => tr("Options", "Options"),
         Act::Open(Page::Help) => tr("Help", "Aide"),
         Act::Open(Page::Travel) => tr("Travel", "Voyager"),
-        Act::Open(Page::Bosses) => tr("Choose the boss", "Choisir le boss"),
         Act::Open(_) => "…",
         Act::Back => tr("Back", "Retour"),
         Act::ToTitle => tr("Return to title screen", "Retour à l'écran titre"),
         Act::Quit => tr("Quit game", "Quitter le jeu"),
-        Act::ReviveBoss => tr("Revive the boss", "Ranimer le boss"),
         Act::LevelUp => tr("Level up", "Monter de niveau"),
         Act::Fork => tr("Fork me", "Forkez-moi"),
     }
@@ -396,7 +387,7 @@ fn page_title(p: Page, device: Device) -> &'static str {
         Page::Pause => "PAUSE",
         Page::Checkpoint => "CHECKPOINT",
         Page::Travel => tr("TRAVEL", "VOYAGER"),
-        Page::Bosses => "BOSS",
+        Page::Revive => tr("REKINDLE THE TORCH", "RAVIVER LA TORCHE"),
         Page::Equipment => tr("EQUIPMENT", "ÉQUIPEMENT"),
         Page::System => tr("SYSTEM", "SYSTÈME"),
         Page::Choose => tr("CHOOSE", "CHOISIR"),
@@ -413,9 +404,9 @@ fn page_info(p: Page) -> &'static str {
         Page::ConfirmNew => tr("The current save will be overwritten.", "La sauvegarde actuelle sera remplacée."),
         Page::Checkpoint => tr("You rest. HP, stamina and items restored.", "Vous vous reposez. PV, endurance et objets restaurés."),
         Page::Travel => tr("Travel to a brazier you have already kindled.", "Rejoindre un brasier déjà ranimé."),
-        Page::Bosses => tr(
-            "Who awaits in the arena. The chosen boss appears there at once, fully healed.",
-            "Qui attend dans l'arène. Le boss choisi y apparaît aussitôt, en pleine forme.",
+        Page::Revive => tr(
+            "The boss will await you again beyond its fog, at full strength.",
+            "Le boss vous attendra de nouveau derrière sa brume, en pleine forme.",
         ),
         Page::Style => tr(
             "Can be changed at any time in Options (Internal resolution).",
@@ -926,11 +917,22 @@ pub fn launch(w: &mut World, how: Launch) {
     close(w);
 }
 
-/// Rest at the checkpoint: opens the checkpoint menu.
+/// Rest at the checkpoint: opens the checkpoint menu. Extinguished torch of a defeated boss: asks
+/// whether to rekindle it (to revive the boss).
 fn open_on_rest(mut commands: Commands, fx: Res<FxState>, local: Query<(), With<LocalPlayer>>) {
     let rested = fx.last.iter().any(|e| matches!(e, SimEvent::Rested { entity } if local.contains(*entity)));
     if rested {
         commands.queue(|w: &mut World| open_page(w, Page::Checkpoint));
+    }
+    let torch = fx.last.iter().find_map(|e| match e {
+        SimEvent::TorchTouched { entity, arena } if local.contains(*entity) => Some(*arena),
+        _ => None,
+    });
+    if let Some(i) = torch {
+        commands.queue(move |w: &mut World| {
+            w.resource_mut::<MenuState>().reviving = i;
+            open_page(w, Page::Revive);
+        });
     }
 }
 
@@ -1072,9 +1074,7 @@ fn page_ctx(w: &mut World) -> PageCtx {
         owned,
         choosing: w.resource::<MenuState>().choosing,
         has_save: w.resource::<SaveSlot>().data.is_some(),
-        boss_defeated: w.resource::<Encounter>().boss_defeated,
-        boss_choice: w.resource::<Encounter>().boss_choice,
-        encounters: w.resource::<Tuning>().encounters.len() as u8,
+        reviving: w.resource::<MenuState>().reviving,
         weapons: w.resource::<Tuning>().weapons.len() as u8,
         device: *w.resource::<Device>(),
         found,
@@ -1249,12 +1249,12 @@ fn confirm(w: &mut World, e: Entry) {
             crate::save::save_now(w);
             close(w);
         }
-        // The chosen boss appears in the arena right away (fresh, if it had been defeated).
+        // The torch lights up again: the boss awaits beyond its fog.
         Entry::Boss(i) => {
-            w.resource_mut::<SimCommands>().0.push(SimCommand::ChooseBoss(i));
+            w.resource_mut::<SimCommands>().0.push(SimCommand::ReviveBoss(i));
             let _ = w.run_system_cached(apply_commands);
             crate::save::save_now(w);
-            w.resource_mut::<MenuState>().back();
+            close(w);
         }
         Entry::Line(..) => {}
         Entry::Lang(l) => {
@@ -1295,12 +1295,6 @@ fn act(w: &mut World, a: Act) {
         Act::Quit => {
             // The save is written at the end of the frame (see `save`).
             w.write_message(AppExit::Success);
-        }
-        Act::ReviveBoss => {
-            w.resource_mut::<SimCommands>().0.push(SimCommand::ReviveBoss);
-            let _ = w.run_system_cached(apply_commands);
-            crate::save::save_now(w);
-            w.resource_mut::<MenuState>().selected = 0;
         }
         Act::LevelUp => {}
         Act::Fork => open_url(REPO_URL),
@@ -1349,8 +1343,7 @@ fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player:
         },
         Entry::Place(i) if c.here == Some(i) => (tr("You are here", "Vous êtes ici").into(), false),
         Entry::Place(_) => (String::new(), true),
-        Entry::Boss(i) if c.boss_choice == i => (tr("In the arena", "Dans l'arène").into(), true),
-        Entry::Boss(_) => (String::new(), true),
+        Entry::Boss(_) => (tr("Rekindle", "Raviver").into(), true),
         Entry::Weapon(i) if player.is_some_and(|p| p.weapon == i) => (tr("In hand", "En main").into(), true),
         Entry::Weapon(_) => (String::new(), true),
         Entry::Act(Act::LevelUp) => (tr("Coming soon", "Bientôt").into(), false),
@@ -1619,7 +1612,7 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
 fn refresh_menu(
     mut commands: Commands,
     mut menu: ResMut<MenuState>,
-    (settings, save, enc, device, tuning): (Res<Settings>, Res<SaveSlot>, Res<Encounter>, Res<Device>, Res<Tuning>),
+    (settings, save, device, tuning): (Res<Settings>, Res<SaveSlot>, Res<Device>, Res<Tuning>),
     mut preview: ResMut<CheckpointPreview>,
     mut preview_node: Query<&mut Node, With<MenuPreview>>,
     monitors: Query<(&Monitor, Has<PrimaryMonitor>)>,
@@ -1669,9 +1662,7 @@ fn refresh_menu(
     let owned = owned_bits(players.iter().next().map(|(p, _)| p));
     let ctx = PageCtx {
         has_save: save.data.is_some(),
-        boss_defeated: enc.boss_defeated,
-        boss_choice: enc.boss_choice,
-        encounters: tuning.encounters.len() as u8,
+        reviving: menu.reviving,
         weapons: tuning.weapons.len() as u8,
         device: *device,
         found,

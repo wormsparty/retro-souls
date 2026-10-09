@@ -1,6 +1,7 @@
 //! Presentation: everything that reads the simulation to display it, without ever modifying it.
 
 pub mod camera;
+pub mod gates;
 pub mod models;
 pub mod preview;
 pub mod ps1;
@@ -45,7 +46,7 @@ pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((ps1::Ps1Plugin, camera::CameraPlugin, models::ModelsPlugin, preview::PreviewPlugin))
+        app.add_plugins((ps1::Ps1Plugin, camera::CameraPlugin, models::ModelsPlugin, gates::GatesPlugin, preview::PreviewPlugin))
             .init_resource::<AnimClock>()
             // After the fixed-step loop: the tick fraction is only correct once the frame's
             // ticks have run (in PreUpdate, it lags one tick every other frame and

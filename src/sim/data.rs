@@ -448,7 +448,8 @@ pub struct BossDef {
     /// Permanent tint of the model (r, g, b, strength).
     #[serde(default)]
     pub tint: Option<[f32; 4]>,
-    /// Colour (sRGB) of its ground warnings: area effects and eruptions of its spells.
+    /// Colour (sRGB) of its spells and ground warnings and, for a main boss, of its torch and of
+    /// its medallion on the final door: one per boss, to tell them apart.
     #[serde(default = "default_aoe_color")]
     pub color: [f32; 3],
     /// Supporting role (the butcher's dogs): no health bar at the bottom of the screen, and its death
@@ -538,14 +539,46 @@ pub struct BossesDef {
     pub encounters: Vec<EncounterDef>,
 }
 
+/// A fog passage: centre of the fog on the ground (x, z), and a point beyond it (the direction
+/// in which you go through).
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+pub struct PortalDef {
+    pub pos: [f32; 2],
+    pub look: [f32; 2],
+    /// Half-width of the opening (the fog's).
+    #[serde(default = "default_portal_half_width")]
+    pub half_width: f32,
+}
+
+fn default_portal_half_width() -> f32 {
+    1.6
+}
+
+/// A boss arena (one per encounter, in the same order). Each one has its own place, far from the
+/// level and from the others (out of sight): you get there by going through the fog at the end of
+/// its corridor, in the level.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ArenaDef {
-    pub radius: f32,
-    /// Pillars: (x, z, radius).
+    pub name: LText,
+    /// Look of the scenery (tools/blender/arena.py).
+    #[serde(default)]
+    pub theme: String,
+    /// In the level: the fog at the end of the corridor, and the torch in front of it (x, z),
+    /// lit as long as the boss lives.
+    pub gate: PortalDef,
+    pub torch: [f32; 2],
+    /// The arena: its floors (`ledge`: the bosses don't go there), pillars (x, z, radius),
+    /// the fog you come in through (and leave by after the victory), the bosses' spawn point.
+    pub floors: Vec<FloorDef>,
+    #[serde(default)]
     pub pillars: Vec<[f32; 3]>,
+    pub door: PortalDef,
     pub boss_spawn: [f32; 2],
-    /// Half-width of the wall opening, to the south (towards -z), where the fog forms.
-    pub gate_half_width: f32,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct ArenasDef {
+    pub arenas: Vec<ArenaDef>,
 }
 
 /// Shape of a piece of walkable floor. Game frame: (x, z) on the ground, y = height.
@@ -575,9 +608,16 @@ pub struct FloorDef {
     /// Walled edges: you bump into them. Otherwise, past the edge, it's the void (and the fall).
     #[serde(default)]
     pub walled: bool,
-    /// Part of the arena (off-limits to path enemies).
+    /// Threshold of a boss's fog (off-limits to path enemies).
     #[serde(default)]
     pub arena: bool,
+    /// In an arena: raised floor (gallery, stairs) where the bosses don't go. You can jump
+    /// down from it, onto the boss with a plunging attack.
+    #[serde(default)]
+    pub ledge: bool,
+    /// Behind the final door: walkable only once it's open (all bosses defeated).
+    #[serde(default)]
+    pub sealed: bool,
     /// Number of steps drawn (decor; the slope is continuous for the simulation).
     #[serde(default)]
     pub steps: u32,
@@ -679,6 +719,9 @@ pub struct LevelDef {
     pub enemies: Vec<EnemySpawn>,
     #[serde(default)]
     pub pickups: Vec<PickupDef>,
+    /// The door that opens once all the bosses are defeated, and the sign beyond it (x, z).
+    pub final_door: PortalDef,
+    pub sign: [f32; 2],
 }
 
 /// Enemy type (dog, puppet…).
@@ -733,9 +776,9 @@ pub struct Tuning {
     pub weapons: Vec<WeaponDef>,
     /// The first is the Automaton (`boss.ron`), then those of `bosses.ron`.
     pub bosses: Vec<BossDef>,
-    /// Encounters offered at the checkpoint (the first: the Automaton alone).
+    /// Boss encounters (the first: the Automaton alone), and their arenas (same order).
     pub encounters: Vec<EncounterDef>,
-    pub arena: ArenaDef,
+    pub arenas: Vec<ArenaDef>,
     pub level: LevelDef,
     pub enemies: Vec<EnemyDef>,
 }
@@ -744,7 +787,7 @@ pub const PLAYER_RON: &str = include_str!("../../assets/config/player.ron");
 pub const WEAPONS_RON: &str = include_str!("../../assets/config/weapons.ron");
 pub const BOSS_RON: &str = include_str!("../../assets/config/boss.ron");
 pub const BOSSES_RON: &str = include_str!("../../assets/config/bosses.ron");
-pub const ARENA_RON: &str = include_str!("../../assets/config/arena.ron");
+pub const ARENAS_RON: &str = include_str!("../../assets/config/arenas.ron");
 pub const LEVEL_RON: &str = include_str!("../../assets/config/level.ron");
 pub const ENEMIES_RON: &str = include_str!("../../assets/config/enemies.ron");
 
@@ -754,7 +797,7 @@ pub struct TuningSources<'a> {
     pub weapons: &'a str,
     pub boss: &'a str,
     pub bosses: &'a str,
-    pub arena: &'a str,
+    pub arenas: &'a str,
     pub level: &'a str,
     pub enemies: &'a str,
 }
@@ -783,7 +826,7 @@ impl Tuning {
                 .weapons,
             bosses: std::iter::once(automaton).chain(more.bosses).collect(),
             encounters,
-            arena: opts.from_str(src.arena).map_err(|e| p("arena.ron", e))?,
+            arenas: opts.from_str::<ArenasDef>(src.arenas).map_err(|e| p("arenas.ron", e))?.arenas,
             level: opts.from_str(src.level).map_err(|e| p("level.ron", e))?,
             enemies: opts.from_str::<EnemiesDef>(src.enemies).map_err(|e| p("enemies.ron", e))?.kinds,
         };
@@ -794,6 +837,12 @@ impl Tuning {
         }
         if t.level.checkpoints.is_empty() {
             return Err("level.ron: il faut au moins un checkpoint".into());
+        }
+        if t.arenas.len() != t.encounters.len() {
+            return Err(format!("arenas.ron: {} arenas for {} encounters", t.arenas.len(), t.encounters.len()));
+        }
+        if t.encounters.len() > 32 {
+            return Err("bosses.ron: 32 encounters at most".into());
         }
         for e in &t.encounters {
             for m in &e.members {
@@ -833,11 +882,23 @@ impl Tuning {
             weapons: WEAPONS_RON,
             boss: BOSS_RON,
             bosses: BOSSES_RON,
-            arena: ARENA_RON,
+            arenas: ARENAS_RON,
             level: LEVEL_RON,
             enemies: ENEMIES_RON,
         })
         .expect("invalid built-in tuning")
+    }
+
+    /// The main boss of encounter `i` (its first member that isn't a supporting role).
+    pub fn encounter_boss(&self, i: usize) -> Option<u8> {
+        let e = self.encounters.get(i)?;
+        let kinds = e.members.iter().filter_map(|m| self.boss_kind(&m.boss));
+        kinds.clone().find(|&k| !self.bosses[k as usize].minor).or(kinds.clone().next())
+    }
+
+    /// Colour of boss `i`'s torch and medallion.
+    pub fn encounter_color(&self, i: usize) -> [f32; 3] {
+        self.encounter_boss(i).map_or([1.0, 0.5, 0.2], |b| self.bosses[b as usize].color)
     }
 
     /// Index of boss `key`.

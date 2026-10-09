@@ -15,6 +15,8 @@ use super::{DT, SimDebug, SimEvent, SimEvents, SimTick, math, spell};
 pub struct Boss {
     /// Definition (index in `Tuning::bosses`).
     pub def: u8,
+    /// Its arena (`Tuning::arenas`).
+    pub arena: u8,
     pub phase: u8,
     pub target: Option<Entity>,
     /// Last player to hit it, and when (aggro in co-op).
@@ -35,9 +37,10 @@ pub struct Boss {
 }
 
 impl Boss {
-    pub fn new(t: &Tuning, def: u8) -> Self {
+    pub fn new(t: &Tuning, def: u8, arena: u8) -> Self {
         Self {
             def,
+            arena,
             phase: 1,
             target: None,
             last_attacker: None,

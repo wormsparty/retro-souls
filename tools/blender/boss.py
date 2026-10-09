@@ -20,7 +20,8 @@ PORCELAIN = material("b_mask", (0.92, 0.88, 0.8))
 GOLD = material("b_gold", (0.82, 0.62, 0.25))
 IRON = material("b_iron", tex=tex_noise((0.32, 0.31, 0.33), 0.4, seed=34))
 DARK = material("b_dark", (0.08, 0.06, 0.06))
-EYES = material("b_eyes", (1.0, 0.55, 0.2), emissive=(1.0, 0.45, 0.1))
+# Teal, like its shockwaves and its torch (assets/config/boss.ron).
+EYES = material("b_eyes", (0.4, 1.0, 0.85), emissive=(0.15, 0.95, 0.8))
 STEEL = material("b_steel", (0.7, 0.72, 0.76))
 
 rig = Rig("boss")

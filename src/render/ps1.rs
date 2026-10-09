@@ -224,6 +224,9 @@ fn setup_low_res(
             ..default()
         }),
         Transform::from_xyz(0.0, 4.0, -16.0).looking_at(Vec3::ZERO, Vec3::Y),
+        // The lights are the PS1 material's own (`Ps1Lighting`): a single light cluster is enough
+        // (`None` makes Bevy 0.19 fail on empty cluster textures).
+        bevy::light::cluster::ClusterConfig::Single,
     ));
 
     // Display camera: the low-resolution image + the HUD at full resolution.

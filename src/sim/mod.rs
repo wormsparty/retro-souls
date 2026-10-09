@@ -82,7 +82,16 @@ pub enum SimEvent {
     /// The player entered the arena: the boss wakes up, the fog closes.
     BossAwake,
     BossDefeated { embers: u32 },
-    BossRevived,
+    /// The last boss has fallen: the final door opens.
+    DoorOpened,
+    /// A defeated boss's torch was rekindled: it awaits again in its arena.
+    BossRevived { arena: u8 },
+    /// A player went through a fog: into an arena (`Some`), or back into the level.
+    Passage { entity: Entity, arena: Option<u8> },
+    /// A player wants to rekindle the torch of a defeated boss (the menu asks for confirmation).
+    TorchTouched { entity: Entity, arena: u8 },
+    /// A player reads the sign behind the final door.
+    SignRead { entity: Entity },
     /// Rest at the checkpoint (HP, items and stamina restored).
     Rested { entity: Entity },
     /// The fighters have just been (re)created: loading, respawn, travel.
@@ -217,7 +226,7 @@ fn reset_fight(
     }
     events.0.clear();
     *rng = rng::SimRng::default();
-    *enc = Encounter { boss_defeated: progress.boss_defeated, boss_choice: progress.boss_choice, ..default() };
+    *enc = Encounter { defeated: progress.defeated_bits(), ..default() };
     spawn_fight(&mut commands, &tuning, reset.players, &progress);
     events.push(SimEvent::Respawned);
 }
@@ -226,6 +235,9 @@ fn reset_fight(
 /// are created in a fixed order (determinism).
 pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &Progress) {
     let checkpoint = (progress.checkpoint as usize).min(t.level.checkpoints.len() - 1);
+    let door_open = encounter::door_open(t, progress.defeated_bits());
+    let arena = progress.arena.filter(|&i| (i as usize) < t.arenas.len());
+    let zone = arena.map_or(world::Zone::Level, world::Zone::Arena);
     for id in 0..players.max(1) {
         let (spawn, spawn_yaw) = encounter::checkpoint_spawn(t, checkpoint);
         // A saved position off the ground (old save, modified level): at the checkpoint.
@@ -239,10 +251,14 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
                 None => Some((pos, yaw)),
             }
         });
-        let (pos, yaw) = saved.unwrap_or((spawn, spawn_yaw));
-        let pos = match world::step(t, pos + math::right(yaw) * id as f32, t.player.radius, world::Mover::Player) {
+        let (pos, yaw) = match arena {
+            // In front of the door (or at the saved position, if it's in that arena: debug).
+            Some(i) => saved.filter(|(p, _)| world::zone_at(t, *p) == zone).unwrap_or_else(|| encounter::door_entry(t, i as usize)),
+            None => saved.filter(|(p, _)| world::zone_at(t, *p) == zone).unwrap_or((spawn, spawn_yaw)),
+        };
+        let pos = match world::step(t, pos + math::right(yaw) * id as f32, t.player.radius, world::Mover::Player { zone, door_open }) {
             world::Step::Ground(p) => p,
-            world::Step::Fall => pos,
+            _ => pos,
         };
         let mut p = player::Player::new(id, t);
         p.embers = progress.embers;
@@ -253,6 +269,7 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
         p.picked = progress.picked;
         p.slain = progress.slain;
         p.dropped = progress.dropped;
+        p.zone = zone;
         let mut hp = Health::new(t.player.max_hp);
         if let Some(cur) = progress.hp {
             hp.cur = cur.clamp(1.0, hp.max);
@@ -268,22 +285,22 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
             p,
         ));
     }
-    if !progress.boss_defeated {
-        spawn_boss(commands, t, progress.boss_choice);
-    }
     enemy::spawn_all(commands, t, progress.slain);
 }
 
-/// Bosses of encounter `choice` (`Tuning::encounters`), asleep at their spawn point,
-/// facing the arena opening.
-pub fn spawn_boss(commands: &mut Commands, t: &Tuning, choice: u8) {
-    let enc = t.encounters.get(choice as usize).unwrap_or(&t.encounters[0]);
-    let [bx, bz] = t.arena.boss_spawn;
-    for m in &enc.members {
+/// Bosses of encounter `i` (`Tuning::encounters`), in their arena (`Tuning::arenas`), asleep at
+/// their spawn point, facing the fog you come in through.
+pub fn spawn_boss(commands: &mut Commands, t: &Tuning, i: u8) {
+    let i = (i as usize).min(t.encounters.len() - 1);
+    let arena = &t.arenas[i];
+    let [bx, bz] = arena.boss_spawn;
+    let (door, _) = world::portal(t, &arena.door);
+    for m in &t.encounters[i].members {
         let Some(def) = t.boss_kind(&m.boss) else { continue };
         let bd = &t.bosses[def as usize];
-        let pos = Vec3::new(bx + m.offset[0], 0.0, bz + m.offset[1]);
-        let yaw = math::yaw_of(world::fog_gate(&t.arena) - pos);
+        let (x, z) = (bx + m.offset[0], bz + m.offset[1]);
+        let pos = Vec3::new(x, world::floor_at(t, x, z, 0.0).unwrap_or(0.0), z);
+        let yaw = math::yaw_of(door - pos);
         commands.spawn((
             SimEntity,
             Team::Enemies,
@@ -293,7 +310,7 @@ pub fn spawn_boss(commands: &mut Commands, t: &Tuning, choice: u8) {
             Health::new(bd.max_hp),
             Hitstop::default(),
             Action::default(),
-            boss::Boss::new(t, def),
+            boss::Boss::new(t, def, i as u8),
         ));
     }
 }
@@ -344,7 +361,7 @@ pub fn state_hash(world: &mut World) -> u64 {
         p.embers.hash(&mut h);
         (p.picked, p.slain, p.found, p.checkpoint).hash(&mut h);
         p.dropped.map(|d| (d.at.map(f32::to_bits), d.embers)).hash(&mut h);
-        (p.airborne, p.air_vy.to_bits()).hash(&mut h);
+        (p.airborne, p.air_vy.to_bits(), p.zone).hash(&mut h);
     }
     let mut qb = world.query::<&boss::Boss>();
     for b in qb.iter(world) {

@@ -3,21 +3,25 @@
 // Frame: x, z on the ground (the arena is centred on (0, 0), its opening faces -z), y = height.
 // - floors: walkable floors. `Ellipse` (square, platforms) or `Strip` (straight strip from
 //   `from` to `to`, in (x, z, y): bridge, ramp, stairs). `walled`: walled edges (you bump into them);
-//   otherwise, past the edge, it's the void and the fall. `arena`: off-limits to path enemies.
+//   otherwise, past the edge, it's the void and the fall. `arena`: the corridors to the bosses'
+//   fogs (assets/config/arenas.ron), off-limits to path enemies. `sealed`: behind the final door.
 //   Strips must go into the floors they connect, at the same height.
 // - checkpoints: braziers. The first one is the starting point of a new game. `look`:
 //   point you face when respawning there (the way forward).
-// - props: decor (collisions are defined in code, `Prop::colliders`).
+// - props: decor (collisions are defined in code, `Prop::colliders`). No lit street lamp near a
+//   boss torch: its coloured flame must be the only light around.
 // - enemies: types defined in enemies.ron. They respawn on rest and on death, except
 //   the `unique` ones. `group`: they raise the alarm together.
 // - pickups: items glowing on the ground, picked up once and for all.
+// - final_door: the door that opens once all the bosses are defeated (`pos`: its centre on the
+//   ground, `look`: beyond it), and the sign that awaits behind it.
 //
 // The scenery (tools/blender/arena.py) is generated from this file: rerun
 // tools/build_assets.sh after changing the geometry.
 (
     floors: [
-        // Landing in front of the arena opening, then stairs down to the square.
-        (shape: Strip(from: (0, -15.0, 0), to: (0, -18.6, 0), half_width: 1.6), walled: true, arena: true),
+        // Landing in front of the theatre's fog (the Automaton), then stairs down to the square.
+        (shape: Strip(from: (0, -16.2, 0), to: (0, -18.6, 0), half_width: 1.6), walled: true, arena: true),
         (shape: Strip(from: (0, -18.6, 0), to: (0, -23.4, -2.4), half_width: 1.6), walled: true, steps: 8),
         // Landing at the foot of the stairs: wider than them (their balustrades rest on it), it
         // starts under the last step; otherwise a corner of void remains between the end of the
@@ -27,13 +31,19 @@
         (shape: Ellipse(center: (0, -31.5), radii: (10, 8), y: -2.4)),
         // Bridge to the fountain garden (dead end east of the square).
         (shape: Strip(from: (8.5, -33.0, -2.4), to: (14.8, -33.6, -2.4), half_width: 1.2), style: Bridge),
-        (shape: Ellipse(center: (18.6, -33.8), radii: (4.4, 4.4), y: -2.4)),
+        (shape: Ellipse(center: (18.8, -32.4), radii: (5.4, 6.0), y: -2.4)),
+        // Corridor to the Lantern Foundry (the Wick-Trimmer and the Anvil).
+        (shape: Strip(from: (22.6, -34.2, -2.4), to: (31.5, -35.0, -2.4), half_width: 1.2), walled: true, arena: true),
         // Bridge to the bandstand.
         (shape: Strip(from: (-3.5, -36.5, -2.4), to: (-9.6, -51.5, -2.4), half_width: 1.3), style: Bridge),
         (shape: Ellipse(center: (-10.5, -55), radii: (5, 5), y: -2.4)),
+        // Corridor to the Slaughter Yard (the Knacker).
+        (shape: Strip(from: (-14.0, -55.0, -2.4), to: (-23.0, -55.0, -2.4), half_width: 1.3), walled: true, arena: true),
         // Ramp to the ticket booths.
         (shape: Strip(from: (-8, -58.5, -2.4), to: (-1.4, -67, -4.0), half_width: 1.6), style: Bridge),
         (shape: Ellipse(center: (1, -71), radii: (7, 5.5), y: -4.0)),
+        // Corridor to the Grand Guignol (the Great Marionette).
+        (shape: Strip(from: (-5.5, -72.5, -4.0), to: (-15.0, -74.5, -4.0), half_width: 1.2), walled: true, arena: true),
         // Narrow walkway to a ledge, then a jump to a rock (flask shard).
         (shape: Strip(from: (6.5, -70.5, -4.0), to: (14.5, -68, -4.0), half_width: 0.55), style: Planks),
         (shape: Ellipse(center: (16.5, -67.5), radii: (2.2, 2.2), y: -4.0)),
@@ -41,15 +51,27 @@
         // Long bridge to the track.
         (shape: Strip(from: (0.5, -75.5, -4.0), to: (5.7, -94.2, -5.2), half_width: 1.2), style: Bridge),
         (shape: Ellipse(center: (6.5, -99.5), radii: (6.5, 6.5), y: -5.2)),
+        // Corridor to the Frozen Cistern (the Rimeback).
+        (shape: Strip(from: (12.5, -99.5, -5.2), to: (21.5, -100.2, -5.2), half_width: 1.2), walled: true, arena: true),
         // Narrow plank to a ledge (talisman).
         (shape: Strip(from: (0.3, -101, -5.2), to: (-5.5, -103.5, -5.2), half_width: 0.4), style: Planks),
         (shape: Ellipse(center: (-7, -104), radii: (1.8, 1.8), y: -5.2)),
-        // Stairs to the belvedere (second checkpoint), and the collapsed bridge beyond.
+        // Stairs to the belvedere (second checkpoint).
         (shape: Strip(from: (8, -105.5, -5.2), to: (9.5, -112, -3.4), half_width: 1.4), steps: 7),
         (shape: Ellipse(center: (10, -116), radii: (4.2, 4.2), y: -3.4)),
+        // Corridor to the Ash Summit (the Soot Wyvern).
+        (shape: Strip(from: (6.0, -116.8, -3.4), to: (-3.0, -118.5, -3.4), half_width: 1.2), walled: true, arena: true),
         // An isolated rock east of the belvedere: you have to jump to it at a run (talisman).
         (shape: Ellipse(center: (18.4, -115.2), radii: (1.6, 1.6), y: -3.4)),
-        (shape: Strip(from: (10.5, -119.8, -3.4), to: (11.5, -124.5, -3.4), half_width: 1.2), style: Bridge),
+        // Bridge to the parvis: the Giant's corridor, and the final door.
+        (shape: Strip(from: (10.5, -119.8, -3.4), to: (11.8, -129.5, -3.4), half_width: 1.2), style: Bridge),
+        (shape: Ellipse(center: (12, -134.5), radii: (6.5, 5.5), y: -3.4)),
+        // Corridor to the Giant's Hearth (the Dead-Hearth Giant).
+        (shape: Strip(from: (17.6, -134.5, -3.4), to: (27.5, -135.5, -3.4), half_width: 1.3), walled: true, arena: true),
+        // Porch of the final door, and beyond it, once it's open: a last terrace.
+        (shape: Strip(from: (12, -138.5, -3.4), to: (12, -141.5, -3.4), half_width: 1.6), walled: true, arena: true),
+        (shape: Strip(from: (12, -141.5, -3.4), to: (12, -147.0, -3.4), half_width: 1.6), walled: true, arena: true, sealed: true),
+        (shape: Ellipse(center: (12, -151), radii: (4.2, 4.2), y: -3.4), walled: true, arena: true, sealed: true),
     ],
 
     checkpoints: [
@@ -61,37 +83,39 @@
         ),
         (
             name: (en: "Broken Belvedere", fr: "Belvédère brisé"),
-            // Facing the collapsed bridge, beyond.
-            pos: (8.6, -115.2), look: (11.5, -124.5),
-            view: ((6.0, -1.4, -109.5), (9.6, -2.6, -116.5)),
+            // At the top of the stairs, away from the Wyvern's red torch (its own light).
+            // Facing the bridge to the parvis.
+            pos: (12.0, -113.4), look: (12, -134.5),
+            view: ((7.0, -1.5, -109.8), (12.4, -2.9, -114.6)),
         ),
     ],
 
     props: [
-        // Square: two street lamps at the foot of the arena stairs, one at the start of the bridge.
-        (kind: Lamp, pos: (4.3, -25.6)), (kind: Lamp, pos: (-4.3, -25.6)), (kind: Lamp, pos: (0, -38.3)),
+        // Square: two dead street lamps at the foot of the arena stairs (the theatre's torch is
+        // there), a lit one at the start of the bridge.
+        (kind: DeadLamp, pos: (4.3, -25.6), yaw: -120), (kind: DeadLamp, pos: (-4.3, -25.6), yaw: 100), (kind: Lamp, pos: (0, -38.3)),
         (kind: DeadLamp, pos: (-8.31, -29.74), yaw: -50),
         (kind: Bench, pos: (1.5, -37.8)), (kind: Bench, pos: (7.6, -29.2), yaw: -90),
-        // Fountain garden.
-        (kind: Fountain, pos: (19.0, -33.6)),
-        (kind: Bench, pos: (17.0, -30.3), yaw: 180),
-        (kind: DeadLamp, pos: (21.2, -31.0), yaw: 120),
+        // Fountain garden: the fountain at the back, away from the Foundry's torch.
+        (kind: Fountain, pos: (18.2, -29.2)),
+        (kind: Bench, pos: (15.2, -30.4), yaw: 70),
         // Bandstand.
         (kind: Column, pos: (-6.7, -55.0)), (kind: Column, pos: (-7.81, -52.31)), (kind: Column, pos: (-13.19, -52.31)),
-        (kind: Column, pos: (-14.3, -55.0)), (kind: Column, pos: (-13.19, -57.69)), (kind: Column, pos: (-10.5, -58.8)),
+        (kind: Column, pos: (-13.19, -57.69)), (kind: Column, pos: (-10.5, -58.8)),
         (kind: Crates, pos: (-12.8, -52.2), yaw: 20),
         (kind: Lamp, pos: (-3.75, -62.0)),
         // Ticket booths.
-        (kind: Booth, pos: (-2.8, -69.0), yaw: 30), (kind: Booth, pos: (3.2, -68.4), yaw: -20), (kind: Booth, pos: (-1.5, -74.0), yaw: 160),
-        (kind: Lamp, pos: (5.5, -74.2)), (kind: Lamp, pos: (-4.8, -71.5)),
+        (kind: Booth, pos: (-2.8, -69.0), yaw: 30), (kind: Booth, pos: (3.2, -68.4), yaw: -20),
+        (kind: Lamp, pos: (5.5, -74.2)), (kind: DeadLamp, pos: (-4.6, -69.4), yaw: 150),
         // Bridge.
         (kind: DeadLamp, pos: (1.1, -81.4), yaw: -60),
-        // Track.
-        (kind: Lamp, pos: (11.35, -96.7)), (kind: Lamp, pos: (1.65, -96.7)), (kind: Lamp, pos: (1.65, -102.3)), (kind: Lamp, pos: (11.35, -102.3)),
+        // Track: a single street lamp, on the west side (the Cistern's torch is on the east side).
+        (kind: Lamp, pos: (1.65, -96.7)),
         (kind: Crates, pos: (10.0, -95.0), yaw: -30),
         // Belvedere.
-        (kind: Lamp, pos: (12.8, -114.0)),
         (kind: Bench, pos: (11.8, -117.6), yaw: 160),
+        // Parvis.
+        (kind: Lamp, pos: (8.0, -138.3)), (kind: DeadLamp, pos: (16.0, -138.3), yaw: 160),
     ],
 
     enemies: [
@@ -120,4 +144,7 @@
         (pos: (18.6, -115.3), items: [(IronBrooch, 1)]),
         (pos: (-7.6, -104.6), items: [(CrestPlume, 1)]),
     ],
+
+    final_door: (pos: (12, -141.5), look: (12, -151)),
+    sign: (12, -153.0),
 )

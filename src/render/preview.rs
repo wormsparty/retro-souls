@@ -58,6 +58,7 @@ fn spawn_camera(mut commands: Commands, preview: Res<CheckpointPreview>) {
         Tonemapping::None,
         DebandDither::Disabled,
         Projection::Perspective(PerspectiveProjection { fov: 55f32.to_radians(), near: 0.1, far: 200.0, ..default() }),
+        bevy::light::cluster::ClusterConfig::Single,
     ));
 }
 
