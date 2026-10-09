@@ -45,7 +45,10 @@ impl Plugin for InputPlugin {
         app.init_resource::<InputLatch>()
             .init_resource::<Device>()
             .init_resource::<LookInput>()
-            .add_systems(PreUpdate, (track_device, latch_presses).after(bevy::input::InputSystems))
+            .add_systems(
+                PreUpdate,
+                (triggers_from_axes, (track_device, latch_presses)).chain().after(bevy::input::InputSystems),
+            )
             .add_systems(Update, (grab_cursor, read_look));
     }
 }
@@ -131,6 +134,29 @@ fn gamepad_buttons(g: &Gamepad, pressed: bool) -> u16 {
         b |= btn::SPRINT;
     }
     b
+}
+
+/// Trigger travel (axis value) that presses / releases an L2/R2 reported as an axis.
+const TRIGGER_ON: f32 = 0.5;
+const TRIGGER_OFF: f32 = 0.3;
+
+/// Pads missing from gilrs's SDL mapping database (e.g. Turtle Beach Rematch, 10f5:711e)
+/// report L2/R2 as the `LeftZ`/`RightZ` axes instead of buttons: turn them back into buttons.
+/// Correctly mapped pads never send these axes, so this does nothing for them.
+fn triggers_from_axes(mut gamepads: Query<&mut Gamepad>) {
+    for mut g in &mut gamepads {
+        for (axis, button) in [
+            (GamepadAxis::LeftZ, GamepadButton::LeftTrigger2),
+            (GamepadAxis::RightZ, GamepadButton::RightTrigger2),
+        ] {
+            let Some(v) = g.get(axis) else { continue };
+            if v > TRIGGER_ON {
+                g.digital_mut().press(button);
+            } else if v < TRIGGER_OFF && g.pressed(button) {
+                g.digital_mut().release(button);
+            }
+        }
+    }
 }
 
 /// Remembers the last device used, in game as in the menus.
