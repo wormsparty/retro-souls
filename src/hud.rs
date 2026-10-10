@@ -27,7 +27,12 @@ use crate::ui::{Glyph, Hint, PixelSize, UiFont, hint_node, i, image_bundle, set_
 
 const HP_PX: f32 = 0.6; // px per HP
 const ST_PX: f32 = 2.0; // px per stamina point
-const SP_PX: f32 = 0.4; // px per special gauge point
+const SP_PX: f32 = 0.6; // px per special gauge point
+const SPECIAL: Color = Color::srgb(0.9, 0.7, 0.25);
+/// Special ready: light yellow stripes scrolling over the gauge (period and speed in px).
+const STRIPE_LIGHT: Color = Color::srgb(1.0, 0.9, 0.45);
+const STRIPE_PERIOD: f32 = 12.0;
+const STRIPE_SPEED: f32 = 24.0;
 const TEXT: Color = Color::srgb(0.85, 0.82, 0.75);
 const GOLD: Color = Color::srgb(0.9, 0.75, 0.4);
 
@@ -44,6 +49,10 @@ enum Bar {
     BossHp(u8),
     BossStagger(u8),
 }
+
+/// Stripe `i` of the special gauge, shown when the gauge is full.
+#[derive(Component)]
+struct SpecialStripe(usize);
 
 /// Boss slot of the bottom panel (its name and bars).
 #[derive(Component)]
@@ -196,6 +205,7 @@ impl Plugin for HudPlugin {
                 Update,
                 (
                     update_bars,
+                    special_stripes,
                     update_boss,
                     update_item,
                     prompt,
@@ -670,17 +680,23 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
                 c.spawn(bar(0.0, 5.0, Color::srgb(0.3, 0.62, 0.25), Bar::Stamina));
             });
             c.spawn((
-                Node {
-                    width: px(p.special_segments as f32 * p.special_per_segment * SP_PX + 4.0),
-                    height: px(9),
-                    padding: UiRect::all(px(2)),
-                    ..default()
-                },
+                Node { width: px(p.special_max * SP_PX + 4.0), height: px(9), padding: UiRect::all(px(2)), ..default() },
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
                 Bar::SpecialFrame,
             ))
             .with_children(|c| {
-                c.spawn(bar(0.0, 5.0, Color::srgb(0.9, 0.7, 0.25), Bar::Special));
+                c.spawn((Node { width: px(0), height: px(5), overflow: Overflow::clip(), ..default() }, BackgroundColor(SPECIAL), Bar::Special))
+                    .with_children(|c| {
+                        let n = (p.special_max * SP_PX / STRIPE_PERIOD).ceil() as usize + 1;
+                        for i in 0..n {
+                            c.spawn((
+                                Node { position_type: PositionType::Absolute, width: px(STRIPE_PERIOD / 2.0), height: px(5), ..default() },
+                                BackgroundColor(STRIPE_LIGHT),
+                                Visibility::Hidden,
+                                SpecialStripe(i),
+                            ));
+                        }
+                    });
             });
             c.spawn((font.text("", 1, GOLD), Effects));
         });
@@ -1077,6 +1093,22 @@ fn update_bars(
             Bar::SpecialFrame => px(p.special_max(&tuning) * SP_PX + 4.0),
             _ => continue,
         };
+    }
+}
+
+/// Special ready (full gauge): the stripes scroll over it.
+fn special_stripes(
+    tuning: Res<Tuning>,
+    time: Res<Time>,
+    players: Query<&Player, With<LocalPlayer>>,
+    mut stripes: Query<(&SpecialStripe, &mut Node, &mut Visibility), Without<Bar>>,
+) {
+    let Ok(p) = players.single() else { return };
+    let ready = p.special_ready(&tuning);
+    let offset = (time.elapsed_secs() * STRIPE_SPEED) % STRIPE_PERIOD;
+    for (s, mut n, mut vis) in &mut stripes {
+        *vis = if ready { Visibility::Inherited } else { Visibility::Hidden };
+        n.left = px(s.0 as f32 * STRIPE_PERIOD + offset - STRIPE_PERIOD);
     }
 }
 

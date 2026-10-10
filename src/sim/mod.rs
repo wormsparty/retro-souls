@@ -50,7 +50,8 @@ pub enum SimSet {
 /// Events produced by the sim for the presentation (sounds, VFX, HUD).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SimEvent {
-    Hit { pos: Vec3, heavy: bool, on_player: bool },
+    /// `foe`: the opponent hit (`None`: a player).
+    Hit { pos: Vec3, heavy: bool, foe: Option<Entity> },
     Guard { pos: Vec3 },
     PerfectGuard { pos: Vec3 },
     GuardBreak { pos: Vec3 },

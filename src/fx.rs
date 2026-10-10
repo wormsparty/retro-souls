@@ -312,7 +312,7 @@ pub fn consume_events(
     sparks: Res<SparkAssets>,
     mut rig: ResMut<CameraRig>,
     mut fx: ResMut<FxState>,
-    mut flashes: Query<(&GlobalTransform, &mut TintFlash)>,
+    mut flashes: Query<&mut TintFlash>,
     transforms: Query<&GlobalTransform>,
     enemies: Query<&Enemy>,
     tuning: Res<Tuning>,
@@ -358,18 +358,14 @@ pub fn consume_events(
                 burst(&mut commands, &sparks, &sparks.guard, pos, 14, 4.0, seed, floor(pos));
                 rig.shake = rig.shake.max(0.7);
             }
-            SimEvent::Hit { pos, heavy, on_player } => {
+            SimEvent::Hit { pos, heavy, foe } => {
+                let on_player = foe.is_none();
                 play(&mut commands, &sounds, if heavy || on_player { "hit_heavy" } else { "hit" }, 0.9);
                 burst(&mut commands, &sparks, &sparks.hit, pos, if heavy { 16 } else { 8 }, 3.0, seed, floor(pos));
                 rig.shake = rig.shake.max(if on_player { 0.8 } else if heavy { 0.5 } else { 0.2 });
-                if !on_player {
-                    // White flash on the hit boss closest to the impact point.
-                    if let Some((_, mut f)) = flashes
-                        .iter_mut()
-                        .min_by(|a, b| a.0.translation().distance(pos).total_cmp(&b.0.translation().distance(pos)))
-                    {
-                        f.white = 1.0;
-                    }
+                // White flash on the opponent hit (not on a corpse lying near the impact point).
+                if let Some(mut f) = foe.and_then(|e| flashes.get_mut(e).ok()) {
+                    f.white = 1.0;
                 }
             }
             SimEvent::Swing { heavy, .. } => {

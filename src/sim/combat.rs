@@ -291,15 +291,16 @@ pub fn resolve_hits(
                 php.cur = (php.cur + heal).min(php.max);
                 p.regain -= heal;
             }
-            // Special attack hits don't recharge the gauge (otherwise it pays for itself).
-            if !matches!(hit.mv, MoveRef::Weapon(_, WeaponMove::Special | WeaponMove::SpecialCounter)) {
+            // Special attack and fatal blow hits don't recharge the gauge (otherwise the special,
+            // which staggers, would pay for itself through the fatal blow that follows).
+            if !matches!(hit.mv, MoveRef::Weapon(_, WeaponMove::Special | WeaponMove::SpecialCounter | WeaponMove::Fatal)) {
                 p.special += dmg * t.player.special_per_damage;
             }
             pstop.0 = pstop.0.max(h.hitstop);
             fstop.0 = fstop.0.max(h.hitstop);
             let pos = impact_point(pbody, fbody);
             let heavy = matches!(hit.mv, MoveRef::Weapon(_, WeaponMove::HeavyCharged | WeaponMove::Fatal | WeaponMove::Jump));
-            events.push(SimEvent::Hit { pos, heavy, on_player: false });
+            events.push(SimEvent::Hit { pos, heavy, foe: Some(fe) });
             if fhp.dead() {
                 if let Some(b) = boss.as_ref() {
                     fact.start(MoveRef::Boss(b.def, BossMove::Death), 0.0);
@@ -442,7 +443,7 @@ pub fn strike_player(
     p.regain = 0.0;
     p.regain_timer = 0;
     pstop.0 = blow.hitstop;
-    events.push(SimEvent::Hit { pos, heavy: blow.reaction == Reaction::Heavy, on_player: true });
+    events.push(SimEvent::Hit { pos, heavy: blow.reaction == Reaction::Heavy, foe: None });
     if php.dead() {
         force_move(p, pact, MoveRef::Player(PlayerMove::Death));
         events.push(SimEvent::PlayerDied);

@@ -144,7 +144,7 @@ The encounters are in `assets/config/bosses.ron`, their arenas in `assets/config
   quarter turn whipping its tail; behind, the tail sweeps; from afar, a stream of fire down to
   the ground; it takes flight and lands on its target, or rises out of reach and spits three
   fireballs; ash rain in phase 2;
-- the Knacker and his two dogs: diagonal cleavers (left then right), leaning whirlwind
+- the Butcher and his two dogs: diagonal cleavers (left then right), leaning whirlwind
   at head height, head-down charge, cleave (shockwave), thrown cleaver; he leaps far back
   then charges or throws a cleaver; frenzy in phase 2. The dogs only have a small health bar
   and collapse with their master;

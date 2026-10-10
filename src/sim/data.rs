@@ -210,8 +210,9 @@ pub struct PlayerDef {
     pub regain_ticks: u32,
     /// HP restored per point of damage dealt.
     pub regain_ratio: f32,
-    pub special_segments: u32,
-    pub special_per_segment: f32,
+    /// Full special gauge: the special attack is ready, and using it empties the gauge.
+    pub special_max: f32,
+    /// Gauge gained per point of damage dealt (not by the special itself or a fatal blow).
     pub special_per_damage: f32,
     /// Max distance and arc to trigger the fatal blow.
     pub fatal_range: f32,

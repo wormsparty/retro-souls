@@ -230,19 +230,19 @@ pub fn encounter_tick(
     mut enc: ResMut<Encounter>,
     mut reset: ResMut<ResetFight>,
     mut events: ResMut<SimEvents>,
-    mut players: Query<(&mut Player, &Body, &Health), Without<Boss>>,
+    mut players: Query<(Entity, &mut Player, &Body, &mut Health), Without<Boss>>,
     mut bosses: Query<(Entity, &Boss, &mut Action, &mut Health)>,
 ) {
     let t = &*tuning;
-    for (mut p, _, _) in &mut players {
+    for (_, mut p, _, _) in &mut players {
         p.dead_ticks = if p.state == PState::Dead { p.dead_ticks + 1 } else { 0 };
     }
 
     // Everyone is dead: back to the checkpoint, the boss starts over.
-    let all_dead = players.iter().all(|(p, ..)| p.state == PState::Dead && p.dead_ticks >= RESPAWN_TICKS);
+    let all_dead = players.iter().all(|(_, p, ..)| p.state == PState::Dead && p.dead_ticks >= RESPAWN_TICKS);
     if all_dead
         && !reset.requested
-        && let Some((p, b, h)) = players.iter().min_by_key(|(p, ..)| p.id)
+        && let Some((_, p, b, h)) = players.iter().min_by_key(|(_, p, ..)| p.id)
     {
         reset.requested = true;
         reset.progress = Some(Progress::of_player(p, b, h, &enc, t));
@@ -253,7 +253,7 @@ pub fn encounter_tick(
     };
 
     // A player went through a fog: its bosses are there (created at the next tick).
-    if let Some(i) = players.iter().find_map(|(p, _, h)| alive_in(p, h))
+    if let Some(i) = players.iter().find_map(|(_, p, _, h)| alive_in(&p, &h))
         && enc.arena != Some(i)
         && !enc.is_defeated(i)
     {
@@ -270,7 +270,7 @@ pub fn encounter_tick(
     let boss_alive = bosses.iter().any(|(_, b, _, h)| !h.dead() && !b.def(t).minor);
 
     // The bosses wake up roaring, the fog closes again.
-    if !enc.active && boss_alive && players.iter().any(|(p, _, h)| alive_in(p, h) == Some(arena)) {
+    if !enc.active && boss_alive && players.iter().any(|(_, p, _, h)| alive_in(&p, &h) == Some(arena)) {
         enc.active = true;
         for (_, b, mut a, h) in &mut bosses {
             if !h.dead() && a.mv.is_none() {
@@ -291,13 +291,21 @@ pub fn encounter_tick(
             }
         }
         events.push(SimEvent::BossDefeated);
+        // The survivors catch their breath: full health and flasks refilled.
+        for (e, mut p, _, mut h) in &mut players {
+            if !h.dead() {
+                h.cur = h.max;
+                p.inventory.refill(t);
+                events.push(SimEvent::Heal { entity: e });
+            }
+        }
         if door_open(t, enc.defeated) {
             events.push(SimEvent::DoorOpened);
         }
     }
 
     // Everyone has left the arena (after the victory): it empties.
-    if !enc.active && !players.iter().any(|(p, ..)| p.zone == Zone::Arena(arena)) {
+    if !enc.active && !players.iter().any(|(_, p, ..)| p.zone == Zone::Arena(arena)) {
         for (e, ..) in &bosses {
             commands.entity(e).despawn();
         }

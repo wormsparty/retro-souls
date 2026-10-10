@@ -113,7 +113,7 @@ impl Player {
             stamina_delay: 0,
             regain: 0.0,
             regain_timer: 0,
-            special: t.player.special_per_segment,
+            special: 0.0,
             guard_start: 0,
             guard_held: false,
             last_guard_press: 0,
@@ -204,7 +204,12 @@ impl Player {
     }
 
     pub fn special_max(&self, t: &Tuning) -> f32 {
-        t.player.special_segments as f32 * t.player.special_per_segment
+        t.player.special_max
+    }
+
+    /// Full gauge: the special attack can be used.
+    pub fn special_ready(&self, t: &Tuning) -> bool {
+        self.special >= self.special_max(t)
     }
 }
 
@@ -683,9 +688,9 @@ fn try_offensive(p: &mut Player, body: &mut Body, action: &mut Action, foes: &mu
         p.combo = 0;
         return true;
     }
-    if p.buffer.buffered(btn::SPECIAL, now, buf) && p.special >= pd.special_per_segment {
+    if p.buffer.buffered(btn::SPECIAL, now, buf) && p.special_ready(t) {
         p.buffer.consume(btn::SPECIAL);
-        p.special -= pd.special_per_segment;
+        p.special = 0.0;
         start_move(p, body, action, MoveRef::Weapon(w, WeaponMove::Special), ctx);
         return true;
     }

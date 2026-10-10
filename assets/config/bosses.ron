@@ -28,7 +28,7 @@
     encounters: [
         (name: (en: "The Soot Wyvern", fr: "La Vouivre de Suie"),
          members: [(boss: "dragon", offset: (0, 1))]),
-        (name: (en: "The Knacker", fr: "L'Équarrisseur"),
+        (name: (en: "The Butcher", fr: "Le Boucher"),
          members: [(boss: "butcher"), (boss: "butcher_hound", offset: (-3, -2.5)), (boss: "butcher_hound", offset: (3, -2))]),
         (name: (en: "The Wick-Trimmer and the Anvil", fr: "Le Falotier et l'Enclume"),
          members: [(boss: "lamplighter", offset: (-3, 1.5)), (boss: "anvil", offset: (2.6, 0))]),
@@ -184,8 +184,8 @@
         // ================================================================= horned butcher
         (
             key: "butcher", model: "horned_butcher", scale: 1.15,
-            name: (en: "The Knacker", fr: "L'Équarrisseur"),
-            max_hp: 3000, phase2_at: 0.5, radius: 1.0, height: 4.1, mass: 10,
+            name: (en: "The Butcher", fr: "Le Boucher"),
+            max_hp: 4200, phase2_at: 0.5, radius: 1.0, height: 4.1, mass: 10,
             walk_speed: 1.7, strafe_speed: 1.0, turn_rate: 120, preferred_range: 2.8,
             stagger_max: 110, stagger_delay: 170, stagger_decay: 8, idle_ticks: (30, 70), aggro_ticks: 240,
             color: (0.92, 0.08, 0.12),
@@ -294,8 +294,8 @@
         (
             // His dogs: the same as on the path, bigger and nastier.
             key: "butcher_hound", model: "hound", scale: 1.5, minor: true,
-            name: (en: "Knacker's Hound", fr: "Chien de l'équarrisseur"),
-            max_hp: 300, phase2_at: 0, radius: 0.62, height: 1.35, mass: 1.6,
+            name: (en: "Butcher's Hound", fr: "Chien du boucher"),
+            max_hp: 360, phase2_at: 0, radius: 0.62, height: 1.35, mass: 1.6,
             walk_speed: 5.2, strafe_speed: 1.6, turn_rate: 400, preferred_range: 2.4,
             stagger_max: 40, stagger_delay: 120, stagger_decay: 10, idle_ticks: (24, 70), aggro_ticks: 200,
             color: (0.92, 0.08, 0.12),

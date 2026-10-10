@@ -52,7 +52,7 @@
             door: (pos: (-375, 235.6), look: (-375, 262)),
             boss_spawn: (-375, 270),
         ),
-        // The Knacker and his dogs: a cramped slaughter yard. Stairs climb along the
+        // The Butcher and his dogs: a cramped slaughter yard. Stairs climb along the
         // west wall to a gallery, out of the dogs' reach: from there, you drop onto the butcher
         // (plunging attack). Corridor west of the bandstand.
         (

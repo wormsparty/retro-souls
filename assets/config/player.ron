@@ -25,9 +25,10 @@
     input_buffer: 10,
     regain_ticks: 360,
     regain_ratio: 0.6,
-    special_segments: 3,
-    special_per_segment: 100,
-    special_per_damage: 0.45,
+    // Special gauge: full = special ready, it empties when used. Fills by dealing damage
+    // (not with the special itself nor a fatal blow) and with perfect guards.
+    special_max: 200,
+    special_per_damage: 0.3,
     fatal_range: 2.2,
     fatal_arc: 70,
 

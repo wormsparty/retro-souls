@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use psx_souls::sim::boss::Boss;
-use psx_souls::sim::data::{BossMove, MoveRef, PlayerMove, Shape, Tuning};
+use psx_souls::sim::data::{BossMove, MoveRef, PlayerMove, Shape, Tuning, WeaponMove};
 use psx_souls::sim::encounter::{self, Encounter, Progress, SimCommand, SimCommands, checkpoint_pos, checkpoint_spawn};
 use psx_souls::sim::items::{Item, Loot};
 use psx_souls::sim::fighter::{Action, Body, Health};
@@ -270,10 +270,13 @@ fn stagger_leads_to_groggy_and_fatal() {
     steps(&mut app, 30, IDLE);
     assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(0, BossMove::Groggy)));
     let boss_hp = hp(&mut app, b);
+    let special = app.world().get::<Player>(p).unwrap().special;
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
     assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(0, BossMove::FatalReceived)));
     steps(&mut app, 120, IDLE);
     assert!(hp(&mut app, b) < boss_hp - 300.0);
+    // The fatal blow doesn't recharge the special gauge.
+    assert_eq!(app.world().get::<Player>(p).unwrap().special, special);
 }
 
 #[test]
@@ -377,7 +380,6 @@ fn stamina_goes_negative_and_blocks_actions() {
 
 #[test]
 fn stamina_cost_is_proportional_to_damage_for_all_weapons() {
-    use psx_souls::sim::data::WeaponMove;
     use psx_souls::sim::player::stamina_cost;
     let t = Tuning::builtin();
     for (w, wd) in t.weapons.iter().enumerate() {
@@ -746,13 +748,26 @@ fn special_hits_do_not_refill_special_gauge() {
     app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, 4.0);
     app.world_mut().get_mut::<Body>(p).unwrap().yaw = 0.0;
     app.world_mut().get_mut::<Body>(b).unwrap().pos = Vec3::new(0.0, 0.0, 6.0);
-    app.world_mut().get_mut::<Player>(p).unwrap().special = t.player.special_per_segment;
+    app.world_mut().get_mut::<Player>(p).unwrap().special = t.player.special_max;
     let before = hp(&mut app, b);
     step(&mut app, PlayerInput { buttons: btn::SPECIAL, ..IDLE });
     steps(&mut app, 80, IDLE);
     let dealt = before - hp(&mut app, b);
     assert!(dealt >= 200.0, "the special must hurt: {dealt}");
     assert_eq!(app.world().get::<Player>(p).unwrap().special, 0.0);
+}
+
+#[test]
+fn special_needs_a_full_gauge() {
+    let mut app = new_app();
+    let t = tuning(&app);
+    let p = player(&mut app);
+    app.world_mut().get_mut::<Player>(p).unwrap().special = t.player.special_max - 1.0;
+    step(&mut app, PlayerInput { buttons: btn::SPECIAL, ..IDLE });
+    steps(&mut app, 5, IDLE);
+    let w = app.world().get::<Player>(p).unwrap().weapon;
+    assert!(!app.world().get::<Action>(p).unwrap().is(MoveRef::Weapon(w, WeaponMove::Special)));
+    assert_eq!(app.world().get::<Player>(p).unwrap().special, t.player.special_max - 1.0);
 }
 
 #[test]
@@ -1331,7 +1346,7 @@ fn spells_of_one_attack_hit_only_once() {
     for _ in 0..200 {
         app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, 4.0);
         step(&mut app, IDLE);
-        hits += events(&mut app).iter().filter(|e| matches!(e, SimEvent::Hit { on_player: true, .. })).count();
+        hits += events(&mut app).iter().filter(|e| matches!(e, SimEvent::Hit { foe: None, .. })).count();
     }
     assert_eq!(hits, 1);
     assert!(hp(&mut app, p) < before);
@@ -1445,7 +1460,7 @@ fn dragon_breath_is_one_beam_that_hits_once_and_stops_with_its_attack() {
         app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(0.0, 0.0, 9.0);
         step(&mut app, IDLE);
         for e in events(&mut app) {
-            hits += matches!(e, SimEvent::Hit { on_player: true, .. }) as u32;
+            hits += matches!(e, SimEvent::Hit { foe: None, .. }) as u32;
             casts += matches!(e, SimEvent::SpellCast { .. }) as u32;
         }
     }
@@ -1673,4 +1688,48 @@ fn a_bolt_that_misses_burns_on_the_ground_for_a_moment() {
     app.world_mut().get_mut::<Body>(p).unwrap().pos = Vec3::new(14.0, 0.0, -10.0);
     steps(&mut app, SPLASH_LIFE + 120, IDLE);
     assert!(landed(&mut app).is_none());
+}
+
+#[test]
+fn dead_hounds_do_not_shield_the_butcher() {
+    let t = Tuning::builtin();
+    let butcher = t.encounters.iter().position(|e| e.members.iter().any(|m| m.boss == "butcher")).unwrap() as u8;
+    let mut app = encounter_app(butcher);
+    app.world_mut().resource_mut::<SimDebug>().boss_passive = true;
+    let t = tuning(&app);
+    let bosses: Vec<(Entity, bool)> =
+        app.world_mut().query::<(Entity, &Boss)>().iter(app.world()).map(|(e, b)| (e, b.def(&t).minor)).collect();
+    let main = bosses.iter().find(|(_, m)| !m).unwrap().0;
+    let p = player(&mut app);
+    // The butcher at the origin, the player 2.4 m in front of it, the dogs dead between them.
+    for (e, minor) in &bosses {
+        app.world_mut().get_mut::<Action>(*e).unwrap().stop();
+        let mut b = app.world_mut().get_mut::<Body>(*e).unwrap();
+        b.pos = if *minor { Vec3::new(0.0, 0.0, 1.2) } else { Vec3::ZERO };
+        b.yaw = 0.0;
+    }
+    for (e, minor) in &bosses {
+        if *minor {
+            app.world_mut().get_mut::<Health>(*e).unwrap().cur = 0.0;
+            let def = app.world().get::<Boss>(*e).unwrap().def;
+            app.world_mut().get_mut::<Action>(*e).unwrap().start(MoveRef::Boss(def, BossMove::Death), 0.0);
+        }
+    }
+    {
+        let mut pb = app.world_mut().get_mut::<Body>(p).unwrap();
+        pb.pos = Vec3::new(0.0, 0.0, 2.4);
+        pb.yaw = std::f32::consts::PI;
+    }
+    app.world_mut().get_mut::<Player>(p).unwrap().weapon = 0;
+    let before = hp(&mut app, main);
+    events(&mut app);
+    step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
+    steps(&mut app, 30, IDLE);
+    assert!(hp(&mut app, main) < before, "the rapier reaches the butcher through the corpses");
+    // The impact (white flash) is on the butcher, not on a corpse lying near the impact point.
+    let hits: Vec<_> = events(&mut app).into_iter().filter_map(|e| match e {
+        SimEvent::Hit { foe, .. } => Some(foe),
+        _ => None,
+    }).collect();
+    assert_eq!(hits, vec![Some(main)]);
 }
