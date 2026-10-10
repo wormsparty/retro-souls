@@ -41,7 +41,7 @@ Blender 5.x and Python 3 are only needed to regenerate the assets.
 | Sprint (one click, as long as the stick is pushed) | L3 | — |
 | Lock on | R3 | Q or middle click |
 | Switch target (locked on): next point to the left / right, higher / lower (a large boss's head) | right stick ← → ↑ ↓ | mouse ← → ↑ ↓ |
-| Switch weapon | D-pad → | → |
+| Switch weapon | D-pad → (cycles) | 1 (rapier) / 2 (greatsword) |
 | Jump attack (more damage, the jump's stamina almost covers it) | RB / RT in the air | click in the air |
 | Use the selected item | X / □ | R |
 | Next item (quick slots) | D-pad ↓ | ↓ |
@@ -63,7 +63,7 @@ menu shows the controls of the last device used (gamepad, or keyboard and mouse)
   for the defeated bosses. Continue, New game (asks for
   confirmation if a save exists), Options, *Fork me* (opens the project page on GitHub), Quit.
 - **Pause** (Esc / Start): three icons, Equipment (helm), Status (scroll: hit points,
-  stamina, attack of the weapon in hand, damage reduction, healing flasks, embers) and System
+  stamina, attack of the weapon in hand, damage reduction, healing flasks) and System
   (cogwheel: Options, Help, *Fork me*, Return to title screen, Quit). Esc / (B) closes the menu. While paused,
   characters and spells are frozen; particles keep going.
 - **Checkpoint** (when resting there): Leave (selected by default), Travel (to another brazier
@@ -191,7 +191,7 @@ Esc exits it, an action in game brings it back.
 - **Special gauge** (gold bar under stamina): fills up by hitting and perfect guarding; each
   special attack uses a third of it. Special attack hits don't recharge the gauge, and its
   stamina cost is fixed (not proportional to its heavy damage).
-- **HUD**: bottom left, the equipped weapon (icon; D-pad → / R to switch) above the selected
+- **HUD**: bottom left, the equipped weapon (icon; D-pad → / 1-2 to switch) above the selected
   quick item. At the bottom, during a fight, the boss's health bar, in its colour (that of its
   torch, its spells and its medallion).
 - **Boss**: 9 attacks in phase 1 (including one rage attack and two area attacks), 2 more in
@@ -247,26 +247,28 @@ Esc exits it, an action in game brings it back.
   a column of embers and ash then rises above it, visible from afar. It becomes the respawn
   point and a travel destination. Resting restores HP, stamina and flasks, but **brings all
   enemies back**; impossible while an enemy is on your heels.
-- **Death**: you respawn at the last brazier **without your embers**: they stay on the spot,
-  with your corpse bathed in green from which green glows rise, visible from afar (at the edge
-  you fell from, after a fall). Interacting near the corpse ("Recover") gets them back; dying
-  before reaching it loses them for good.
+- **No levelling**: it's a game of skill. There's no currency and nothing to lose on death:
+  you only respawn at the last brazier.
 - **Enemies**: asleep (you can get close, but they sense everything around them) or watching
   (they see far, in front of them). An alert cry wakes their whole group. Too far from their
-  post, they give up, go back and heal. When defeated, they give embers; they come back on rest
-  and on death, except the colossus.
-  - *Stray dog*: fast, bites and pounce; staggered by every hit.
+  post, they give up, go back and heal. When their body vanishes, they sometimes leave an item
+  behind (`loot` in `enemies.ron`), glowing on the ground until picked up (or until death);
+  they come back on rest and on death, except the colossus.
+  - *Stray dog*: fast, bites and pounce; staggered by every hit. Drops: vigor root (15%),
+    golden moss (8%).
   - *Fairground puppet*: "high striker" mallet (vertical blow with hyper armour, backhand,
-    advancing thrust); it takes two rapier hits to stagger it.
-  - *Colossus of the track*: a giant puppet, unique, that hardly ever flinches.
+    advancing thrust); it takes two rapier hits to stagger it. Drops: ember resin (14%),
+    warding ash (12%), golden moss (6%).
+  - *Colossus of the track*: a giant puppet, unique, that hardly ever flinches. Always drops
+    warding ash, ember resin or vigor root.
   The player's hits lower down to opponents smaller than them (a thrust at chest height hits a
   dog).
 - **Items on the ground**: white glows surrounded by sparks swirling upwards (visible through
   the fog); you only find out what they are by picking them up ("Pick up", item obtained
   popup). Each can only be picked up once.
-  - consumables (quick slots, don't refill): *faded ember* / *lively ember* (crush them to gain
-    embers), *golden moss* (regenerates HP), *ember resin* (+20% damage for a minute, the
-    blade glows red);
+  - consumables (quick slots, don't refill), all temporary boosts: *golden moss* (regenerates
+    HP), *ember resin* (+20% damage for a minute, the blade glows red), *warding ash* (damage
+    taken −40% for 30 s), *vigor root* (stamina recovers 75% faster for 30 s);
   - talismans: *iron brooch* (damage taken −15%), *crest plume* (dodges −30% stamina);
   - *flask shard*: one more healing charge, permanently.
 
@@ -275,18 +277,16 @@ Esc exits it, an action in game brings it back.
 - You start at the square's **checkpoint**, at the foot of the theatre stairs. Resting there
   restores HP, stamina and items.
 - Going through a boss's fog wakes it; the fog closes behind you until the end of the fight.
-- Victory: **embers** (`embers` of the encounter in `bosses.ron`, 1000 for the Automaton, flame
-  icon), shown at the bottom right above the counter, which absorbs them with a little sound;
-  the boss stays dead (its torch goes out), you can revive it by rekindling its torch. Dying
-  in an arena, you leave your embers in front of its fog.
+- Victory: the boss stays dead (its torch goes out), you can revive it by rekindling its
+  torch.
 - Death: "YOU DIED" (~4 s, the screen darkens then goes black), then back to the last
-  checkpoint you rested at (embers kept), items refilled, boss and enemies reset.
+  checkpoint you rested at, items refilled, boss and enemies reset.
 - **Autosave** Dark Souls style (a single slot): on every important event (rest, entering the
   arena or leaving it, victory, enemy defeated, item picked up or used, fall, death, menu opened/closed),
   every 5 seconds and when quitting; the file is only rewritten if it changed. You resume where
   you quit, except mid boss fight (you come back in front of the fog, the boss starts over) or
-  mid-fall (at the last checkpoint). Picked-up items, kindled braziers, defeated unique enemies
-  and embers dropped on death are saved. File `save.ron` next to `settings.ron`
+  mid-fall (at the last checkpoint). Picked-up items, kindled braziers and defeated unique
+  enemies are saved (not the loot still on the ground). File `save.ron` next to `settings.ron`
   (`localStorage` in the browser).
 
 ## Tuning the feel
@@ -303,7 +303,7 @@ All gameplay values are in `assets/config/` and expressed in **ticks** (60/s):
 - `level.ron`: the level — floors (square, bridges, ramps, stairs, the corridors to the fogs;
   walled edges or open onto the void), checkpoints (name, travel menu view), decor, enemies,
   items, the great door and its sign
-- `enemies.ron`: enemy types (sight, chase, poise, embers, attacks)
+- `enemies.ron`: enemy types (sight, chase, poise, loot, attacks)
 
 With `cargo run --features dev`, saving a file restarts the fight with the new values.
 Animations are retimed automatically if you change the hit windows. The scenery is generated

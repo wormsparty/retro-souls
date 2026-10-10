@@ -215,20 +215,6 @@ fn dead_ends(t: &Tuning, f: &FloorDef, m: Mover) -> [bool; 2] {
     [!leads(x0, z0, y0), !leads(x1, z1, y1)]
 }
 
-/// Brings `pos` back onto the nearest floor of the zone, at least `m` from its edges (except at
-/// the ends of strips, which connect to other floors).
-pub fn settle(t: &Tuning, zone: Zone, pos: Vec3, m: f32) -> Vec3 {
-    let score = |f: &Fit| f.dist + (f.y - pos.y).abs();
-    pieces(t)
-        .filter(|(z, f)| *z == zone && !f.sealed)
-        .map(|(_, f)| (fit(&f.shape, pos, 0.0), f))
-        .min_by(|a, b| score(&a.0).total_cmp(&score(&b.0)))
-        .map_or(pos, |(_, f)| {
-            let f = fit(&f.shape, pos, m);
-            Vec3::new(f.point.x, f.y, f.point.z)
-        })
-}
-
 /// Floor height under (x, z), if any (the one closest to `near_y`), whatever the zone.
 pub fn floor_at(t: &Tuning, x: f32, z: f32, near_y: f32) -> Option<f32> {
     floor_below(t, x, z, near_y, None)

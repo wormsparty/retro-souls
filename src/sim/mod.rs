@@ -81,7 +81,7 @@ pub enum SimEvent {
     ItemCycled { entity: Entity },
     /// The player entered the arena: the boss wakes up, the fog closes.
     BossAwake,
-    BossDefeated { embers: u32 },
+    BossDefeated,
     /// The last boss has fallen: the final door opens.
     DoorOpened,
     /// A defeated boss's torch was rekindled: it awaits again in its arena.
@@ -98,12 +98,14 @@ pub enum SimEvent {
     Respawned,
     /// An enemy spots a player and raises the alarm.
     EnemyAlert { entity: Entity },
-    /// An enemy is defeated (embers given to the player who finished it).
-    EnemyDied { pos: Vec3, embers: u32 },
-    /// Its body disappears, a few moments later.
-    EnemyVanished { pos: Vec3 },
+    /// An enemy is defeated.
+    EnemyDied { pos: Vec3 },
+    /// Its body disappears, a few moments later (leaving what it dropped, if anything).
+    EnemyVanished { pos: Vec3, loot: Option<items::Item> },
     /// Item picked up (`level.pickups[pickup]`).
     PickedUp { entity: Entity, pickup: u16 },
+    /// Item dropped by an enemy picked up.
+    LootPicked { entity: Entity, item: items::Item },
     /// Consumable used (other than the flask, which gives `Heal`).
     ItemUsed { entity: Entity, item: items::Item },
     /// Checkpoint discovered (first rest).
@@ -113,8 +115,6 @@ pub enum SimEvent {
     /// Jump, and back on the ground.
     Jumped { entity: Entity },
     Landed { entity: Entity },
-    /// Embers dropped on death recovered.
-    EmbersRecovered { entity: Entity, pos: Vec3, embers: u32 },
 }
 
 #[derive(Resource, Default, Debug)]
@@ -261,14 +261,16 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
             _ => pos,
         };
         let mut p = player::Player::new(id, t);
-        p.embers = progress.embers;
         p.weapon = progress.weapon.min(t.weapons.len().saturating_sub(1) as u8);
         p.inventory = progress.inventory.clone();
+        // An old save's selected item may no longer exist.
+        if p.inventory.active_item().is_none() {
+            p.inventory.cycle();
+        }
         p.checkpoint = checkpoint as u8;
         p.found = progress.found | (1 << checkpoint);
         p.picked = progress.picked;
         p.slain = progress.slain;
-        p.dropped = progress.dropped;
         p.zone = zone;
         let mut hp = Health::new(t.player.max_hp);
         if let Some(cur) = progress.hp {
@@ -358,9 +360,8 @@ pub fn state_hash(world: &mut World) -> u64 {
         p.regain.to_bits().hash(&mut h);
         p.special.to_bits().hash(&mut h);
         p.inventory.hash(&mut h);
-        p.embers.hash(&mut h);
         (p.picked, p.slain, p.found, p.checkpoint).hash(&mut h);
-        p.dropped.map(|d| (d.at.map(f32::to_bits), d.embers)).hash(&mut h);
+        (p.ward_ticks, p.vigor_ticks).hash(&mut h);
         (p.airborne, p.air_vy.to_bits(), p.zone).hash(&mut h);
     }
     let mut qb = world.query::<&boss::Boss>();
@@ -379,6 +380,13 @@ pub fn state_hash(world: &mut World) -> u64 {
     for e in qe.iter(world) {
         (e.spawn, e.state, e.target, e.idle).hash(&mut h);
         e.poise.to_bits().hash(&mut h);
+    }
+    let mut ql = world.query::<&items::Loot>();
+    for l in ql.iter(world) {
+        for f in [l.pos.x, l.pos.y, l.pos.z] {
+            f.to_bits().hash(&mut h);
+        }
+        l.item.hash(&mut h);
     }
     h.finish()
 }

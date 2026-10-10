@@ -308,12 +308,10 @@ pub fn resolve_hits(
                 } else if let Some(e) = enemy.as_mut() {
                     fact.start(MoveRef::Enemy(e.kind, EnemyMove::Death), 0.0);
                     fact.executed = false;
-                    let embers = t.enemies[e.kind as usize].embers;
-                    p.embers = p.embers.saturating_add(embers);
                     if e.unique {
                         p.slain |= 1u64 << e.spawn;
                     }
-                    events.push(SimEvent::EnemyDied { pos: fbody.pos, embers });
+                    events.push(SimEvent::EnemyDied { pos: fbody.pos });
                 }
             } else if foe_stagger(boss.as_deref_mut(), enemy.as_deref_mut(), pe, h.stagger * mult, dmg, &mut fact, t) {
                 events.push(SimEvent::Groggy { entity: fe });

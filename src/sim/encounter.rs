@@ -1,6 +1,6 @@
 //! Game flow: checkpoints (rest, discovery, travel), the bosses' fogs (into their arena and back),
-//! the torches (reviving a defeated boss), victory (embers), the final door, death and respawn at
-//! the last checkpoint, picked-up items, commands coming from the menus.
+//! the torches (reviving a defeated boss), victory, the final door, death and respawn at
+//! the last checkpoint, picked-up items and loot, commands coming from the menus.
 //!
 //! This is simulation: everything that changes the state goes through here, tick-accurate.
 
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::boss::Boss;
 use super::data::{BossMove, MoveRef, Tuning};
 use super::fighter::{Action, Body, Health};
-use super::items::{Inventory, Item};
+use super::items::{Inventory, Item, Loot};
 use super::player::{PState, Player};
 use super::world::{self, Zone};
 use super::{ResetFight, SimEvent, SimEvents, math};
@@ -49,41 +49,13 @@ pub const REST_RANGE: f32 = 2.2;
 pub const PICKUP_RANGE: f32 = 1.4;
 /// Collision radius of the checkpoint.
 pub const CHECKPOINT_RADIUS: f32 = 0.6;
-/// Distance to recover the embers dropped on death.
-pub const RECOVER_RANGE: f32 = 1.6;
 /// Distance to go through a fog, to rekindle a torch, to read the sign.
 pub const FOG_RANGE: f32 = 1.8;
 pub const TORCH_RANGE: f32 = 1.6;
 pub const SIGN_RANGE: f32 = 1.8;
-/// Embers dropped by a fall stay at least this far from the edge.
-const DROP_MARGIN: f32 = 0.9;
-
-/// Embers left on the spot on death (with the corpse). Recovering them gives them back; dying
-/// before that loses them for good.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Dropped {
-    /// Ground position (x, y, z).
-    pub at: [f32; 3],
-    pub embers: u32,
-}
-
-impl Dropped {
-    pub fn pos(&self) -> Vec3 {
-        Vec3::from(self.at)
-    }
-}
-
-/// Close enough to the dropped embers to recover them.
-pub fn near_dropped(d: &Dropped, pos: Vec3) -> bool {
-    let p = d.pos();
-    math::flat_len(pos - p) <= RECOVER_RANGE && (pos.y - p.y).abs() < 1.5
-}
-
 /// A player's persistent progress: this is what the save contains.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Progress {
-    /// Currency (embers).
-    pub embers: u32,
     /// Defeated bosses (bit i: `Tuning::encounters[i]`).
     pub defeated: u32,
     pub weapon: u8,
@@ -100,8 +72,6 @@ pub struct Progress {
     pub picked: u64,
     /// Defeated unique enemies (bit i: `level.enemies[i]`).
     pub slain: u64,
-    /// Embers dropped on the last death.
-    pub dropped: Option<Dropped>,
     /// Start in this arena, in front of its bosses (debug: `SOULS_BOSS`). Never saved.
     #[serde(skip)]
     pub arena: Option<u8>,
@@ -113,9 +83,8 @@ impl Progress {
     }
 
     /// State to resume for this player. Dead (or mid-fall): as after the
-    /// respawn (last checkpoint, items refilled), their embers stay where they
-    /// fell (and those they hadn't recovered are lost); fallen in an arena, in front of its
-    /// fog. In an arena: in front of its fog, the boss will be reset.
+    /// respawn (last checkpoint, items refilled). In an arena: in front of its fog, the boss
+    /// will be reset.
     pub fn of_player(p: &Player, body: &Body, hp: &Health, enc: &Encounter, t: &Tuning) -> Self {
         let dead = matches!(p.state, PState::Dead | PState::Falling) || hp.dead();
         let mut inventory = p.inventory.clone();
@@ -133,19 +102,7 @@ impl Progress {
         } else {
             Some([body.pos.x, body.pos.z, body.yaw])
         };
-        let (embers, dropped) = if dead {
-            // A fall: at the edge you fell from, a little back from the void.
-            let at = match outside {
-                Some((g, _)) => g,
-                None => world::settle(t, Zone::Level, if p.falling { p.fall_at } else { body.pos }, DROP_MARGIN),
-            };
-            (0, (p.embers > 0).then_some(Dropped { at: at.to_array(), embers: p.embers }))
-        } else {
-            (p.embers, p.dropped)
-        };
         Self {
-            embers,
-            dropped,
             defeated: enc.defeated,
             weapon: p.weapon,
             inventory,
@@ -190,6 +147,13 @@ pub fn near_checkpoint(t: &Tuning, pos: Vec3) -> Option<u8> {
 pub fn pickup_pos(t: &Tuning, i: usize) -> Vec3 {
     let p = &t.level.pickups[i];
     Vec3::new(p.pos[0], world::floor_at(t, p.pos[0], p.pos[1], 0.0).unwrap_or(0.0), p.pos[1])
+}
+
+/// Loot on the ground within range (the closest).
+pub fn near_loot<'a>(loot: impl Iterator<Item = (Entity, &'a Loot)>, pos: Vec3) -> Option<(Entity, Loot)> {
+    loot.filter(|(_, l)| within(pos, l.pos, PICKUP_RANGE))
+        .min_by(|a, b| math::flat_len(pos - a.1.pos).total_cmp(&math::flat_len(pos - b.1.pos)))
+        .map(|(e, l)| (e, *l))
 }
 
 /// Item not yet picked up (bits of `picked`) within range.
@@ -326,11 +290,7 @@ pub fn encounter_tick(
                 a.start(MoveRef::Boss(b.def, BossMove::Death), 0.0);
             }
         }
-        let embers = t.encounters.get(arena as usize).map_or(0, |e| e.embers);
-        for (mut p, ..) in &mut players {
-            p.embers = p.embers.saturating_add(embers);
-        }
-        events.push(SimEvent::BossDefeated { embers });
+        events.push(SimEvent::BossDefeated);
         if door_open(t, enc.defeated) {
             events.push(SimEvent::DoorOpened);
         }

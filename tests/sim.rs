@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use psx_souls::sim::boss::Boss;
 use psx_souls::sim::data::{BossMove, MoveRef, PlayerMove, Shape, Tuning};
 use psx_souls::sim::encounter::{self, Encounter, Progress, SimCommand, SimCommands, checkpoint_pos, checkpoint_spawn};
-use psx_souls::sim::items::Item;
+use psx_souls::sim::items::{Item, Loot};
 use psx_souls::sim::fighter::{Action, Body, Health};
 use psx_souls::sim::input::{PlayerInput, PlayerInputs, btn};
 use psx_souls::sim::player::{PState, Player};
@@ -156,6 +156,22 @@ fn perfect_guard_window_is_tick_exact() {
     let full = t.bosses[0].attacks.iter().find(|a| a.name == "ecrasement").unwrap().mv.hits[0].damage;
     assert!(!perfect);
     assert!((lost - full * t.player.guard.damage_ratio).abs() < 1e-3, "lost {lost}");
+}
+
+/// Keeping guard held through a guard reaction (cancelled back into guard) doesn't reopen the
+/// perfect window: a second blow right after is a normal guard.
+#[test]
+fn held_guard_after_a_block_does_not_reopen_perfect_window() {
+    let mut app = new_app();
+    let hit_start = boss_attack(&mut app, "ecrasement", 2.6);
+    let p = player(&mut app);
+    steps(&mut app, hit_start - 20, GUARD);
+    let start = app.world().get::<Player>(p).unwrap().guard_start;
+    steps(&mut app, 40, GUARD);
+    assert!(events(&mut app).iter().all(|e| !matches!(e, SimEvent::PerfectGuard { .. })));
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert_eq!(pl.state, PState::Guard);
+    assert_eq!(pl.guard_start, start, "guard window restarted while held");
 }
 
 #[test]
@@ -481,8 +497,7 @@ fn defeated_boss_bars_its_fog_until_its_torch_is_rekindled() {
     steps(&mut app, 40, IDLE);
     let enc = *app.world().resource::<Encounter>();
     assert!(enc.is_defeated(0) && !enc.active);
-    assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.bosses[0].embers);
-    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossDefeated { .. })));
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossDefeated)));
 
     // Back out through the fog: in front of it, in the level; the arena empties.
     let (door, dir) = psx_souls::sim::world::portal(&t, &t.arenas[0].door);
@@ -499,11 +514,10 @@ fn defeated_boss_bars_its_fog_until_its_torch_is_rekindled() {
     steps(&mut app, 40, IDLE);
     assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Level);
 
-    // Reload: still defeated, the embers are kept.
+    // Reload: still defeated.
     app.world_mut().resource_mut::<ResetFight>().requested = true;
     step(&mut app, IDLE);
     let p = player(&mut app);
-    assert_eq!(app.world().get::<Player>(p).unwrap().embers, t.bosses[0].embers);
     assert!(app.world().resource::<Encounter>().is_defeated(0));
 
     // Its extinguished torch: rekindling it asks the menu, which revives the boss.
@@ -651,15 +665,11 @@ fn a_plunging_attack_from_the_gallery_hits_harder() {
 }
 
 #[test]
-fn death_respawns_at_checkpoint_with_items_refilled_and_embers_left_behind() {
+fn death_respawns_at_checkpoint_with_items_refilled() {
     let mut app = new_app();
     let t = tuning(&app);
     let p = player(&mut app);
-    {
-        let mut pl = app.world_mut().get_mut::<Player>(p).unwrap();
-        pl.embers = 300;
-        pl.inventory.consume(Item::HealFlask);
-    }
+    app.world_mut().get_mut::<Player>(p).unwrap().inventory.consume(Item::HealFlask);
     let b = boss(&mut app);
     app.world_mut().get_mut::<Health>(b).unwrap().cur = 500.0;
     app.world_mut().get_mut::<Health>(p).unwrap().cur = 10.0;
@@ -668,12 +678,6 @@ fn death_respawns_at_checkpoint_with_items_refilled_and_embers_left_behind() {
     let p = player(&mut app);
     let pl = app.world().get::<Player>(p).unwrap().clone();
     assert_eq!(pl.state, PState::Free);
-    // Died in the arena: the embers wait in front of its fog.
-    assert_eq!(pl.embers, 0);
-    let d = pl.dropped.expect("dropped embers");
-    assert_eq!(d.embers, 300);
-    let fog = encounter::gate_outside(&t, 0).0;
-    assert!(d.pos().distance(fog) < 0.1, "{:?} / {fog:?}", d.pos());
     assert_eq!(pl.inventory.count(Item::HealFlask), t.player.heal_charges);
     assert_eq!(hp(&mut app, p), t.player.max_hp);
     assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t, 0)) < 2.5);
@@ -851,46 +855,6 @@ fn walking_off_the_edge_is_a_fall_to_death_then_back_to_the_lantern() {
 }
 
 #[test]
-fn dropped_embers_are_recovered_or_lost_on_a_second_death() {
-    let mut app = fresh_app();
-    let t = tuning(&app);
-    let p = player(&mut app);
-    app.world_mut().get_mut::<Player>(p).unwrap().embers = 250;
-    // Fall from the east edge of the square: the embers stay at the edge, on the ground.
-    put_player(&mut app, 6.0, -31.5, 0.0);
-    walk(&mut app, 120, Vec3::X);
-    steps(&mut app, psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
-    let p = player(&mut app);
-    let d = app.world().get::<Player>(p).unwrap().dropped.expect("dropped embers");
-    assert_eq!(d.embers, 250);
-    let at = d.pos();
-    assert!(world::floor_at(&t, at.x, at.z, at.y).is_some(), "on the ground: {at:?}");
-    assert!(at.x > 7.0, "at the edge we fell from: {at:?}");
-    // Recover them.
-    app.world_mut().get_mut::<Body>(p).unwrap().pos = at + Vec3::new(-0.8, 0.0, 0.0);
-    steps(&mut app, 2, IDLE);
-    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
-    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::EmbersRecovered { embers: 250, .. })));
-    let pl = app.world().get::<Player>(p).unwrap();
-    assert_eq!((pl.embers, pl.dropped), (250, None));
-
-    // Dying twice in a row: the first embers are lost.
-    put_player(&mut app, 6.0, -31.5, 0.0);
-    walk(&mut app, 120, Vec3::X);
-    steps(&mut app, psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
-    let p = player(&mut app);
-    app.world_mut().get_mut::<Player>(p).unwrap().embers = 40;
-    put_player(&mut app, -6.0, -31.5, 0.0);
-    walk(&mut app, 120, -Vec3::X);
-    steps(&mut app, psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
-    let p = player(&mut app);
-    let pl = app.world().get::<Player>(p).unwrap();
-    assert_eq!(pl.embers, 0);
-    assert_eq!(pl.dropped.map(|d| d.embers), Some(40));
-    assert!(pl.dropped.unwrap().pos().x < -7.0);
-}
-
-#[test]
 fn walls_hold_on_the_stairs() {
     let mut app = fresh_app();
     let p = player(&mut app);
@@ -903,7 +867,7 @@ fn walls_hold_on_the_stairs() {
 }
 
 #[test]
-fn hounds_wake_together_bite_and_drop_embers() {
+fn hounds_wake_together_bite_and_drop_loot() {
     let mut app = fresh_app();
     let t = tuning(&app);
     let p = player(&mut app);
@@ -923,7 +887,8 @@ fn hounds_wake_together_bite_and_drop_embers() {
     steps(&mut app, 120, IDLE);
     assert!(hp(&mut app, p) < before, "the dogs attack");
 
-    // Finish off a dog (alone, the other is moved away): embers, then it disappears.
+    // Finish off a dog (alone, the other is moved away): it disappears, leaving its loot (here,
+    // always the ash).
     app.world_mut().despawn(kennel[1]);
     {
         let mut pl = app.world_mut().get_mut::<Player>(p).unwrap();
@@ -937,7 +902,9 @@ fn hounds_wake_together_bite_and_drop_embers() {
     let pos = body(&mut app, p).pos;
     app.world_mut().get_mut::<Body>(p).unwrap().yaw = math::yaw_of(dpos - pos);
     app.world_mut().get_mut::<Health>(p).unwrap().cur = t.player.max_hp;
-    let embers = app.world().get::<Player>(p).unwrap().embers;
+    let hound = t.enemy_kind("hound").unwrap() as usize;
+    app.world_mut().resource_mut::<Tuning>().enemies[hound].loot =
+        vec![psx_souls::sim::data::LootDef { item: Item::WardingAsh, chance: 1.0 }];
     // Hit at contact range (the dog is moved closer).
     app.world_mut().get_mut::<Body>(dog).unwrap().pos = pos + math::forward(math::yaw_of(dpos - pos)) * 1.2;
     app.world_mut().get_mut::<Action>(dog).unwrap().stop();
@@ -945,10 +912,31 @@ fn hounds_wake_together_bite_and_drop_embers() {
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
     steps(&mut app, 20, IDLE);
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::EnemyDied { .. })));
-    let hound = t.enemy_kind("hound").unwrap() as usize;
-    assert_eq!(app.world().get::<Player>(p).unwrap().embers, embers + t.enemies[hound].embers);
     steps(&mut app, t.enemies[hound].death.total + psx_souls::sim::enemy::VANISH_TICKS + 40, IDLE);
     assert!(app.world().get_entity(dog).is_err(), "the body has disappeared");
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::EnemyVanished { loot: Some(Item::WardingAsh), .. })));
+    let loot: Vec<Loot> = app.world_mut().query::<&Loot>().iter(app.world()).copied().collect();
+    assert_eq!(loot.len(), 1);
+    assert_eq!(loot[0].item, Item::WardingAsh);
+
+    // Picked up: into the inventory, gone from the ground.
+    app.world_mut().get_mut::<Body>(p).unwrap().pos = loot[0].pos + Vec3::new(0.6, 0.0, 0.0);
+    steps(&mut app, 15, IDLE);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::LootPicked { item: Item::WardingAsh, .. })));
+    assert_eq!(app.world().get::<Player>(p).unwrap().inventory.count(Item::WardingAsh), 1);
+    step(&mut app, IDLE);
+    assert_eq!(app.world_mut().query::<&Loot>().iter(app.world()).count(), 0);
+}
+
+#[test]
+fn loot_tables_are_valid() {
+    let t = Tuning::builtin();
+    for e in &t.enemies {
+        let total: f32 = e.loot.iter().map(|l| l.chance).sum();
+        assert!(total <= 1.0 + 1e-4, "{}: {total}", e.key);
+        assert!(e.loot.iter().all(|l| l.chance > 0.0 && l.item.kind() == psx_souls::sim::items::Kind::Consumable && l.item != Item::HealFlask), "{}", e.key);
+    }
 }
 
 #[test]
@@ -1002,20 +990,32 @@ fn pickups_are_taken_once_and_kept_after_death() {
 }
 
 #[test]
-fn faded_ember_is_crushed_for_embers() {
+fn boosts_are_temporary() {
+    use psx_souls::sim::items::{ASH_DAMAGE, ASH_TICKS, ROOT_TICKS};
     let mut app = fresh_app();
     let t = tuning(&app);
     let p = player(&mut app);
     {
         let mut pl = app.world_mut().get_mut::<Player>(p).unwrap();
-        pl.inventory.add(Item::FadedEmber, 1);
+        pl.inventory.add(Item::WardingAsh, 1);
+        pl.inventory.add(Item::VigorRoot, 1);
         pl.inventory.active = 1;
     }
     step(&mut app, PlayerInput { buttons: btn::ITEM, ..IDLE });
     steps(&mut app, t.player.heal.total + 2, IDLE);
     let pl = app.world().get::<Player>(p).unwrap();
-    assert_eq!(pl.embers, psx_souls::sim::items::FADED_EMBERS);
-    assert_eq!(pl.inventory.count(Item::FadedEmber), 0);
+    assert_eq!(pl.inventory.count(Item::WardingAsh), 0);
+    assert!(pl.ward_ticks > 0 && pl.ward_ticks <= ASH_TICKS);
+    assert_eq!(pl.defense_mult(), ASH_DAMAGE);
+    app.world_mut().get_mut::<Player>(p).unwrap().inventory.active = 2;
+    step(&mut app, PlayerInput { buttons: btn::ITEM, ..IDLE });
+    steps(&mut app, t.player.heal.total + 2, IDLE);
+    assert!(app.world().get::<Player>(p).unwrap().vigor_ticks > 0);
+    // It wears off.
+    steps(&mut app, ASH_TICKS.max(ROOT_TICKS), IDLE);
+    let pl = app.world().get::<Player>(p).unwrap();
+    assert_eq!((pl.ward_ticks, pl.vigor_ticks), (0, 0));
+    assert_eq!(pl.defense_mult(), 1.0);
 }
 
 #[test]

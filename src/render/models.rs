@@ -16,6 +16,7 @@ use crate::sim::boss::{Boss, unblockable_pending};
 use crate::sim::data::{BossMove, MoveDef, MoveRef, Tuning};
 use crate::sim::enemy::{EState, Enemy};
 use crate::sim::fighter::{Action, Body, Health, Hitstop, PrevBody};
+use crate::sim::items::Loot;
 use crate::sim::player::{PState, Player};
 use crate::sim::world::Zone;
 use crate::sim::{SimEntity, math};
@@ -100,8 +101,6 @@ pub enum VisualKind {
     Enemy,
     Weapon,
     Arena,
-    /// The player's corpse, where they left their embers.
-    Corpse,
 }
 
 /// Root of an instantiated glTF scene, and the simulation entity it represents.
@@ -154,13 +153,29 @@ pub struct SceneLights(pub Vec<(Vec3, LightKind)>);
 #[derive(Component)]
 struct PickupGlow(usize);
 
+/// Pulsing glow (an item to pick up, or loot dropped by an enemy): its phase offset.
+#[derive(Component)]
+struct GlowPulse(f32);
+
+/// Meshes and materials of the glows.
+#[derive(Resource)]
+struct GlowAssets {
+    core: Handle<Mesh>,
+    halo: Handle<Mesh>,
+    core_mat: Handle<Ps1Material>,
+    halo_mat: Handle<Ps1Material>,
+}
+
+impl GlowAssets {
+    fn spawn(&self, c: &mut ChildSpawnerCommands) {
+        c.spawn((Mesh3d(self.core.clone()), MeshMaterial3d(self.core_mat.clone()), Transform::default()));
+        c.spawn((Mesh3d(self.halo.clone()), MeshMaterial3d(self.halo_mat.clone()), Transform::default()));
+    }
+}
+
 /// Embers of a checkpoint brazier (index): unlit until it's rekindled.
 #[derive(Component)]
 struct CheckpointCoals(u8);
-
-/// The local player's corpse, lying on their lost embers (position and orientation).
-#[derive(Component)]
-struct Corpse(Vec3);
 
 /// A mesh of the scenery and where it stands: the level, or a boss arena (objects
 /// `arena_<i>_*` of `tools/blender/arena.py`). Only the zone the local player is in is drawn:
@@ -195,8 +210,9 @@ impl Plugin for ModelsPlugin {
                     foe_tint,
                     weapon_glow,
                     pickup_glows,
+                    loot_glows,
+                    glow_pulse,
                     checkpoint_coals,
-                    corpse,
                     zone_visibility,
                 )
                     .run_if(in_state(AppState::Playing))
@@ -350,7 +366,7 @@ fn on_scene_ready(
         }
         if anim_players.contains(d) {
             let graph = match vs.kind {
-                VisualKind::Player | VisualKind::Corpse => models.player.graph.clone(),
+                VisualKind::Player => models.player.graph.clone(),
                 VisualKind::Boss => {
                     let Some(m) = bosses.get(vs.owner).ok().and_then(|b| models.boss_anims(&b.def(&tuning).model)) else { continue };
                     m.graph.clone()
@@ -770,7 +786,7 @@ fn flicker(
 /// Items to pick up: a white glow pulsing just above the ground, as in souls-likes
 /// (you don't know what it is until you've picked it up): a bright core in a halo, and
 /// sparks swirling upwards (`fx`). Everything shines through the fog: you
-/// spot them from afar.
+/// spot them from afar. Loot dropped by enemies looks the same (`loot_glows`).
 fn spawn_pickups(
     mut commands: Commands,
     tuning: Res<Tuning>,
@@ -785,31 +801,46 @@ fn spawn_pickups(
     let mut h = Ps1Material::unlit(Color::srgba(0.95, 0.85, 0.55, 0.3));
     h.alpha_mode = AlphaMode::Add;
     let halo_mat = mats.add(h);
+    let glow = GlowAssets { core, halo, core_mat, halo_mat };
     for i in 0..tuning.level.pickups.len() {
         let pos = crate::sim::encounter::pickup_pos(&tuning, i) + Vec3::Y * 0.3;
         commands
-            .spawn((PickupGlow(i), Transform::from_translation(pos), Visibility::Hidden))
-            .with_children(|c| {
-                c.spawn((Mesh3d(core.clone()), MeshMaterial3d(core_mat.clone()), Transform::default()));
-                c.spawn((Mesh3d(halo.clone()), MeshMaterial3d(halo_mat.clone()), Transform::default()));
-            });
+            .spawn((PickupGlow(i), GlowPulse(i as f32 * 1.3), Transform::from_translation(pos), Visibility::Hidden))
+            .with_children(|c| glow.spawn(c));
+    }
+    commands.insert_resource(glow);
+}
+
+/// Loot dropped by an enemy: the glow is attached to the simulation entity (it goes away
+/// with it once picked up).
+fn loot_glows(mut commands: Commands, glow: Res<GlowAssets>, loot: Query<(Entity, &Loot), Without<GlowPulse>>) {
+    for (e, l) in &loot {
+        let phase = (l.pos.x * 12.9898 + l.pos.z * 78.233).sin() * 3.0;
+        commands
+            .entity(e)
+            .insert((GlowPulse(phase), Transform::from_translation(l.pos + Vec3::Y * 0.3), Visibility::default()))
+            .with_children(|c| glow.spawn(c));
     }
 }
 
-fn pickup_glows(
-    time: Res<Time>,
-    players: Query<&Player, With<LocalPlayer>>,
-    mut q: Query<(&PickupGlow, &mut Visibility, &mut Transform, &Children)>,
-    mut parts: Query<&mut Transform, Without<PickupGlow>>,
-) {
+fn pickup_glows(players: Query<&Player, With<LocalPlayer>>, mut q: Query<(&PickupGlow, &mut Visibility)>) {
     let picked = players.single().map_or(u64::MAX, |p| p.picked);
-    let t = time.elapsed_secs();
-    for (g, mut vis, mut tf, children) in &mut q {
+    for (g, mut vis) in &mut q {
         let want = if picked & (1u64 << g.0) == 0 { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
             *vis = want;
         }
-        let ph = t * 2.2 + g.0 as f32 * 1.3;
+    }
+}
+
+fn glow_pulse(
+    time: Res<Time>,
+    mut q: Query<(&GlowPulse, &mut Transform, &Children)>,
+    mut parts: Query<&mut Transform, Without<GlowPulse>>,
+) {
+    let t = time.elapsed_secs();
+    for (g, mut tf, children) in &mut q {
+        let ph = t * 2.2 + g.0;
         tf.rotation = Quat::from_rotation_y(t * 1.5) * Quat::from_rotation_x(0.6);
         for (k, c) in children.iter().enumerate() {
             if let Ok(mut ct) = parts.get_mut(c) {
@@ -834,51 +865,5 @@ fn checkpoint_coals(
     for (e, c) in &coals {
         let tint = if found & (1 << c.0) != 0 { Vec4::ZERO } else { Vec4::new(0.12, 0.03, 0.02, 0.8) };
         set_tint(&mut commands, e, tint, &children, &mut meshes, &mut materials);
-    }
-}
-
-/// The player's corpse: their model frozen at the end of the death animation, bathed in green, where they
-/// left their embers (the embers rising from it are in `fx`). It disappears when they're
-/// recovered, or when you die before that (they're then lost).
-#[allow(clippy::too_many_arguments)]
-fn corpse(
-    mut commands: Commands,
-    time: Res<Time>,
-    assets: Res<GameAssets>,
-    gltfs: Res<Assets<Gltf>>,
-    models: Res<Models>,
-    players: Query<&Player, With<LocalPlayer>>,
-    mut corpses: Query<(Entity, &Corpse, &mut AnimDriver)>,
-    mut anim_players: Query<&mut AnimationPlayer>,
-    children: Query<&Children>,
-    mut meshes: TintMeshes,
-    mut materials: ResMut<Assets<Ps1Material>>,
-) {
-    let want = players.single().ok().and_then(|p| p.dropped).map(|d| d.pos());
-    let mut have = false;
-    for (e, c, mut drv) in &mut corpses {
-        if want != Some(c.0) {
-            commands.entity(e).despawn();
-            continue;
-        }
-        have = true;
-        let anims = &models.player;
-        if let Some(m) = anims.markers.get("death") {
-            set_clip(&mut drv, anims, &mut anim_players, "death", m.frames / 60.0);
-        }
-        // A pulsing green glow, like the bloodstains of souls-likes: you spot it
-        // from afar (the glows rising from it are in `fx`).
-        let glow = 0.5 + 0.5 * (time.elapsed_secs() * 2.2).sin();
-        let tint = Vec4::new(0.1, 0.55, 0.18, 0.7).lerp(Vec4::new(0.4, 1.0, 0.45, 0.8), glow);
-        set_tint(&mut commands, e, tint, &children, &mut meshes, &mut materials);
-    }
-    if let (Some(pos), false) = (want, have) {
-        // Pseudo-random but stable orientation (depends on the location).
-        let yaw = (pos.x * 12.9898 + pos.z * 78.233).sin() * std::f32::consts::PI;
-        let e = commands.spawn_empty().id();
-        commands
-            .entity(e)
-            .insert((Corpse(pos), AnimDriver::default(), Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw)), Visibility::default()))
-            .with_child((WorldAssetRoot(scene_of(&gltfs, &assets.player)), VisualScene { owner: e, kind: VisualKind::Corpse }, Transform::default()));
     }
 }

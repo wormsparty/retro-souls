@@ -11,6 +11,8 @@ use crate::menu::MenuState;
 use crate::render::LocalPlayer;
 use crate::render::camera::CameraRig;
 use crate::settings::Settings;
+use crate::sim::data::{MoveRef, PlayerMove};
+use crate::sim::fighter::Action;
 use crate::sim::input::{PlayerInput, PlayerInputs, btn};
 use crate::sim::player::Player;
 
@@ -50,6 +52,8 @@ impl Plugin for InputPlugin {
                 (triggers_from_axes, (track_device, latch_presses)).chain().after(bevy::input::InputSystems),
             )
             .add_systems(Update, (grab_cursor, read_look));
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Update, sync_pointer_lock.before(grab_cursor));
     }
 }
 
@@ -86,9 +90,6 @@ fn keyboard_buttons(
     }
     if check_k(KeyCode::ArrowDown) {
         b |= btn::NEXT_ITEM;
-    }
-    if check_k(KeyCode::ArrowRight) {
-        b |= btn::SWITCH;
     }
     if check_k(KeyCode::KeyQ) || check_m(MouseButton::Middle) {
         b |= btn::LOCK;
@@ -209,7 +210,7 @@ fn latch_presses(
     mut latch: ResMut<InputLatch>,
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
     menu: Res<MenuState>,
-    players: Query<&Player, With<LocalPlayer>>,
+    players: Query<(&Player, &Action), With<LocalPlayer>>,
     mut flick: Local<Flick>,
 ) {
     if menu.open {
@@ -224,8 +225,19 @@ fn latch_presses(
         latch.pressed |= gamepad_buttons(g, true);
     }
 
+    // Keyboard: 1 / 2 pick the weapon directly (the gamepad cycles). The sim only knows
+    // "switch": it's sent if the weapon wanted isn't already the one in hand (or being drawn).
+    if let Ok((p, action)) = players.single() {
+        let wanted = [KeyCode::Digit1, KeyCode::Digit2].iter().position(|k| keys.just_pressed(*k));
+        let drawing = action.mv == Some(MoveRef::Player(PlayerMove::Switch)) && !p.switched;
+        let next = if drawing { p.weapon ^ 1 } else { p.weapon };
+        if wanted.is_some_and(|w| w as u8 != next) {
+            latch.pressed |= btn::SWITCH;
+        }
+    }
+
     // Locked on, the right stick and the mouse no longer turn the camera: they switch targets.
-    let locked = players.single().is_ok_and(|p| p.lock.is_some());
+    let locked = players.single().is_ok_and(|(p, _)| p.lock.is_some());
     flick.cooldown = (flick.cooldown - time.delta_secs()).max(0.0);
     let stick = gamepads.iter().map(|g| g.right_stick()).max_by(|a, b| a.length().total_cmp(&b.length())).unwrap_or(Vec2::ZERO);
     if stick.length() < FLICK_OFF {
@@ -351,5 +363,28 @@ fn grab_cursor(
     if !menu.open && mouse.just_pressed(MouseButton::Left) && cursor.grab_mode == CursorGrabMode::None {
         cursor.grab_mode = CursorGrabMode::Locked;
         cursor.visible = false;
+    }
+}
+
+/// Web: the browser can drop the pointer lock by itself (Esc, focus loss, refused request)
+/// without Bevy knowing. The hidden cursor then hits the edge of the screen and the camera
+/// stops turning. Align on the browser's state, so the next click captures it again.
+#[cfg(target_arch = "wasm32")]
+fn sync_pointer_lock(
+    mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
+    time: Res<Time<Real>>,
+    mut unlocked: Local<f32>,
+) {
+    let locked = web_sys::window().and_then(|w| w.document()).and_then(|d| d.pointer_lock_element()).is_some();
+    if cursor.grab_mode == CursorGrabMode::None || locked {
+        *unlocked = 0.0;
+        return;
+    }
+    // The request is asynchronous: give it a moment before declaring the lock lost.
+    *unlocked += time.delta_secs();
+    if *unlocked > 0.3 {
+        *unlocked = 0.0;
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
     }
 }

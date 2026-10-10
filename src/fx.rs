@@ -1,6 +1,6 @@
 //! Sensory feedback triggered by simulation events: sounds, sparks,
 //! camera shake, boss flash, ground warnings for area attacks. And ambient
-//! particles: embers and ash from braziers, embers dropped on death, fountain water.
+//! particles: embers and ash from braziers, items and loot on the ground, fountain water.
 
 use bevy::prelude::*;
 
@@ -34,9 +34,7 @@ pub struct SparkAssets {
     glow: Handle<Ps1Material>,
     ash: Handle<Ps1Material>,
     water: Handle<Ps1Material>,
-    /// Green glows of the corpse (lost embers), pale light of items on the ground: they
-    /// shine through the fog.
-    soul: Handle<Ps1Material>,
+    /// Pale light of items on the ground: it shines through the fog.
     wisp: Handle<Ps1Material>,
     /// Ring of radius 1 lying on the ground (shockwave).
     ring: Handle<Mesh>,
@@ -184,11 +182,6 @@ fn setup(
         }),
         ash: mats.add(Ps1Material::unlit(Color::srgb(0.5, 0.48, 0.46))),
         water: mats.add(Ps1Material::unlit(Color::srgb(0.55, 0.72, 0.85))),
-        soul: mats.add({
-            let mut m = Ps1Material::unlit(Color::srgb(0.35, 1.0, 0.45));
-            m.params.emissive = Vec4::new(0.15, 0.7, 0.2, 0.0);
-            m
-        }),
         wisp: mats.add({
             let mut m = Ps1Material::unlit(Color::srgb(1.0, 0.96, 0.8));
             m.params.emissive = Vec4::new(0.6, 0.55, 0.4, 0.0);
@@ -437,7 +430,7 @@ pub fn consume_events(
             }
             SimEvent::DoorOpened => play(&mut commands, &sounds, "guard_break", 0.9),
             SimEvent::TorchTouched { .. } | SimEvent::SignRead { .. } => {}
-            SimEvent::BossDefeated { .. } => {}
+            SimEvent::BossDefeated => {}
             SimEvent::EnemyAlert { entity } => {
                 let hound = enemies.get(entity).is_ok_and(|e| tuning.enemies[e.kind as usize].model == "hound");
                 play(&mut commands, &sounds, if hound { "bark" } else { "creak" }, 0.8);
@@ -446,17 +439,14 @@ pub fn consume_events(
                 play(&mut commands, &sounds, "slam", 0.45);
                 spray(&mut commands, &sparks, &sparks.ember, pos + Vec3::Y * 0.6, 14, 1.2, seed, floor(pos), true);
             }
-            SimEvent::EnemyVanished { pos } => {
+            SimEvent::EnemyVanished { pos, .. } => {
                 spray(&mut commands, &sparks, &sparks.ember, pos + Vec3::Y * 0.3, 20, 0.8, seed, floor(pos), true);
             }
-            SimEvent::PickedUp { .. } => play(&mut commands, &sounds, "pickup", 0.8),
+            SimEvent::PickedUp { .. } | SimEvent::LootPicked { .. } => play(&mut commands, &sounds, "pickup", 0.8),
             SimEvent::ItemUsed { entity, item } => {
                 let at = transforms.get(entity).map_or(Vec3::ZERO, |t| t.translation()) + Vec3::Y * 1.1;
                 match item {
-                    Item::FadedEmber | Item::LivelyEmber => {
-                        spray(&mut commands, &sparks, &sparks.ember, at, 18, 1.0, seed, floor(at), true);
-                    }
-                    Item::GoldenMoss => {
+                    Item::GoldenMoss | Item::VigorRoot => {
                         play(&mut commands, &sounds, "heal", 0.6);
                         burst(&mut commands, &sparks, &sparks.heal, at, 10, 1.4, seed, floor(at));
                     }
@@ -472,10 +462,6 @@ pub fn consume_events(
                 spray(&mut commands, &sparks, &sparks.ember, at, 40, 2.5, seed, floor(at), true);
             }
             SimEvent::Fell { .. } => play(&mut commands, &sounds, "fall", 0.9),
-            SimEvent::EmbersRecovered { pos, .. } => {
-                play(&mut commands, &sounds, "kindle", 0.7);
-                spray(&mut commands, &sparks, &sparks.glow, pos + Vec3::Y * 0.4, 30, 1.8, seed, floor(pos), true);
-            }
             SimEvent::Rested { entity } => {
                 play(&mut commands, &sounds, "heal", 0.9);
                 if let Ok(t) = transforms.get(entity) {
@@ -647,9 +633,7 @@ enum Ambient {
     Jet,
     /// Water overflowing the bowl and raining down into the basin.
     Spill,
-    /// Green glows rising from the corpse (lost embers, to be recovered).
-    Soul,
-    /// Pale sparks swirling above an item to pick up.
+    /// Pale sparks swirling above an item to pick up (or dropped by an enemy).
     Wisp,
     /// Embers rising from a boss's lit torch, in its colour.
     TorchEmber(u8),
@@ -659,8 +643,7 @@ enum Ambient {
 
 /// Ambient particles, emitted continuously (rate per second) near the camera: checkpoint
 /// braziers (a trickle of embers until they're rekindled, then a column of embers
-/// and ash visible from afar), embers dropped on death (green, like the bloodstains
-/// of souls-likes), items to pick up, fountain.
+/// and ash visible from afar), items to pick up and loot, fountain.
 #[allow(clippy::too_many_arguments)]
 fn ambient(
     mut commands: Commands,
@@ -670,6 +653,7 @@ fn ambient(
     rig: Res<CameraRig>,
     players: Query<&crate::sim::player::Player, With<crate::render::LocalPlayer>>,
     encounter: Res<crate::sim::encounter::Encounter>,
+    loot: Query<&crate::sim::items::Loot>,
     mut acc: Local<Vec<f32>>,
     mut seed: Local<u32>,
 ) {
@@ -694,12 +678,12 @@ fn ambient(
             emitters.push((at, Ambient::TorchEmber(i as u8), 14.0));
         }
     }
-    if let Some(d) = player.and_then(|p| p.dropped) {
-        emitters.push((d.pos() + Vec3::Y * 0.1, Ambient::Soul, 22.0));
-    }
     let picked = player.map_or(u64::MAX, |p| p.picked);
     for i in (0..t.level.pickups.len()).filter(|i| picked & (1u64 << i) == 0) {
         emitters.push((encounter::pickup_pos(t, i) + Vec3::Y * 0.3, Ambient::Wisp, 7.0));
+    }
+    for l in &loot {
+        emitters.push((l.pos + Vec3::Y * 0.3, Ambient::Wisp, 7.0));
     }
     for p in t.level.props.iter().filter(|p| p.kind == Prop::Fountain) {
         let y = world::floor_at(t, p.pos[0], p.pos[1], 0.0).unwrap_or(0.0);
@@ -753,11 +737,6 @@ fn ambient(
                     let vel = Vec3::new(h(1) * 0.35, 2.6 + h(2).abs() * 0.6, h(3) * 0.35);
                     (&sparks.water, start, Particle::new(vel, 1.2, 9.0, pos.y + FOUNTAIN_BOWL.1), 0.8 + h(4).abs() * 0.5)
                 }
-                Ambient::Soul => {
-                    let start = pos + Vec3::new(h(1) * 0.45, h(2).abs() * 0.3, h(3) * 0.45);
-                    let vel = Vec3::new(h(4) * 0.15, 0.7 + h(5).abs() * 0.8, h(6) * 0.15);
-                    (&sparks.soul, start, Particle::new(vel, 1.4 + h(7).abs() * 1.4, -0.2, -1000.0), 0.9 + h(8).abs() * 0.9)
-                }
                 Ambient::Wisp => {
                     // Around the glow, on a small circle, they rise swirling.
                     let a = h(1) * std::f32::consts::PI;
@@ -774,7 +753,7 @@ fn ambient(
                 }
             };
             match kind {
-                Ambient::Ember | Ambient::Soul | Ambient::Wisp | Ambient::TorchEmber(_) | Ambient::TorchWisp(_) => (p.sway, p.phase) = (0.35, h(9) * 3.0),
+                Ambient::Ember | Ambient::Wisp | Ambient::TorchEmber(_) | Ambient::TorchWisp(_) => (p.sway, p.phase) = (0.35, h(9) * 3.0),
                 Ambient::Ash => (p.sway, p.phase) = (0.5, h(9) * 3.0),
                 Ambient::Jet | Ambient::Spill => p.splash = true,
             }

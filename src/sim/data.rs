@@ -482,8 +482,6 @@ pub struct BossDef {
     pub idle_ticks: [u32; 2],
     /// Duration during which the last attacker keeps the aggro.
     pub aggro_ticks: u32,
-    /// Embers earned by defeating it.
-    pub embers: u32,
     pub groggy: MoveDef,
     pub fatal_received: MoveDef,
     pub roar: MoveDef,
@@ -528,8 +526,6 @@ pub struct MemberDef {
 pub struct EncounterDef {
     pub name: LText,
     pub members: Vec<MemberDef>,
-    /// Embers earned on victory.
-    pub embers: u32,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -751,12 +747,21 @@ pub struct EnemyDef {
     pub idle_ticks: [u32; 2],
     /// Damage taken (over ~1 s) before being staggered; 0 = always.
     pub poise: f32,
-    pub embers: u32,
+    /// What it may drop when its body vanishes: at most one item, each with its own chance.
+    #[serde(default)]
+    pub loot: Vec<LootDef>,
     /// Alert cry.
     pub alert: MoveDef,
     pub hit: MoveDef,
     pub death: MoveDef,
     pub attacks: Vec<BossAttack>,
+}
+
+/// A possible drop: `item`, with probability `chance` (0..1).
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub struct LootDef {
+    pub item: Item,
+    pub chance: f32,
 }
 
 fn one() -> f32 {
@@ -814,7 +819,6 @@ impl Tuning {
         let mut encounters = vec![EncounterDef {
             name: automaton.name.clone(),
             members: vec![MemberDef { boss: automaton.key.clone(), offset: [0.0, 0.0] }],
-            embers: automaton.embers,
         }];
         encounters.extend(more.encounters);
         let t = Self {

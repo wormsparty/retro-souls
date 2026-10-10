@@ -1,4 +1,4 @@
-//! Interface: player and boss bars, quick item, embers, lock-on reticle,
+//! Interface: player and boss bars, quick item, lock-on reticle,
 //! interaction prompt, banners and fade on death.
 
 use bevy::asset::RenderAssetUsages;
@@ -18,9 +18,9 @@ use std::collections::{HashMap, VecDeque};
 use crate::sim::SimEvent;
 use crate::sim::boss::Boss;
 use crate::sim::data::Tuning;
-use crate::sim::encounter::{self, Encounter, RESPAWN_TICKS, near_checkpoint, near_dropped, near_pickup};
+use crate::sim::encounter::{self, Encounter, RESPAWN_TICKS, near_checkpoint, near_loot, near_pickup};
 use crate::sim::fighter::{Body, Foe, Health};
-use crate::sim::items::{Item, QUICK_SLOTS};
+use crate::sim::items::{Item, Loot, QUICK_SLOTS};
 use crate::sim::player::{PState, Player};
 use crate::sim::world::Zone;
 use crate::ui::{Glyph, Hint, PixelSize, UiFont, hint_node, i, image_bundle, set_hint, t};
@@ -30,8 +30,6 @@ const ST_PX: f32 = 2.0; // px per stamina point
 const SP_PX: f32 = 0.4; // px per special gauge point
 const TEXT: Color = Color::srgb(0.85, 0.82, 0.75);
 const GOLD: Color = Color::srgb(0.9, 0.75, 0.4);
-/// How long an embers gain is shown (the counter absorbs it after the first second).
-const GAIN_SHOW: f32 = 4.0;
 
 #[derive(Component)]
 enum Bar {
@@ -67,10 +65,6 @@ struct ItemName;
 struct ItemHint;
 #[derive(Component)]
 struct SlotPip(u8);
-#[derive(Component)]
-struct EmbersText;
-#[derive(Component)]
-struct EmbersGain;
 #[derive(Component)]
 struct Prompt;
 #[derive(Component)]
@@ -108,7 +102,7 @@ struct PopupIcon;
 struct PopupName;
 #[derive(Component)]
 struct PopupInfo;
-/// Active effects (resin, moss).
+/// Active effects (resin, moss, ash, root).
 #[derive(Component)]
 struct Effects;
 /// Floating health bar of an enemy (and the enemy it follows).
@@ -169,14 +163,9 @@ struct Outcome {
     next: Option<((&'static str, &'static str), Color)>,
 }
 
-/// Animated values: embers counter, fade to black.
+/// Animated values: fade to black.
 #[derive(Resource, Default)]
 struct HudAnim {
-    embers_shown: f32,
-    /// The player's embers on the previous frame (gain detection).
-    embers_known: u32,
-    gain: u32,
-    gain_timer: f32,
     fade: f32,
     dying: bool,
 }
@@ -198,7 +187,7 @@ impl Plugin for HudPlugin {
                 OnEnter(AppState::Playing),
                 |mut out: ResMut<Outcome>, mut anim: ResMut<HudAnim>, mut pop: ResMut<PickupPopup>| {
                     *out = Outcome::default();
-                    *anim = HudAnim { fade: 1.0, embers_shown: -1.0, ..default() };
+                    *anim = HudAnim { fade: 1.0, ..default() };
                     *pop = PickupPopup::default();
                 },
             )
@@ -209,7 +198,6 @@ impl Plugin for HudPlugin {
                     update_bars,
                     update_boss,
                     update_item,
-                    embers,
                     prompt,
                     outcome,
                     overlay,
@@ -318,23 +306,6 @@ fn lit(dx: f32, dy: f32) -> Option<(Vec3, f32)> {
     })
 }
 
-/// Ember to crush: a lump of coal cracked with glows (faded: grey; lively: blazing).
-fn ember_icon(lively: bool) -> Image {
-    ps1_icon(ITEM_ICON, true, |fx, fy| {
-        let (dx, dy) = ((fx - 12.0) / 8.5, (fy - 13.5) / 7.5);
-        let wobble = 0.08 * ((fx * 1.7).sin() + (fy * 2.3).cos());
-        let (n, diffuse) = lit(dx * (1.0 + wobble), dy)?;
-        let crack = ((fx * 0.9 + fy * 0.4).sin() * (fy * 1.1 - fx * 0.3).cos()).abs() < 0.18;
-        let core = (1.0 - (dx * dx + dy * dy)).max(0.0);
-        if crack || (lively && n.z > 0.75) {
-            let glow = if lively { Vec3::new(1.0, 0.75, 0.3) } else { Vec3::new(0.85, 0.38, 0.12) };
-            return Some(glow * (0.6 + 0.6 * core));
-        }
-        let rock = if lively { Vec3::new(0.32, 0.12, 0.06) } else { Vec3::new(0.26, 0.24, 0.24) };
-        Some(rock * (0.45 + 0.9 * diffuse))
-    })
-}
-
 /// Golden moss: tuft of green strands with golden tips.
 fn moss_icon() -> Image {
     const BLADES: [(f32, f32, f32); 7] = [(5.0, 2.0, 7.0), (8.0, 6.5, 3.0), (11.0, 11.5, 1.0), (14.0, 16.0, 2.5), (17.0, 20.5, 5.0), (9.5, 4.0, 5.0), (15.0, 18.0, 4.0)];
@@ -372,6 +343,49 @@ fn resin_icon() -> Image {
             let drip = (fx - 9.0).abs() < 1.0 && fy < 12.0 + (fx * 3.0).sin().abs() * 3.0;
             let base = if drip { Vec3::new(0.95, 0.55, 0.12) } else { Vec3::new(0.48, 0.3, 0.2) };
             return Some(base * shade);
+        }
+        None
+    })
+}
+
+/// Warding ash: a small heap of pale ash, a few silvery glints of protection rising from it.
+fn ash_icon() -> Image {
+    ps1_icon(ITEM_ICON, true, |fx, fy| {
+        match (fx as i32, fy as i32) {
+            (7, 5) | (16, 3) | (12, 7) => return Some(Vec3::new(0.75, 0.88, 1.0)),
+            (9, 2) | (18, 8) => return Some(Vec3::new(0.5, 0.65, 0.85)),
+            _ => {}
+        }
+        let (dx, dy) = ((fx - 12.0) / 9.5, (fy - 20.0) / 9.0);
+        if dy > 0.12 {
+            return None;
+        }
+        let (_, diffuse) = lit(dx, dy)?;
+        let speck = ((fx * 2.7).sin() * (fy * 3.1).cos()).abs() > 0.82;
+        let ash = if speck { Vec3::new(0.3, 0.29, 0.3) } else { Vec3::new(0.68, 0.67, 0.66) };
+        Some(ash * (0.5 + 0.7 * diffuse))
+    })
+}
+
+/// Vigor root: a gnarled brown root, two green sprouts at its top.
+fn root_icon() -> Image {
+    ps1_icon(ITEM_ICON, true, |fx, fy| {
+        // Sprouts: two small leaves at the top of the root.
+        for (cx, cy, sx) in [(10.0, 4.5, -1.0), (14.0, 4.0, 1.0)] {
+            let (u, v) = ((fx - cx) * sx, fy - cy);
+            if (u - v * 0.4).abs() * 1.8 + v.abs() < 2.6 {
+                return Some(Vec3::new(0.35, 0.72, 0.2) * (0.8 + 0.2 * sx));
+            }
+        }
+        // Main stem: a wavy line from the top down to the bottom left, thinning out, and a
+        // side rootlet to the right.
+        let axis = 12.0 + (fy * 0.55).sin() * 2.2 - (fy - 7.0).max(0.0) * 0.25;
+        let half = (3.2 - (fy - 7.0).max(0.0) * 0.17).max(0.6);
+        let side = (fy - 13.0 - (fx - 13.0) * 0.6).abs() < 1.0 && (13.0..20.0).contains(&fx);
+        if ((6.0..22.0).contains(&fy) && (fx - axis).abs() <= half) || side {
+            let light = if side { 0.6 } else { (0.75 - 0.35 * (fx - axis) / half).clamp(0.3, 1.0) };
+            let ring = ((fy * 1.3).sin() > 0.85) as i32 as f32;
+            return Some(Vec3::new(0.48, 0.3, 0.16) * light * (1.0 - 0.3 * ring));
         }
         None
     })
@@ -581,53 +595,6 @@ fn helm_icon() -> Image {
     })
 }
 
-/// Size of the embers icon, in pixels (= dots): drawn at its display size.
-const EMBER_ICON: usize = 16;
-
-/// Flame (embers): three jagged tongues over a rounded hearth, dark red at the
-/// edges, pale ochre core, and two cinders escaping from it. No outline: the
-/// silhouette stays irregular, like a low-resolution texture.
-fn flame_icon() -> Image {
-    // Tongues: (x of the base, x of the tip, y of the tip, half-width at the base).
-    const TONGUES: [(f32, f32, f32, f32); 3] = [(8.0, 8.4, 0.5, 4.2), (6.2, 2.6, 4.5, 2.4), (10.0, 13.0, 3.0, 2.2)];
-    // Height where the tongues reach their full width; the hearth rounds off below.
-    const BASE: f32 = 12.0;
-    const FOOT: f32 = 3.6;
-    let hash = |x: i32, y: i32| {
-        let n = (x as u32).wrapping_mul(374_761_393).wrapping_add((y as u32).wrapping_mul(668_265_263));
-        let n = (n ^ (n >> 13)).wrapping_mul(1_274_126_177);
-        ((n ^ (n >> 16)) & 0xffff) as f32 / 65535.0
-    };
-    let tongue = |fx: f32, fy: f32, (bx, tx, ty, w): (f32, f32, f32, f32)| -> f32 {
-        if fy < ty || fy > BASE + FOOT {
-            return 0.0;
-        }
-        let k = ((fy - ty) / (BASE - ty)).min(1.0);
-        let axis = tx + (bx - tx) * k.powf(0.7);
-        let half = if fy <= BASE { w * k.powf(1.1) } else { w * (1.0 - ((fy - BASE) / FOOT).powi(2)).max(0.0).sqrt() };
-        // Ragged edges: the width varies from one pixel to the next.
-        let half = half + (hash(fx as i32, fy as i32) - 0.5) * 0.9 * k;
-        (1.0 - (fx - axis).abs() / half.max(1e-3)).max(0.0)
-    };
-    ps1_icon(EMBER_ICON, false, |fx, fy| {
-        match (fx as i32, fy as i32) {
-            (3, 2) => return Some(Vec3::new(0.95, 0.55, 0.15)),
-            (13, 0) => return Some(Vec3::new(0.8, 0.3, 0.08)),
-            _ => {}
-        }
-        let v = TONGUES.iter().enumerate().map(|(i, &t)| tongue(fx, fy, t) * if i == 0 { 1.0 } else { 0.75 }).fold(0.0, f32::max);
-        if v <= 0.0 {
-            return None;
-        }
-        let core = ((v - 0.35) * 1.6).clamp(0.0, 1.0) * ((fy - 6.0) / 7.0).clamp(0.0, 1.0);
-        let heat = (v * 1.5).min(1.0) * (0.45 + 0.55 * (fy / BASE).min(1.0));
-        let outer = Vec3::new(0.38, 0.05, 0.04);
-        let mid = Vec3::new(0.85, 0.32, 0.06);
-        let hot = Vec3::new(1.0, 0.82, 0.45);
-        Some(outer.lerp(mid, heat.clamp(0.0, 1.0)).lerp(hot, core))
-    })
-}
-
 fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut images: ResMut<Assets<Image>>) {
     let icons = ItemIcons(
         Item::ALL
@@ -635,10 +602,10 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
             .map(|it| {
                 let img = match it {
                     Item::HealFlask => flask_icon(),
-                    Item::FadedEmber => ember_icon(false),
-                    Item::LivelyEmber => ember_icon(true),
                     Item::GoldenMoss => moss_icon(),
                     Item::EmberResin => resin_icon(),
+                    Item::WardingAsh => ash_icon(),
+                    Item::VigorRoot => root_icon(),
                     Item::FlaskShard => shard_icon(),
                     Item::IronBrooch => brooch_icon(),
                     Item::CrestPlume => feather_icon(),
@@ -647,7 +614,6 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
             })
             .collect(),
     );
-    let flame = images.add(flame_icon());
     let weapon_icons = WeaponIcons((0..tuning.weapons.len()).map(|i| images.add(weapon_icon(i))).collect());
     let p = &tuning.player;
     commands.spawn((
@@ -816,7 +782,7 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
                 BackgroundColor(Color::srgba(0.03, 0.025, 0.02, 0.82)),
             ))
             .with_children(|c| {
-                c.spawn((image_bundle(icons.get(Item::FadedEmber), UVec2::splat(ITEM_ICON as u32)), PopupIcon));
+                c.spawn((image_bundle(icons.get(Item::GoldenMoss), UVec2::splat(ITEM_ICON as u32)), PopupIcon));
                 c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(3), ..default() }).with_children(|c| {
                     c.spawn((font.text("", 1, Color::srgb(0.95, 0.92, 0.85)), PopupName));
                     c.spawn((font.text("", 1, Color::srgb(0.7, 0.67, 0.6)), PopupInfo));
@@ -831,46 +797,6 @@ fn setup(mut commands: Commands, tuning: Res<Tuning>, font: Res<UiFont>, mut ima
         system: images.add(gear_icon()),
         gem: images.add(gem_icon()),
     });
-
-    // Embers, bottom right.
-    commands
-        .spawn((
-            ChildOf(root),
-            Node {
-                position_type: PositionType::Absolute,
-                right: px(28),
-                bottom: px(26),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::FlexEnd,
-                row_gap: px(2),
-                ..default()
-            },
-        ))
-        .with_children(|c| {
-            c.spawn((font.text("", 1, GOLD), EmbersGain));
-            c.spawn((
-                Node {
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
-                    column_gap: px(6),
-                    padding: UiRect { left: px(10), right: px(4), top: px(2), bottom: px(2) },
-                    border: UiRect::all(px(1)),
-                    ..default()
-                },
-                // One-pixel bevel: light edge at the top left, dark at the bottom right.
-                BorderColor {
-                    top: Color::srgb(0.42, 0.37, 0.3),
-                    left: Color::srgb(0.42, 0.37, 0.3),
-                    bottom: Color::srgb(0.08, 0.06, 0.05),
-                    right: Color::srgb(0.08, 0.06, 0.05),
-                },
-                BackgroundColor(Color::srgba(0.05, 0.04, 0.03, 0.7)),
-            ))
-            .with_children(|c| {
-                c.spawn((font.text("0", 1, Color::srgb(0.95, 0.92, 0.85)), EmbersText));
-                c.spawn(image_bundle(flame, UVec2::splat(EMBER_ICON as u32)));
-            });
-        });
 
     // Interaction prompt, above the boss panel.
     commands
@@ -1064,42 +990,6 @@ fn update_item(
     }
 }
 
-#[allow(clippy::type_complexity)]
-fn embers(
-    time: Res<Time>,
-    players: Query<&Player, With<LocalPlayer>>,
-    mut anim: ResMut<HudAnim>,
-    mut total: Query<&mut Text, (With<EmbersText>, Without<EmbersGain>)>,
-    mut gain: Query<(&mut Text, &mut TextColor), (With<EmbersGain>, Without<EmbersText>)>,
-) {
-    let Ok(p) = players.single() else { return };
-    let dt = time.delta_secs();
-    if anim.embers_shown < 0.0 {
-        anim.embers_shown = p.embers as f32;
-        anim.embers_known = p.embers;
-    }
-    // Embers gained: "+N" above the counter, which absorbs them after a moment.
-    if p.embers > anim.embers_known {
-        anim.gain = if anim.gain_timer > 0.0 { anim.gain + p.embers - anim.embers_known } else { p.embers - anim.embers_known };
-        anim.gain_timer = GAIN_SHOW;
-    }
-    anim.embers_known = p.embers;
-    let target = p.embers as f32;
-    let absorb = anim.gain_timer < GAIN_SHOW - 1.0;
-    if absorb || anim.embers_shown > target {
-        let diff = target - anim.embers_shown;
-        anim.embers_shown += diff.signum() * (diff.abs() * 4.0 * dt).max(60.0 * dt).min(diff.abs());
-    }
-    anim.gain_timer = (anim.gain_timer - dt).max(0.0);
-    for mut t in &mut total {
-        set_text(&mut t, (anim.embers_shown.round() as u32).to_string());
-    }
-    for (mut t, mut c) in &mut gain {
-        set_text(&mut t, if anim.gain_timer > 0.0 { format!("+{}", anim.gain) } else { String::new() });
-        c.0 = GOLD.with_alpha(anim.gain_timer.min(1.0));
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn prompt(
     tuning: Res<Tuning>,
@@ -1107,16 +997,14 @@ fn prompt(
     enc: Res<Encounter>,
     menu: Res<MenuState>,
     players: Query<(&Player, &Body, &Health), With<LocalPlayer>>,
+    loot: Query<(Entity, &Loot)>,
     mut root: Query<(&mut Visibility, &Children), With<Prompt>>,
     mut hints: Query<&mut Hint>,
 ) {
     // Picking up takes priority over resting (same button). (text, with the key?)
     let label = players.single().ok().filter(|(p, _, h)| !h.dead() && matches!(p.state, PState::Free | PState::Guard)).and_then(
         |(p, b, _)| {
-            if p.dropped.is_some_and(|d| near_dropped(&d, b.pos)) {
-                return Some((tr("Recover", "Récupérer"), true));
-            }
-            if near_pickup(&tuning, p.picked, b.pos).is_some() {
+            if near_loot(loot.iter(), b.pos).is_some() || near_pickup(&tuning, p.picked, b.pos).is_some() {
                 return Some((tr("Pick up", "Ramasser"), true));
             }
             if let Some(cp) = near_checkpoint(&tuning, b.pos).filter(|_| !enc.active) {
@@ -1214,7 +1102,7 @@ fn update_weapon(
     for mut t in &mut name {
         set_text(&mut t, tuning.weapons[w].name.get());
     }
-    let key = if *device == Device::Gamepad { Glyph::DpadRight } else { Glyph::Key("→") };
+    let key = if *device == Device::Gamepad { Glyph::DpadRight } else { Glyph::Key("1/2") };
     for mut h in &mut hint {
         set_hint(&mut h, if tuning.weapons.len() > 1 { vec![i(key), t(tr("switch", "changer"))] } else { vec![] });
     }
@@ -1298,8 +1186,7 @@ fn outcome(
             SimEvent::PlayerDied => {
                 *out = Outcome { text: Some((("YOU DIED", "VOUS ÊTES MORT"), Color::srgb(0.75, 0.12, 0.08))), ..default() };
             }
-            // Embers gained are shown at the bottom right (see `embers`).
-            SimEvent::BossDefeated { .. } => {
+            SimEvent::BossDefeated => {
                 let text = if enc.arena == Some(0) { ("AUTOMATON DESTROYED", "AUTOMATE DÉTRUIT") } else { ("GREAT FOE FELLED", "GRAND ENNEMI TERRASSÉ") };
                 *out = Outcome { text: Some((text, Color::srgb(0.9, 0.75, 0.35))), duration: Some(5.0), ..default() };
             }
@@ -1448,6 +1335,9 @@ fn popup(
         {
             pop.queue.extend(p.items.iter().copied());
         }
+        if let SimEvent::LootPicked { item, .. } = e {
+            pop.queue.push_back((*item, 1));
+        }
     }
     pop.timer -= time.delta_secs();
     if pop.timer <= 0.0 {
@@ -1477,16 +1367,20 @@ fn popup(
     }
 }
 
-/// Active effects, under the bars: resin (flaming weapon), moss (regeneration).
+/// Active effects, under the bars: resin (flaming weapon), moss (regeneration), ash
+/// (protection), root (stamina).
 fn effects(players: Query<&Player, With<LocalPlayer>>, mut q: Query<&mut Text, With<Effects>>) {
     let Ok(p) = players.single() else { return };
-    let mut parts = Vec::new();
-    if p.resin_ticks > 0 {
-        parts.push(format!("{} {} s", Item::EmberResin.name(), p.resin_ticks.div_ceil(60)));
-    }
-    if p.regen_ticks > 0 {
-        parts.push(format!("{} {} s", Item::GoldenMoss.name(), p.regen_ticks.div_ceil(60)));
-    }
+    let parts: Vec<String> = [
+        (Item::EmberResin, p.resin_ticks),
+        (Item::GoldenMoss, p.regen_ticks),
+        (Item::WardingAsh, p.ward_ticks),
+        (Item::VigorRoot, p.vigor_ticks),
+    ]
+    .into_iter()
+    .filter(|(_, ticks)| *ticks > 0)
+    .map(|(item, ticks)| format!("{} {} s", item.name(), ticks.div_ceil(60)))
+    .collect();
     for mut t in &mut q {
         set_text(&mut t, parts.join("   "));
     }

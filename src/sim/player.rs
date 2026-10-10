@@ -4,10 +4,10 @@ use bevy::prelude::*;
 
 use super::boss::Boss;
 use super::data::{BossMove, MoveRef, PlayerMove, Tuning, WeaponMove};
-use super::encounter::{self, Dropped, Encounter, near_checkpoint, near_dropped, near_pickup};
+use super::encounter::{self, Encounter, near_checkpoint, near_loot, near_pickup};
 use super::fighter::{Action, Body, Foe, Health, Hitstop};
 use super::input::{InputBuffer, PlayerInputs, btn};
-use super::items::{self, Inventory, Item};
+use super::items::{self, Inventory, Item, Loot};
 use super::world::Zone;
 use super::{DT, SimEvent, SimEvents, SimTick, math};
 
@@ -70,15 +70,16 @@ pub struct Player {
     pub inventory: Inventory,
     /// The heal of the current `Heal` action has already been applied.
     pub healed: bool,
-    /// Embers (currency), earned by defeating enemies.
-    pub embers: u32,
     /// Ticks spent in the `Dead` state (respawn after `RESPAWN_TICKS`).
     pub dead_ticks: u32,
     /// Item being used (`Heal` action, shared by all consumables).
     pub using: Option<Item>,
-    /// Consumable effects: regeneration (moss) and flaming weapon (resin), in ticks.
+    /// Consumable effects, in ticks: regeneration (moss), flaming weapon (resin), protection
+    /// (ash), faster stamina recovery (root).
     pub regen_ticks: u32,
     pub resin_ticks: u32,
+    pub ward_ticks: u32,
+    pub vigor_ticks: u32,
     /// Last checkpoint rested at, discovered checkpoints (bits).
     pub checkpoint: u8,
     pub found: u32,
@@ -91,10 +92,6 @@ pub struct Player {
     pub fall_ticks: u32,
     /// Height of the floor left behind (the camera doesn't go lower than that).
     pub fall_from: f32,
-    /// Last position on the ground before the fall (the embers stay there).
-    pub fall_at: Vec3,
-    /// Embers dropped on the last death, to be recovered.
-    pub dropped: Option<Dropped>,
     /// In the air (jump): vertical speed, height of the floor left behind, elapsed ticks.
     pub airborne: bool,
     pub air_vy: f32,
@@ -133,11 +130,12 @@ impl Player {
             switched: false,
             inventory: Inventory::new_game(t),
             healed: false,
-            embers: 0,
             dead_ticks: 0,
             using: None,
             regen_ticks: 0,
             resin_ticks: 0,
+            ward_ticks: 0,
+            vigor_ticks: 0,
             checkpoint: 0,
             found: 1,
             picked: 0,
@@ -146,8 +144,6 @@ impl Player {
             fall_vy: 0.0,
             fall_ticks: 0,
             fall_from: 0.0,
-            fall_at: Vec3::ZERO,
-            dropped: None,
             airborne: false,
             air_vy: 0.0,
             air_from: 0.0,
@@ -161,9 +157,11 @@ impl Player {
         if self.resin_ticks > 0 { items::RESIN_DAMAGE } else { 1.0 }
     }
 
-    /// Damage taken multiplier (talisman).
+    /// Damage taken multiplier (talisman, warding ash).
     pub fn defense_mult(&self) -> f32 {
-        if self.inventory.wears(Item::IronBrooch) { items::BROOCH_DAMAGE } else { 1.0 }
+        let brooch = if self.inventory.wears(Item::IronBrooch) { items::BROOCH_DAMAGE } else { 1.0 };
+        let ash = if self.ward_ticks > 0 { items::ASH_DAMAGE } else { 1.0 };
+        brooch * ash
     }
 
     /// Starts a fall (the body is already above the void; `from`: last position on the ground).
@@ -174,7 +172,6 @@ impl Player {
         self.fall_vy = 0.0;
         self.fall_ticks = 0;
         self.fall_from = from.y;
-        self.fall_at = from;
         let m = Vec3::new(momentum.x, 0.0, momentum.z);
         let len = math::flat_len(m);
         self.vel = if len > 7.0 { m / len * 7.0 } else { m };
@@ -299,8 +296,9 @@ fn lock_pos(t: &Tuning, foes: &Foes, e: Entity, part: u8) -> Option<Vec3> {
     pts.get(part as usize).or(pts.first()).copied()
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn player_act(
+    mut commands: Commands,
     tuning: Res<Tuning>,
     inputs: Res<PlayerInputs>,
     tick: Res<SimTick>,
@@ -311,10 +309,14 @@ pub fn player_act(
         Without<Foe>,
     >,
     mut foes: Foes,
+    loot: Query<(Entity, &Loot)>,
 ) {
     let t = &*tuning;
     let now = tick.0;
     let pd = &t.player;
+    // In creation order (determinism, if two players reach for the same item).
+    let mut loot: Vec<(Entity, Loot)> = loot.iter().map(|(e, l)| (e, *l)).collect();
+    loot.sort_by_key(|(e, _)| *e);
 
     for (entity, mut p, mut body, mut action, mut hitstop, mut health) in &mut players {
         let inp = inputs.0[p.id as usize % inputs.0.len()];
@@ -446,6 +448,8 @@ pub fn player_act(
             locked_pos,
             target,
             events: &mut events,
+            loot: &mut loot,
+            commands: &mut commands,
         };
 
         if p.state == PState::Acting {
@@ -585,7 +589,7 @@ pub fn player_act(
     }
 }
 
-struct Ctx<'a, 'w> {
+struct Ctx<'a, 'w, 'cw, 'cs> {
     t: &'a Tuning,
     now: u32,
     entity: Entity,
@@ -593,6 +597,9 @@ struct Ctx<'a, 'w> {
     locked_pos: Option<Vec3>,
     target: Option<TargetInfo>,
     events: &'a mut ResMut<'w, SimEvents>,
+    /// Loot still on the ground (taken out as it's picked up).
+    loot: &'a mut Vec<(Entity, Loot)>,
+    commands: &'a mut Commands<'cw, 'cs>,
 }
 
 /// Dodge or guard. Returns true if the state changed.
@@ -612,12 +619,17 @@ fn try_defensive(p: &mut Player, body: &mut Body, action: &mut Action, ctx: &mut
         return true;
     }
     if p.guard_held && p.state != PState::Guard {
+        // Cancelling a guard reaction while still holding: same guard, no new perfect window.
+        let from_guard = action.is(MoveRef::Player(PlayerMove::GuardHit))
+            || action.is(MoveRef::Player(PlayerMove::PerfectGuard));
         if action.mv.is_some() {
             action.stop();
         }
         p.charge = 0;
         p.state = PState::Guard;
-        p.guard_start = ctx.now;
+        if !from_guard {
+            p.guard_start = ctx.now;
+        }
         return true;
     }
     false
@@ -713,27 +725,28 @@ fn use_item_effect(p: &mut Player, health: &mut Health, entity: Entity, ctx: &mu
             ctx.events.push(SimEvent::Heal { entity });
             return;
         }
-        Item::FadedEmber => p.embers = p.embers.saturating_add(items::FADED_EMBERS),
-        Item::LivelyEmber => p.embers = p.embers.saturating_add(items::LIVELY_EMBERS),
         Item::GoldenMoss => p.regen_ticks = items::MOSS_TICKS,
         Item::EmberResin => p.resin_ticks = items::RESIN_TICKS,
+        Item::WardingAsh => p.ward_ticks = items::ASH_TICKS,
+        Item::VigorRoot => p.vigor_ticks = items::ROOT_TICKS,
         Item::FlaskShard | Item::IronBrooch | Item::CrestPlume => {}
     }
     ctx.events.push(SimEvent::ItemUsed { entity, item });
 }
 
-/// Interact: recover your embers or pick up the item in range, otherwise rest at the checkpoint,
+/// Interact: pick up the item (or loot) in range, otherwise rest at the checkpoint,
 /// go through a boss's fog, rekindle the torch of a defeated boss, read the sign.
 /// Nothing in range: on the gamepad, the button is left to the jump.
 fn try_interact(p: &mut Player, body: &mut Body, health: &mut Health, enc: &mut Encounter, ctx: &mut Ctx) -> bool {
     if !p.buffer.buffered(btn::INTERACT, ctx.now, ctx.t.player.input_buffer) {
         return false;
     }
-    if let Some(d) = p.dropped.filter(|d| near_dropped(d, body.pos)) {
+    if let Some((e, l)) = near_loot(ctx.loot.iter().map(|(e, l)| (*e, l)), body.pos) {
         p.buffer.consume(btn::INTERACT);
-        p.dropped = None;
-        p.embers = p.embers.saturating_add(d.embers);
-        ctx.events.push(SimEvent::EmbersRecovered { entity: ctx.entity, pos: d.pos(), embers: d.embers });
+        ctx.loot.retain(|(le, _)| *le != e);
+        ctx.commands.entity(e).despawn();
+        p.inventory.add(l.item, 1);
+        ctx.events.push(SimEvent::LootPicked { entity: ctx.entity, item: l.item });
         return true;
     }
     if let Some(i) = near_pickup(ctx.t, p.picked, body.pos) {
@@ -990,8 +1003,9 @@ fn air_control(p: &mut Player, body: &mut Body, stick_len: f32, move_dir: Option
 pub fn player_end_tick(tuning: Res<Tuning>, mut q: Query<(&mut Player, &Action, &mut Health)>) {
     let pd = &tuning.player;
     for (mut p, action, mut health) in &mut q {
-        if p.resin_ticks > 0 {
-            p.resin_ticks -= 1;
+        let pm = &mut *p;
+        for ticks in [&mut pm.resin_ticks, &mut pm.ward_ticks, &mut pm.vigor_ticks] {
+            *ticks = ticks.saturating_sub(1);
         }
         if p.regen_ticks > 0 {
             p.regen_ticks -= 1;
@@ -1012,6 +1026,7 @@ pub fn player_end_tick(tuning: Res<Tuning>, mut q: Query<(&mut Player, &Action, 
                 } else {
                     pd.stamina_regen
                 };
+                let rate = if p.vigor_ticks > 0 { rate * items::ROOT_REGEN } else { rate };
                 p.stamina = (p.stamina + rate * DT).min(pd.max_stamina);
             }
         }

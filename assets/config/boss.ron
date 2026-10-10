@@ -16,7 +16,6 @@
     stagger_decay: 7,
     idle_ticks: (36, 80),
     aggro_ticks: 240,
-    embers: 1000,
     // Teal, like its torch at the foot of the stairs: its shockwaves and its warnings.
     color: (0.15, 0.95, 0.8),
 

@@ -3242,8 +3242,8 @@
       {
         "items": [
           [
-            "FadedEmber",
-            1
+            "WardingAsh",
+            2
           ]
         ],
         "pos": [
@@ -3290,7 +3290,7 @@
       {
         "items": [
           [
-            "FadedEmber",
+            "VigorRoot",
             2
           ]
         ],
@@ -3302,7 +3302,11 @@
       {
         "items": [
           [
-            "LivelyEmber",
+            "EmberResin",
+            1
+          ],
+          [
+            "WardingAsh",
             1
           ]
         ],

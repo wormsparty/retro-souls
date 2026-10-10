@@ -194,24 +194,6 @@ impl Plugin for AutoShotPlugin {
                     {
                         p.pos = Some([v[0], v[1], v.get(2).copied().unwrap_or(0.0).to_radians()]);
                     }
-                    // Optional starting embers: SOULS_EMBERS=500 (embers dropped on death).
-                    if let (Some(n), Some(p)) = (
-                        std::env::var("SOULS_EMBERS").ok().and_then(|h| h.parse().ok()),
-                        w.resource_mut::<crate::sim::ResetFight>().progress.as_mut(),
-                    ) {
-                        p.embers = n;
-                    }
-                    // Embers dropped on death: SOULS_DROP=x,z,embers (corpse).
-                    let drop = std::env::var("SOULS_DROP").ok().map(|s| {
-                        s.split(',').filter_map(|p| p.trim().parse().ok()).collect::<Vec<f32>>()
-                    });
-                    if let Some([x, z, n]) = drop.as_deref().and_then(|v| <[f32; 3]>::try_from(v).ok()) {
-                        let t = w.resource::<crate::sim::data::Tuning>().clone();
-                        let y = crate::sim::world::floor_at(&t, x, z, 0.0).unwrap_or(0.0);
-                        if let Some(p) = w.resource_mut::<crate::sim::ResetFight>().progress.as_mut() {
-                            p.dropped = Some(crate::sim::encounter::Dropped { at: [x, y, z], embers: n as u32 });
-                        }
-                    }
                     // Start in a boss's arena, in front of it: SOULS_BOSS=n (index in `Tuning::encounters`).
                     if let (Some(n), Some(p)) = (
                         std::env::var("SOULS_BOSS").ok().and_then(|h| h.parse().ok()),

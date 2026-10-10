@@ -2,26 +2,27 @@
 //! slots are selected in game (D-pad down / C) and used with a single button.
 //!
 //! Three families, as in souls-likes:
-//! - consumables (quick slots): healing flask (refilled on rest), embers to
-//!   crush, moss, resin;
+//! - consumables (quick slots): healing flask (refilled on rest), and temporary boosts
+//!   (moss, resin, ash, root) that enemies drop at random (`Loot`);
 //! - talismans (a dedicated slot): permanent bonuses while worn;
 //! - key items, applied as soon as they're picked up (flask shard: one more charge).
 
-use serde::{Deserialize, Serialize};
+use bevy::prelude::*;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::data::Tuning;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Item {
     HealFlask,
-    /// Faded ember: crush it to gain embers.
-    FadedEmber,
-    /// Lively ember: like the faded ember, but better.
-    LivelyEmber,
     /// Golden moss: regenerates HP for a few seconds.
     GoldenMoss,
     /// Ember resin: the weapon deals more damage for a minute.
     EmberResin,
+    /// Warding ash: reduced damage taken for a while.
+    WardingAsh,
+    /// Vigor root: stamina recovers faster for a while.
+    VigorRoot,
     /// Flask shard: one more healing charge, as soon as it's picked up.
     FlaskShard,
     /// Talisman: reduced damage taken.
@@ -37,15 +38,18 @@ pub enum Kind {
     Key,
 }
 
-/// Embers gained by crushing a faded / lively ember.
-pub const FADED_EMBERS: u32 = 200;
-pub const LIVELY_EMBERS: u32 = 600;
 /// Golden moss: HP restored per second, and duration (ticks).
 pub const MOSS_HP_PER_SEC: f32 = 6.0;
 pub const MOSS_TICKS: u32 = 25 * 60;
 /// Ember resin: damage bonus and duration (ticks).
 pub const RESIN_DAMAGE: f32 = 1.2;
 pub const RESIN_TICKS: u32 = 60 * 60;
+/// Warding ash: share of the damage taken, and duration (ticks).
+pub const ASH_DAMAGE: f32 = 0.6;
+pub const ASH_TICKS: u32 = 30 * 60;
+/// Vigor root: stamina regeneration multiplier, and duration (ticks).
+pub const ROOT_REGEN: f32 = 1.75;
+pub const ROOT_TICKS: u32 = 30 * 60;
 /// Iron brooch: share of the damage taken.
 pub const BROOCH_DAMAGE: f32 = 0.85;
 /// Crest plume: share of the stamina cost of dodges.
@@ -54,10 +58,10 @@ pub const FEATHER_DODGE: f32 = 0.7;
 impl Item {
     pub const ALL: [Item; 8] = [
         Item::HealFlask,
-        Item::FadedEmber,
-        Item::LivelyEmber,
         Item::GoldenMoss,
         Item::EmberResin,
+        Item::WardingAsh,
+        Item::VigorRoot,
         Item::FlaskShard,
         Item::IronBrooch,
         Item::CrestPlume,
@@ -75,10 +79,10 @@ impl Item {
         use crate::lang::tr;
         match self {
             Item::HealFlask => tr("Healing Flask", "Fiole de soin"),
-            Item::FadedEmber => tr("Faded Ember", "Braise ternie"),
-            Item::LivelyEmber => tr("Lively Ember", "Braise vive"),
             Item::GoldenMoss => tr("Golden Moss", "Mousse dorée"),
             Item::EmberResin => tr("Ember Resin", "Résine ardente"),
+            Item::WardingAsh => tr("Warding Ash", "Cendre protectrice"),
+            Item::VigorRoot => tr("Vigor Root", "Racine de vigueur"),
             Item::FlaskShard => tr("Flask Shard", "Éclat de fiole"),
             Item::IronBrooch => tr("Iron Brooch", "Broche de fer"),
             Item::CrestPlume => tr("Crest Plume", "Plume de cimier"),
@@ -90,10 +94,10 @@ impl Item {
         use crate::lang::tr;
         match self {
             Item::HealFlask => tr("Restores HP. Refilled when resting.", "Rend des PV. Remplie au repos."),
-            Item::FadedEmber => tr("Crush it to gain embers.", "À écraser pour gagner des braises."),
-            Item::LivelyEmber => tr("Crush it to gain many embers.", "À écraser pour gagner beaucoup de braises."),
             Item::GoldenMoss => tr("Slowly restores HP for a while.", "Rend lentement des PV pendant un moment."),
             Item::EmberResin => tr("Weapon deals more damage for a minute.", "L'arme frappe plus fort pendant une minute."),
+            Item::WardingAsh => tr("Damage taken reduced by 40% for 30 s.", "Dégâts subis réduits de 40 % pendant 30 s."),
+            Item::VigorRoot => tr("Stamina recovers 75% faster for 30 s.", "L'endurance revient 75 % plus vite pendant 30 s."),
             Item::FlaskShard => tr("Healing Flask: one more charge.", "Fiole de soin : une charge de plus."),
             Item::IronBrooch => tr("Talisman. Damage taken reduced by 15%.", "Talisman. Dégâts subis réduits de 15 %."),
             Item::CrestPlume => tr("Talisman. Dodging costs 30% less stamina.", "Talisman. Esquiver coûte 30 % d'endurance en moins."),
@@ -103,10 +107,20 @@ impl Item {
 
 pub const QUICK_SLOTS: usize = 4;
 
+/// Item dropped by a defeated enemy (`EnemyDef::loot`), glowing on the ground where its body
+/// vanished. It stays there until it's picked up or the world is reset (death, travel).
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Loot {
+    pub pos: Vec3,
+    pub item: Item,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Inventory {
     /// Items owned and their quantity (one entry per item, in order of acquisition).
+    #[serde(deserialize_with = "saved_items")]
     pub items: Vec<(Item, u8)>,
+    #[serde(deserialize_with = "saved_slots")]
     pub slots: [Option<Item>; QUICK_SLOTS],
     /// Selected quick slot.
     pub active: u8,
@@ -114,6 +128,62 @@ pub struct Inventory {
     pub talisman: Option<Item>,
     /// Healing charges gained from flask shards.
     pub flask_bonus: u8,
+}
+
+/// Item read from a save: `None` if it no longer exists (old saves: the embers to crush),
+/// rather than making the whole save unreadable.
+struct SavedItem(Option<Item>);
+
+impl<'de> Deserialize<'de> for SavedItem {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::{DeserializeSeed, EnumAccess, IntoDeserializer, VariantAccess, Visitor, value::Error};
+        /// The variant's name, whatever it is.
+        struct Name;
+        impl<'de> Visitor<'de> for Name {
+            type Value = String;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an item name")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<String, E> {
+                Ok(v.to_owned())
+            }
+        }
+        impl<'de> DeserializeSeed<'de> for Name {
+            type Value = String;
+            fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<String, D::Error> {
+                d.deserialize_identifier(self)
+            }
+        }
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = SavedItem;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an item")
+            }
+            fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<SavedItem, A::Error> {
+                let (name, variant) = data.variant_seed(Name)?;
+                variant.unit_variant()?;
+                Ok(SavedItem(Item::deserialize(IntoDeserializer::<Error>::into_deserializer(name)).ok()))
+            }
+        }
+        d.deserialize_enum("Item", &[], V)
+    }
+}
+
+impl SavedItem {
+    fn get(self) -> Option<Item> {
+        self.0
+    }
+}
+
+fn saved_items<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<(Item, u8)>, D::Error> {
+    let v = Vec::<(SavedItem, u8)>::deserialize(d)?;
+    Ok(v.into_iter().filter_map(|(i, n)| Some((i.get()?, n))).collect())
+}
+
+fn saved_slots<'de, D: Deserializer<'de>>(d: D) -> Result<[Option<Item>; QUICK_SLOTS], D::Error> {
+    let v = <[Option<SavedItem>; QUICK_SLOTS]>::deserialize(d)?;
+    Ok(v.map(|s| s.and_then(SavedItem::get)))
 }
 
 impl Default for Inventory {

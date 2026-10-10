@@ -193,11 +193,10 @@ enum Stat {
     Attack,
     Defense,
     Flasks,
-    Embers,
 }
 
 impl Stat {
-    const ALL: [Stat; 6] = [Stat::Hp, Stat::Stamina, Stat::Attack, Stat::Defense, Stat::Flasks, Stat::Embers];
+    const ALL: [Stat; 5] = [Stat::Hp, Stat::Stamina, Stat::Attack, Stat::Defense, Stat::Flasks];
 
     fn label(self) -> &'static str {
         match self {
@@ -206,7 +205,6 @@ impl Stat {
             Stat::Attack => tr("Attack (weapon in hand)", "Attaque (arme en main)"),
             Stat::Defense => tr("Damage reduction", "Réduction des dégâts"),
             Stat::Flasks => tr("Healing flasks", "Fioles de soin"),
-            Stat::Embers => tr("Embers", "Braises"),
         }
     }
 
@@ -222,7 +220,6 @@ impl Stat {
             }
             Stat::Defense => pct(1.0 - p.defense_mult()),
             Stat::Flasks => p.inventory.refill_amount(Item::HealFlask, t).unwrap_or(0).to_string(),
-            Stat::Embers => p.embers.to_string(),
         }
     }
 }
@@ -253,7 +250,7 @@ fn owned_bits(p: Option<&Player>) -> u16 {
 fn grid_rows(page: Page, n: usize, weapons: usize) -> Option<Vec<usize>> {
     match page {
         Page::Revive => Some(vec![n]),
-        // The important equipment (weapons, talisman), then the consumables.
+        // The important equipment (talisman, weapons), then the consumables.
         Page::Equipment => Some(vec![weapons + 1, QUICK_SLOTS]),
         // The pause menu: a row of icons.
         Page::Pause => Some(vec![n]),
@@ -316,7 +313,7 @@ fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
             (tr("Dodge (hold: sprint)", "Esquive (maintenir : course)"), vec![i(Glyph::Key(tr("SPACE", "ESPACE")))]),
             (tr("Use item", "Utiliser l'objet"), vec![i(Glyph::Key("R"))]),
             (tr("Next item", "Objet suivant"), vec![i(Glyph::Key("↓"))]),
-            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::Key("→"))]),
+            (tr("Switch weapon (1: rapier, 2: greatsword)", "Changer d'arme (1 : rapière, 2 : espadon)"), vec![i(Glyph::Key("1/2"))]),
             (
                 tr("Lock on", "Verrouillage"),
                 vec![i(Glyph::Key("Q")), or(), i(Glyph::MouseMiddle), t("AZERTY"), i(Glyph::Key("A"))],
@@ -345,7 +342,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
         Page::Travel => (0..32u8).filter(|i| c.found & (1 << i) != 0).map(Entry::Place).chain([Entry::Act(Back)]).collect(),
         // Grids: go back with Esc / (B).
         Page::Revive => vec![Entry::Boss(c.reviving)],
-        Page::Equipment => (0..c.weapons).map(Entry::Weapon).chain([Entry::Talisman]).chain((0..QUICK_SLOTS as u8).map(Entry::Slot)).collect(),
+        Page::Equipment => [Entry::Talisman].into_iter().chain((0..c.weapons).map(Entry::Weapon)).chain((0..QUICK_SLOTS as u8).map(Entry::Slot)).collect(),
         Page::Choose => {
             let kind = if c.choosing as usize == QUICK_SLOTS { Kind::Talisman } else { Kind::Consumable };
             std::iter::once(Entry::Pick(None))
@@ -459,8 +456,8 @@ fn page_info(p: Page) -> &'static str {
             "Modifiable à tout moment dans les Options (Résolution interne).",
         ),
         Page::Equipment => tr(
-            "Weapons and talisman, then the quick slots (“Next item” cycles through them in game). Select a slot to change it.",
-            "Armes et talisman, puis les emplacements rapides (« Objet suivant » passe de l'un à l'autre en jeu). Choisir un emplacement pour le changer.",
+            "Talisman and weapons, then the quick slots (“Next item” cycles through them in game). Select a slot to change it.",
+            "Talisman et armes, puis les emplacements rapides (« Objet suivant » passe de l'un à l'autre en jeu). Choisir un emplacement pour le changer.",
         ),
         Page::Choose => tr("What goes in this slot.", "Ce que contiendra cet emplacement."),
         _ => "",
@@ -1901,12 +1898,7 @@ fn refresh_menu(
         (None, Some(Entry::Pick(None))) => tr("(empty) — Clears this slot.", "(vide) — Libère cet emplacement.").into(),
         (None, Some(Entry::Weapon(i))) => {
             let w = tuning.weapons.get(*i as usize);
-            format!(
-                "{} — {} {}",
-                w.map_or("", |w| w.name.get()),
-                w.map_or("", |w| w.description.get()),
-                tr("“Switch weapon” goes from one to the other in game.", "« Changer d'arme » passe de l'une à l'autre en jeu.")
-            )
+            format!("{} — {}", w.map_or("", |w| w.name.get()), w.map_or("", |w| w.description.get()))
         }
         _ => String::new(),
     };

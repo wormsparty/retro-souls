@@ -6,15 +6,16 @@
 //! - they chase and attack like the boss (weighted choice, cooldowns, pauses
 //!   where you can punish);
 //! - too far from their post, they give up, go back and heal;
-//! - once defeated, they drop their embers and disappear. They all come back when you
+//! - once defeated, they disappear, sometimes leaving an item behind (`EnemyDef::loot`). They all come back when you
 //!   rest or die, except the unique ones.
 
 use bevy::prelude::*;
 
 use super::boss::Boss;
-use super::data::{EnemyMove, MoveRef, Tuning};
+use super::data::{EnemyDef, EnemyMove, MoveRef, Tuning};
 use super::encounter::Encounter;
 use super::fighter::{Action, Body, Foe, Health, Hitstop, PrevBody, Team};
+use super::items::{Item, Loot};
 use super::player::{PState, Player, run_frame};
 use super::rng::SimRng;
 use super::{DT, SimDebug, SimEntity, SimEvent, SimEvents, SimTick, math, world};
@@ -208,7 +209,11 @@ pub fn enemy_act(
                 e.dead_ticks += 1;
                 if e.dead_ticks >= VANISH_TICKS {
                     commands.entity(entity).despawn();
-                    events.push(SimEvent::EnemyVanished { pos: body.pos });
+                    let loot = roll_loot(d, &mut rng);
+                    if let Some(item) = loot {
+                        commands.spawn((SimEntity, Loot { pos: body.pos, item }));
+                    }
+                    events.push(SimEvent::EnemyVanished { pos: body.pos, loot });
                 }
             }
             continue;
@@ -382,6 +387,21 @@ fn start_attack(e: &mut Enemy, body: &mut Body, action: &mut Action, idx: usize,
     e.cooldowns[idx] = now + a.cooldown;
     action.start(MoveRef::Enemy(e.kind, EnemyMove::Attack(idx as u8)), math::flat_len(target_pos - body.pos));
     run_frame(body, action, &a.mv, Some(target_pos), None);
+}
+
+/// What a defeated enemy leaves behind: a single roll over its loot table.
+fn roll_loot(d: &EnemyDef, rng: &mut SimRng) -> Option<Item> {
+    if d.loot.is_empty() {
+        return None;
+    }
+    let mut r = rng.next_f32();
+    for l in &d.loot {
+        if r < l.chance {
+            return Some(l.item);
+        }
+        r -= l.chance;
+    }
+    None
 }
 
 /// Rest, travel: all enemies return to their post (except defeated unique ones).

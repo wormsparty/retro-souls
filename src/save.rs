@@ -109,7 +109,7 @@ fn autosave_triggers(
             e,
             SimEvent::Rested { .. }
                 | SimEvent::BossAwake
-                | SimEvent::BossDefeated { .. }
+                | SimEvent::BossDefeated
                 | SimEvent::BossRevived { .. }
                 | SimEvent::Passage { .. }
                 | SimEvent::PlayerDied
@@ -119,6 +119,7 @@ fn autosave_triggers(
                 | SimEvent::ItemCycled { .. }
                 | SimEvent::ItemUsed { .. }
                 | SimEvent::PickedUp { .. }
+                | SimEvent::LootPicked { .. }
                 | SimEvent::Kindled { .. }
                 | SimEvent::EnemyDied { .. }
                 | SimEvent::Fell { .. }
@@ -158,15 +159,49 @@ pub fn save_now(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sim::items::Item;
 
     #[test]
     fn save_roundtrip() {
         let t = Tuning::builtin();
         let mut progress = Progress::new_game(&t);
-        progress.embers = 1000;
         progress.pos = Some([0.5, -20.0, 3.0]);
         let data = SaveData { version: VERSION, play_time: 75.0, progress };
         let txt = ron::ser::to_string_pretty(&data, ron::ser::PrettyConfig::default()).unwrap();
         assert_eq!(ron::from_str::<SaveData>(&txt).unwrap(), data);
+    }
+
+    /// A save from before the embers were removed still loads: the currency, the corpse and the
+    /// embers to crush are dropped.
+    #[test]
+    fn old_save_with_embers_loads() {
+        let txt = r#"(
+            version: 1,
+            play_time: 10.0,
+            progress: (
+                embers: 400,
+                defeated: 1,
+                weapon: 0,
+                inventory: (
+                    items: [(HealFlask, 3), (FadedEmber, 3), (EmberResin, 1)],
+                    slots: (Some(HealFlask), Some(FadedEmber), None, Some(EmberResin)),
+                    active: 1,
+                    talisman: None,
+                    flask_bonus: 0,
+                ),
+                hp: None,
+                pos: None,
+                checkpoint: 0,
+                found: 1,
+                picked: 3,
+                slain: 0,
+                dropped: Some((at: (1.0, 0.0, 2.0), embers: 100)),
+            ),
+        )"#;
+        let data = ron::from_str::<SaveData>(txt).unwrap();
+        let inv = &data.progress.inventory;
+        assert_eq!(inv.items, vec![(Item::HealFlask, 3), (Item::EmberResin, 1)]);
+        assert_eq!(inv.slots, [Some(Item::HealFlask), None, None, Some(Item::EmberResin)]);
+        assert_eq!((data.progress.defeated, data.progress.picked), (1, 3));
     }
 }
