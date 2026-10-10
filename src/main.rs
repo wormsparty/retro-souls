@@ -1,3 +1,3 @@
 fn main() {
-    giants_flame::run();
+    psx_souls::run();
 }

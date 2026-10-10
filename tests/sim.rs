@@ -1,15 +1,15 @@
 //! Simulation integration tests (no rendering).
 
 use bevy::prelude::*;
-use giants_flame::sim::boss::Boss;
-use giants_flame::sim::data::{BossMove, MoveRef, PlayerMove, Shape, Tuning};
-use giants_flame::sim::encounter::{self, Encounter, Progress, SimCommand, SimCommands, checkpoint_pos, checkpoint_spawn};
-use giants_flame::sim::items::Item;
-use giants_flame::sim::fighter::{Action, Body, Health};
-use giants_flame::sim::input::{PlayerInput, PlayerInputs, btn};
-use giants_flame::sim::player::{PState, Player};
-use giants_flame::sim::world::Zone;
-use giants_flame::sim::{ResetFight, SimDebug, SimEvent, SimEvents, SimPlugin, SimSchedule, math, state_hash};
+use psx_souls::sim::boss::Boss;
+use psx_souls::sim::data::{BossMove, MoveRef, PlayerMove, Shape, Tuning};
+use psx_souls::sim::encounter::{self, Encounter, Progress, SimCommand, SimCommands, checkpoint_pos, checkpoint_spawn};
+use psx_souls::sim::items::Item;
+use psx_souls::sim::fighter::{Action, Body, Health};
+use psx_souls::sim::input::{PlayerInput, PlayerInputs, btn};
+use psx_souls::sim::player::{PState, Player};
+use psx_souls::sim::world::Zone;
+use psx_souls::sim::{ResetFight, SimDebug, SimEvent, SimEvents, SimPlugin, SimSchedule, math, state_hash};
 
 /// Fight in progress against the Automaton (passive): the player went through the fog of the
 /// theatre, facing the boss (which wakes up).
@@ -20,9 +20,9 @@ fn new_app() -> App {
 }
 
 /// The theatre's arena, moved so that it's centred on the origin.
-fn theatre_at_origin(t: &Tuning) -> giants_flame::sim::data::ArenaDef {
+fn theatre_at_origin(t: &Tuning) -> psx_souls::sim::data::ArenaDef {
     let mut a = t.arenas[0].clone();
-    let (c, _) = giants_flame::sim::world::arena_bounds(&a);
+    let (c, _) = psx_souls::sim::world::arena_bounds(&a);
     let [dx, dz] = [-c.x, -c.z];
     for f in &mut a.floors {
         match &mut f.shape {
@@ -361,8 +361,8 @@ fn stamina_goes_negative_and_blocks_actions() {
 
 #[test]
 fn stamina_cost_is_proportional_to_damage_for_all_weapons() {
-    use giants_flame::sim::data::WeaponMove;
-    use giants_flame::sim::player::stamina_cost;
+    use psx_souls::sim::data::WeaponMove;
+    use psx_souls::sim::player::stamina_cost;
     let t = Tuning::builtin();
     for (w, wd) in t.weapons.iter().enumerate() {
         for (i, l) in wd.light.iter().enumerate() {
@@ -406,7 +406,7 @@ fn heal_restores_health_and_is_lost_if_interrupted() {
 
 #[test]
 fn charged_heavy_releases_automatically_at_full_charge() {
-    use giants_flame::sim::data::WeaponMove;
+    use psx_souls::sim::data::WeaponMove;
     let t = Tuning::builtin();
     for w in 0..t.weapons.len() as u8 {
         let mut app = new_app();
@@ -461,7 +461,7 @@ fn the_theatre_fog_leads_into_the_arena_where_the_boss_awaits() {
     steps(&mut app, 240, PlayerInput { move_y: -127, ..IDLE });
     step(&mut app, PlayerInput { buttons: btn::INTERACT, move_y: -127, ..IDLE });
     let pos = body(&mut app, p).pos;
-    let (centre, _) = giants_flame::sim::world::arena_bounds(&t.arenas[0]);
+    let (centre, _) = psx_souls::sim::world::arena_bounds(&t.arenas[0]);
     assert!(math::flat_len(pos - centre) <= 16.0, "{pos:?}");
     assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Arena(0));
 }
@@ -485,7 +485,7 @@ fn defeated_boss_bars_its_fog_until_its_torch_is_rekindled() {
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::BossDefeated { .. })));
 
     // Back out through the fog: in front of it, in the level; the arena empties.
-    let (door, dir) = giants_flame::sim::world::portal(&t, &t.arenas[0].door);
+    let (door, dir) = psx_souls::sim::world::portal(&t, &t.arenas[0].door);
     app.world_mut().get_mut::<Body>(p).unwrap().pos = door + dir * 0.8;
     step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
     assert_eq!(app.world().get::<Player>(p).unwrap().zone, Zone::Level);
@@ -547,7 +547,7 @@ fn every_fog_leads_to_its_arena_and_back() {
         assert_eq!(n, t.encounters[i].members.len(), "arena {i}");
         // Everyone stands on the arena's floor.
         for (b, _) in app.world_mut().query::<(&Body, &Boss)>().iter(app.world()) {
-            assert_eq!(giants_flame::sim::world::zone_at(&t, b.pos), Zone::Arena(i as u8), "arena {i}: {:?}", b.pos);
+            assert_eq!(psx_souls::sim::world::zone_at(&t, b.pos), Zone::Arena(i as u8), "arena {i}: {:?}", b.pos);
         }
         // Defeated: back out through the door.
         let ids: Vec<Entity> = app.world_mut().query_filtered::<Entity, With<Boss>>().iter(app.world()).collect();
@@ -556,7 +556,7 @@ fn every_fog_leads_to_its_arena_and_back() {
         }
         steps(&mut app, 3, IDLE);
         assert!(app.world().resource::<Encounter>().is_defeated(i as u8), "arena {i}");
-        let (door, dir) = giants_flame::sim::world::portal(&t, &t.arenas[i].door);
+        let (door, dir) = psx_souls::sim::world::portal(&t, &t.arenas[i].door);
         app.world_mut().get_mut::<Body>(p).unwrap().pos = door + dir * 0.8;
         step(&mut app, IDLE);
         step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
@@ -567,7 +567,7 @@ fn every_fog_leads_to_its_arena_and_back() {
 #[test]
 fn the_final_door_opens_once_every_boss_is_defeated() {
     let t = Tuning::builtin();
-    let (door, dir) = giants_flame::sim::world::portal(&t, &t.level.final_door);
+    let (door, dir) = psx_souls::sim::world::portal(&t, &t.level.final_door);
     let cam_yaw = PlayerInput::quantize_yaw(math::yaw_of(dir));
     let walk = PlayerInput { move_y: 127, cam_yaw, ..IDLE };
     for defeated in [0b011_1111u32, 0b111_1111] {
@@ -664,7 +664,7 @@ fn death_respawns_at_checkpoint_with_items_refilled_and_embers_left_behind() {
     app.world_mut().get_mut::<Health>(b).unwrap().cur = 500.0;
     app.world_mut().get_mut::<Health>(p).unwrap().cur = 10.0;
     let hit_start = boss_attack(&mut app, "ecrasement", 2.6);
-    steps(&mut app, hit_start + 30 + t.player.death.total + giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    steps(&mut app, hit_start + 30 + t.player.death.total + psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     let pl = app.world().get::<Player>(p).unwrap().clone();
     assert_eq!(pl.state, PState::Free);
@@ -787,7 +787,7 @@ fn shockwave_ignores_guard_but_can_be_outrun() {
 
 #[test]
 fn leap_slam_lands_on_the_marked_spot() {
-    use giants_flame::sim::boss::aoe_telegraph;
+    use psx_souls::sim::boss::aoe_telegraph;
     let mut app = new_app();
     let t = tuning(&app);
     let hit_start = boss_attack(&mut app, "saut_ecrasant", 8.0);
@@ -809,8 +809,8 @@ fn leap_slam_lands_on_the_marked_spot() {
 
 // ----------------------------------------------------------------------------- level
 
-use giants_flame::sim::enemy::{EState, Enemy};
-use giants_flame::sim::world;
+use psx_souls::sim::enemy::{EState, Enemy};
+use psx_souls::sim::world;
 
 /// Places the player on the ground at (x, z), facing `yaw`.
 fn put_player(app: &mut App, x: f32, z: f32, yaw: f32) {
@@ -844,7 +844,7 @@ fn walking_off_the_edge_is_a_fall_to_death_then_back_to_the_lantern() {
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Fell { .. })));
     assert_eq!(app.world().get::<Player>(p).unwrap().state, PState::Dead);
     assert!(body(&mut app, p).pos.y < -6.0, "the body falls");
-    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    steps(&mut app, psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     assert_eq!(app.world().get::<Player>(p).unwrap().state, PState::Free);
     assert!(body(&mut app, p).pos.distance(checkpoint_pos(&t, 0)) < 2.5);
@@ -859,7 +859,7 @@ fn dropped_embers_are_recovered_or_lost_on_a_second_death() {
     // Fall from the east edge of the square: the embers stay at the edge, on the ground.
     put_player(&mut app, 6.0, -31.5, 0.0);
     walk(&mut app, 120, Vec3::X);
-    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    steps(&mut app, psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     let d = app.world().get::<Player>(p).unwrap().dropped.expect("dropped embers");
     assert_eq!(d.embers, 250);
@@ -877,12 +877,12 @@ fn dropped_embers_are_recovered_or_lost_on_a_second_death() {
     // Dying twice in a row: the first embers are lost.
     put_player(&mut app, 6.0, -31.5, 0.0);
     walk(&mut app, 120, Vec3::X);
-    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    steps(&mut app, psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     app.world_mut().get_mut::<Player>(p).unwrap().embers = 40;
     put_player(&mut app, -6.0, -31.5, 0.0);
     walk(&mut app, 120, -Vec3::X);
-    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    steps(&mut app, psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     let pl = app.world().get::<Player>(p).unwrap();
     assert_eq!(pl.embers, 0);
@@ -941,13 +941,13 @@ fn hounds_wake_together_bite_and_drop_embers() {
     // Hit at contact range (the dog is moved closer).
     app.world_mut().get_mut::<Body>(dog).unwrap().pos = pos + math::forward(math::yaw_of(dpos - pos)) * 1.2;
     app.world_mut().get_mut::<Action>(dog).unwrap().stop();
-    app.world_mut().get_mut::<giants_flame::sim::fighter::Hitstop>(dog).unwrap().0 = 30;
+    app.world_mut().get_mut::<psx_souls::sim::fighter::Hitstop>(dog).unwrap().0 = 30;
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
     steps(&mut app, 20, IDLE);
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::EnemyDied { .. })));
     let hound = t.enemy_kind("hound").unwrap() as usize;
     assert_eq!(app.world().get::<Player>(p).unwrap().embers, embers + t.enemies[hound].embers);
-    steps(&mut app, t.enemies[hound].death.total + giants_flame::sim::enemy::VANISH_TICKS + 40, IDLE);
+    steps(&mut app, t.enemies[hound].death.total + psx_souls::sim::enemy::VANISH_TICKS + 40, IDLE);
     assert!(app.world().get_entity(dog).is_err(), "the body has disappeared");
 }
 
@@ -994,7 +994,7 @@ fn pickups_are_taken_once_and_kept_after_death() {
     // Dying doesn't bring it back.
     app.world_mut().get_mut::<Health>(p).unwrap().cur = 0.0;
     app.world_mut().get_mut::<Player>(p).unwrap().state = PState::Dead;
-    steps(&mut app, giants_flame::sim::encounter::RESPAWN_TICKS + 2, IDLE);
+    steps(&mut app, psx_souls::sim::encounter::RESPAWN_TICKS + 2, IDLE);
     let p = player(&mut app);
     let pl = app.world().get::<Player>(p).unwrap();
     assert_eq!(pl.picked & 1, 1);
@@ -1014,7 +1014,7 @@ fn faded_ember_is_crushed_for_embers() {
     step(&mut app, PlayerInput { buttons: btn::ITEM, ..IDLE });
     steps(&mut app, t.player.heal.total + 2, IDLE);
     let pl = app.world().get::<Player>(p).unwrap();
-    assert_eq!(pl.embers, giants_flame::sim::items::FADED_EMBERS);
+    assert_eq!(pl.embers, psx_souls::sim::items::FADED_EMBERS);
     assert_eq!(pl.inventory.count(Item::FadedEmber), 0);
 }
 
@@ -1082,7 +1082,7 @@ fn unique_enemy_stays_dead() {
     // At contact range, facing it, one HP left.
     put_player(&mut app, bpos.x, bpos.z - 1.3, 0.0);
     app.world_mut().get_mut::<Health>(boss_e).unwrap().cur = 1.0;
-    app.world_mut().get_mut::<giants_flame::sim::fighter::Hitstop>(boss_e).unwrap().0 = 30;
+    app.world_mut().get_mut::<psx_souls::sim::fighter::Hitstop>(boss_e).unwrap().0 = 30;
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
     steps(&mut app, 20, IDLE);
     assert!(app.world().get::<Player>(p).unwrap().slain != 0);
@@ -1110,7 +1110,7 @@ fn fights_with_enemies_are_deterministic() {
 
 /// Adds a platform to the level west of the square, separated from it by 2.5 m of void.
 fn add_islet(app: &mut App) {
-    use giants_flame::sim::data::{FloorDef, FloorStyle, Shape};
+    use psx_souls::sim::data::{FloorDef, FloorStyle, Shape};
     let mut t = app.world_mut().resource_mut::<Tuning>();
     t.level.floors.push(FloorDef {
         shape: Shape::Ellipse { center: [-15.0, -31.5], radii: [2.5, 2.5], y: -2.4 },
@@ -1199,7 +1199,7 @@ fn interact_picks_up_instead_of_jumping() {
 
 #[test]
 fn reloading_at_a_brazier_faces_the_way_on() {
-    use giants_flame::sim::encounter::Progress;
+    use psx_souls::sim::encounter::Progress;
     let mut app = fresh_app();
     let t = tuning(&app);
     for cp in 0..t.level.checkpoints.len() {
@@ -1208,7 +1208,7 @@ fn reloading_at_a_brazier_faces_the_way_on() {
         let at = fire + Vec3::new(0.0, 0.0, -1.2);
         let mut progress = Progress::new_game(&t);
         progress.pos = Some([at.x, at.z, 0.0]);
-        let mut reset = app.world_mut().resource_mut::<giants_flame::sim::ResetFight>();
+        let mut reset = app.world_mut().resource_mut::<psx_souls::sim::ResetFight>();
         reset.requested = true;
         reset.progress = Some(progress);
         steps(&mut app, 2, IDLE);
@@ -1291,7 +1291,7 @@ fn every_boss_attack_runs_and_casts_its_spells() {
                 assert_eq!(casts, a.mv.casts.len(), "{}/{}/{}", enc.name.get(), bd.key, a.name);
                 // The spells eventually disappear.
                 steps(&mut app, 400, IDLE);
-                let left = app.world_mut().query::<&giants_flame::sim::spell::Spell>().iter(app.world()).count();
+                let left = app.world_mut().query::<&psx_souls::sim::spell::Spell>().iter(app.world()).count();
                 assert_eq!(left, 0, "{}/{}: spells left in play", bd.key, a.name);
             }
         }
@@ -1441,7 +1441,7 @@ fn dragon_breath_is_one_beam_that_hits_once_and_stops_with_its_attack() {
     let (mut app, b, def, _) = lone_boss("dragon", Vec3::new(0.0, 0.0, -9.0));
     start_boss_attack(&mut app, b, def, "souffle", 9.0);
     steps(&mut app, 70, IDLE);
-    let beams = |app: &mut App| app.world_mut().query::<&giants_flame::sim::spell::Spell>().iter(app.world()).count();
+    let beams = |app: &mut App| app.world_mut().query::<&psx_souls::sim::spell::Spell>().iter(app.world()).count();
     assert_eq!(beams(&mut app), 1);
     app.world_mut().get_mut::<Action>(b).unwrap().start(MoveRef::Boss(def, BossMove::Groggy), 0.0);
     steps(&mut app, 2, IDLE);
@@ -1483,7 +1483,7 @@ fn big_beast_does_not_track_its_target_exactly() {
 
 #[test]
 fn attacking_in_the_air_is_a_jump_attack_that_lands() {
-    use giants_flame::sim::data::{MoveRef, WeaponMove};
+    use psx_souls::sim::data::{MoveRef, WeaponMove};
     let mut app = fresh_app();
     let p = player(&mut app);
     put_player(&mut app, 0.0, -31.5, 0.0);
@@ -1492,7 +1492,7 @@ fn attacking_in_the_air_is_a_jump_attack_that_lands() {
     step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
     steps(&mut app, 8, IDLE);
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
-    let a = app.world().get::<giants_flame::sim::fighter::Action>(p).unwrap().mv;
+    let a = app.world().get::<psx_souls::sim::fighter::Action>(p).unwrap().mv;
     assert_eq!(a, Some(MoveRef::Weapon(0, WeaponMove::Jump)));
     steps(&mut app, 60, IDLE);
     let pl = app.world().get::<Player>(p).unwrap();
@@ -1507,7 +1507,7 @@ fn up_and_down_switch_between_high_and_low_lock_points() {
     // The wyvern: its head is much higher than its legs.
     let dragon = t.boss_kind("dragon").unwrap();
     let b = boss(&mut app);
-    *app.world_mut().get_mut::<giants_flame::sim::boss::Boss>(b).unwrap() = giants_flame::sim::boss::Boss::new(&t, dragon, 0);
+    *app.world_mut().get_mut::<psx_souls::sim::boss::Boss>(b).unwrap() = psx_souls::sim::boss::Boss::new(&t, dragon, 0);
     {
         let mut bb = app.world_mut().get_mut::<Body>(b).unwrap();
         bb.pos = Vec3::ZERO;
@@ -1584,7 +1584,7 @@ fn dragon_headbutt_turns_toward_a_target_off_its_axis() {
 
 #[test]
 fn aoe_circle_shows_early_stays_put_and_marks_the_impact() {
-    use giants_flame::sim::boss::{MIN_WARNING, aoe_telegraph};
+    use psx_souls::sim::boss::{MIN_WARNING, aoe_telegraph};
     let (mut app, b, def, p) = lone_boss("butcher", Vec3::new(0.0, 0.0, 3.0));
     start_boss_attack(&mut app, b, def, "fendoir", 3.0);
     let t = Tuning::builtin();
@@ -1616,7 +1616,7 @@ fn aoe_circle_shows_early_stays_put_and_marks_the_impact() {
 
 #[test]
 fn a_bolt_that_misses_burns_on_the_ground_for_a_moment() {
-    use giants_flame::sim::spell::{SPLASH_LIFE, Spell};
+    use psx_souls::sim::spell::{SPLASH_LIFE, Spell};
     let (mut app, b, def, p) = lone_boss("marionette", Vec3::new(0.0, 0.0, 7.0));
     start_boss_attack(&mut app, b, def, "bond_arriere", 7.0);
     // The needles start from well above her.

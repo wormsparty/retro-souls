@@ -17,7 +17,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::text::{FontSmoothing, LineHeight};
 use bevy::window::PrimaryWindow;
 
-pub const FONT: &str = "fonts/giants-flame.ttf";
+pub const FONT: &str = "fonts/psx-souls.ttf";
 /// Font em size, in dots (see `tools/pixel_font.py`).
 const FONT_EM: f32 = 12.0;
 /// Target number of dot rows over the screen height.

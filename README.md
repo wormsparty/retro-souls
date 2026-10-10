@@ -1,4 +1,4 @@
-# Giant's Flame — combat prototype
+# PSX Souls — combat prototype
 
 A combat prototype inspired by *Lies of P* / *Dark Souls*, rendered PlayStation 1 style, in
 Rust + [Bevy 0.19](https://bevy.org) (native, and in the browser via WASM).
@@ -142,8 +142,8 @@ after the language, with a screenshot of each (`assets/ui/style_*.png`). Changea
 options ("Internal resolution").
 
 Settings are saved as soon as they change and restored on the next launch:
-`~/.config/giants-flame/settings.ron` (Linux), `%APPDATA%\giants-flame\settings.ron` (Windows),
-`~/Library/Application Support/giants-flame/settings.ron` (macOS), `localStorage` in the browser.
+`~/.config/psx-souls/settings.ron` (Linux), `%APPDATA%\psx-souls\settings.ron` (Windows),
+`~/Library/Application Support/psx-souls/settings.ron` (macOS), `localStorage` in the browser.
 In the browser, full screen turns on at the first click or key press (the browser requires it);
 Esc exits it, an action in game brings it back.
 
@@ -367,3 +367,14 @@ the interface's bitmap font (`tools/pixel_font.py`, 12-pixel em, French accents)
 is drawn on a grid of big pixels (≈ 360 rows, a whole number of screen pixels per dot) like the
 game; the key icons (keyboard, mouse, Xbox gamepad) and item icons are drawn as pixel art by
 `src/ui.rs` and `src/hud.rs`.
+
+## License
+
+Copyright (c) 2026 @wormsparty.
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT)
+at your option. This covers the code and all the assets (models, sounds, font, images).
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
+this project, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
+additional terms or conditions.
