@@ -1,18 +1,19 @@
 //! The bosses' passages in the world: the fogs (at the end of each corridor, and at the door of
 //! each arena), the portcullis that bars the way once the boss is defeated, the torches in the
 //! boss's colour (lit as long as it lives), and the final door with its medallions, which light up
-//! one by one and open it once all the bosses are defeated.
+//! one by one and open it once all the bosses are defeated, and the painted panel beyond it.
 //!
-//! The stone (gateways, torch poles, the door's frame and leaves, the sign) is in the scenery
+//! The stone (gateways, torch poles, the door's frame and leaves, the panel) is in the scenery
 //! (`tools/blender/arena.py`); what changes with the state is made here.
 
 use bevy::prelude::*;
 
 use super::models::{LightKind, SceneLights};
-use super::ps1::Ps1Material;
+use super::ps1::{Ps1Material, TintMeshes};
 use super::{AppState, LocalPlayer};
 use crate::sim::data::Tuning;
 use crate::sim::encounter::{self, Encounter};
+use crate::sim::fighter::Body;
 use crate::sim::player::Player;
 use crate::sim::world::{self, Zone};
 
@@ -27,6 +28,8 @@ const MEDALLION_OUT: f32 = 0.56;
 /// Opening angle of the leaves, and duration of the opening (seconds).
 const DOOR_ANGLE: f32 = 1.75;
 const DOOR_OPENING: f32 = 3.0;
+/// The painted panel lights up (or goes out) over this long (seconds).
+const FINALE_FADE: f32 = 1.5;
 
 /// A fog veil: at the end of boss `arena`'s corridor (`door: false`), or at its arena's door.
 #[derive(Component)]
@@ -55,6 +58,12 @@ pub struct DoorLeaf {
     pub side: f32,
 }
 
+/// The painted panel beyond the final door (scenery object `finale_panel`): out of sight from the
+/// rest of the level (its wall can't hide it from everywhere), it lights up once you step through
+/// the open door. 0 (out, hidden) → 1 (lit).
+#[derive(Component, Default)]
+pub struct FinalePanel(f32);
+
 /// Opening of the final door, 0 (closed) → 1.
 #[derive(Resource, Default)]
 struct DoorOpening(f32);
@@ -65,7 +74,7 @@ impl Plugin for GatesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DoorOpening>()
             .add_systems(OnExit(AppState::Loading), spawn_gates)
-            .add_systems(Update, (fogs, torches, medallions, door).run_if(in_state(AppState::Playing)));
+            .add_systems(Update, (fogs, torches, medallions, door, finale_panel).run_if(in_state(AppState::Playing)));
     }
 }
 
@@ -260,5 +269,37 @@ fn door(
     let k = opening.0 * opening.0 * (3.0 - 2.0 * opening.0);
     for (leaf, mut tf) in &mut leaves {
         tf.rotation = leaf.closed * Quat::from_rotation_y(leaf.side * DOOR_ANGLE * k);
+    }
+}
+
+/// The painted panel fades in from the black once the local player is through the open final
+/// door, and back out when they leave.
+#[allow(clippy::too_many_arguments)]
+fn finale_panel(
+    mut commands: Commands,
+    time: Res<Time>,
+    enc: Res<Encounter>,
+    tuning: Res<Tuning>,
+    players: Query<&Body, With<LocalPlayer>>,
+    mut panels: Query<(Entity, &mut FinalePanel, &mut Visibility)>,
+    children: Query<&Children>,
+    mut meshes: TintMeshes,
+    mut mats: ResMut<Assets<Ps1Material>>,
+) {
+    let (door, dir) = world::portal(&tuning, &tuning.level.final_door);
+    let through = encounter::door_open(&tuning, enc.defeated) && players.iter().any(|b| (b.pos - door).dot(dir) > 0.0);
+    let step = time.delta_secs() / FINALE_FADE;
+    for (e, mut panel, mut vis) in &mut panels {
+        let k = if through { (panel.0 + step).min(1.0) } else { (panel.0 - step).max(0.0) };
+        let want = if k > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        if k != panel.0 {
+            panel.0 = k;
+            // From the black (the night around it) to its own colours.
+            let tint = if k >= 1.0 { Vec4::ZERO } else { Vec4::new(0.0, 0.0, 0.0, 1.0 - k * k * (3.0 - 2.0 * k)) };
+            super::ps1::set_tint(&mut commands, e, tint, &children, &mut meshes, &mut mats);
+        }
     }
 }

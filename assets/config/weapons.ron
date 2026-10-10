@@ -86,7 +86,7 @@
             fatal: (
                 anim: "rapier_fatal", total: 96, stamina: 0,
                 iframes: (0, 96),
-                hits: [(start: 46, end: 48, damage: 340, hitstop: 10,
+                hits: [(start: 46, end: 48, damage: 220, hitstop: 10,
                         capsule: (a: (0.0, 1.2, 0.3), b: (0.0, 1.4, 2.2), r: 0.35))],
             ),
             // Jump attack: a plunging thrust. The jump has already paid its stamina.
@@ -180,7 +180,7 @@
             fatal: (
                 anim: "greatsword_fatal", total: 104, stamina: 0,
                 iframes: (0, 104),
-                hits: [(start: 52, end: 54, damage: 460, hitstop: 12,
+                hits: [(start: 52, end: 54, damage: 300, hitstop: 12,
                         capsule: (a: (0.0, 1.2, 0.3), b: (0.0, 1.4, 2.8), r: 0.45))],
             ),
             // Jump attack: the sword brought down with all its weight while landing.

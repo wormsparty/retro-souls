@@ -425,7 +425,7 @@ pub fn consume_events(
                 rig.initialized = false;
             }
             SimEvent::DoorOpened => play(&mut commands, &sounds, "guard_break", 0.9),
-            SimEvent::TorchTouched { .. } | SimEvent::SignRead { .. } => {}
+            SimEvent::TorchTouched { .. } => {}
             SimEvent::BossDefeated => {}
             SimEvent::EnemyAlert { entity } => {
                 let hound = enemies.get(entity).is_ok_and(|e| tuning.enemies[e.kind as usize].model == "hound");

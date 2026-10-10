@@ -98,8 +98,10 @@ pub enum Glyph {
     /// ‹ › arrows of the menu values.
     ValueLeft,
     ValueRight,
-    /// GitHub logo (the cat in a disc).
-    GitHub,
+    /// "Fork me" badge: big GitHub logo (the cat in a disc) over a ribbon.
+    ForkMe,
+    /// Whole gamepad (seen from above).
+    Gamepad,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -342,6 +344,25 @@ impl Canvas {
         }
     }
 
+    /// Text in the small lowercase letters (`small_glyph`); unknown characters are spaces.
+    fn small_text(&mut self, x: i32, y: i32, s: &str, c: Rgba) {
+        let mut cx = x;
+        for ch in s.chars() {
+            let Some(rows) = small_glyph(ch) else {
+                cx += 3;
+                continue;
+            };
+            for (dy, row) in rows.iter().enumerate() {
+                for (dx, b) in row.bytes().enumerate() {
+                    if b == b'#' {
+                        self.set(cx + dx as i32, y + dy as i32, c);
+                    }
+                }
+            }
+            cx += rows[0].len() as i32 + 1;
+        }
+    }
+
     fn image(&self) -> Image {
         Image::new(
             Extent3d { width: self.w as u32, height: self.h as u32, depth_or_array_layers: 1 },
@@ -438,6 +459,90 @@ fn trigger(label: &str) -> Canvas {
     c
 }
 
+/// GitHub logo in a 16×16 frame, sampled at any point `(u, v)`: light disc, cat cut out in
+/// dark (head and ears, neck, tail). `None` outside the disc.
+fn github_logo(u: f32, v: f32) -> Option<Rgba> {
+    let in_disc = (u - 8.0).powi(2) + (v - 8.0).powi(2) <= 7.7 * 7.7;
+    if !in_disc {
+        return None;
+    }
+    let head = ((u - 8.0) / 4.4).powi(2) + ((v - 7.4) / 3.6).powi(2) <= 1.0;
+    // Ears: triangles above the head, leaning outwards.
+    let ear = |x: f32| {
+        let (du, dv) = ((u - x).abs(), v - 1.8);
+        dv >= 0.0 && dv <= 3.2 && du <= dv * 0.75
+    };
+    let neck = (6.0..10.0).contains(&u) && v >= 10.0;
+    // Tail: a short thick stroke rising towards the neck.
+    let tail = {
+        let (a, b) = (Vec2::new(3.4, 11.2), Vec2::new(6.0, 12.9));
+        let p = Vec2::new(u, v);
+        let t = ((p - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
+        p.distance(a + (b - a) * t) <= 0.75
+    };
+    Some(if head || ear(4.3) || ear(11.7) || neck || tail { rgb(24, 22, 28) } else { PAD_TEXT })
+}
+
+/// "Fork me" badge: big GitHub logo, a red ribbon with the text across its bottom.
+fn fork_me() -> Canvas {
+    const RIBBON: Rgba = rgb(84, 62, 116);
+    const STITCH: Rgba = rgb(116, 92, 150);
+    const FOLD: Rgba = rgb(52, 38, 74);
+    const LABEL_COLOR: Rgba = rgb(212, 202, 228);
+    const LABEL: &str = "fork me";
+    const LOGO: f32 = 28.0;
+    let tw = small_text_width(LABEL);
+    let bw = tw + 8;
+    let (w, h) = (bw + 12, 35);
+    let mut c = Canvas::new(w, h);
+    let ox = (w as f32 - LOGO) / 2.0;
+    for y in 0..h {
+        for x in 0..w {
+            let (u, v) = ((x as f32 + 0.5 - ox) * 16.0 / LOGO, (y as f32 - 0.5) * 16.0 / LOGO);
+            if let Some(col) = github_logo(u, v) {
+                c.set(x, y, col);
+            }
+        }
+    }
+    // Ribbon ends, folded behind and lower, cut in a V.
+    let by = 23;
+    for (x0, outer) in [(1, 1), (w - 9, w - 2)] {
+        c.rect(x0, by + 2, 8, 9, FOLD);
+        for k in 0..9 {
+            let depth = 3 - (k - 4i32).abs();
+            for d in 0..depth {
+                c.set(if outer == 1 { 1 + d } else { outer - d }, by + 2 + k, CLEAR);
+            }
+        }
+    }
+    let bx = (w - bw) / 2;
+    c.rect(bx, by, bw, 10, RIBBON);
+    for x in (bx + 1..bx + bw - 1).step_by(2) {
+        c.set(x, by + 1, STITCH);
+        c.set(x, by + 8, STITCH);
+    }
+    c.small_text((w - tw) / 2, by + 2, LABEL, LABEL_COLOR);
+    c.outline();
+    c
+}
+
+/// Small lowercase letters (6 dots high, ascenders included), only those of the badge.
+fn small_glyph(c: char) -> Option<&'static [&'static str; 6]> {
+    Some(match c {
+        'e' => &["...", "...", ".#.", "###", "#..", ".##"],
+        'f' => &[".##", ".#.", "###", ".#.", ".#.", ".#."],
+        'k' => &["#..", "#..", "#.#", "##.", "##.", "#.#"],
+        'm' => &[".....", ".....", "##.#.", "#.#.#", "#.#.#", "#.#.#"],
+        'o' => &["...", "...", ".#.", "#.#", "#.#", ".#."],
+        'r' => &["...", "...", "#.#", "##.", "#..", "#.."],
+        _ => return None,
+    })
+}
+
+fn small_text_width(s: &str) -> i32 {
+    s.chars().map(|ch| small_glyph(ch).map_or(3, |g| g[0].len() as i32 + 1)).sum::<i32>() - 1
+}
+
 fn draw(g: Glyph) -> Canvas {
     match g {
         Glyph::Key(label) => keycap(label),
@@ -471,31 +576,21 @@ fn draw(g: Glyph) -> Canvas {
             c.outline();
             c
         }
-        Glyph::GitHub => {
-            // Light disc, cat cut out in dark: head and ears, neck, tail.
-            let (light, dark) = (PAD_TEXT, rgb(24, 22, 28));
-            let mut c = Canvas::new(16, 16);
-            c.disc(8.0, 8.0, 7.7, light);
-            for y in 0..16 {
-                for x in 0..16 {
-                    let (dx, dy) = ((x as f32 + 0.5 - 8.0) / 4.4, (y as f32 + 0.5 - 7.4) / 3.6);
-                    if dx * dx + dy * dy <= 1.0 {
-                        c.set(x, y, dark);
-                    }
-                }
+        Glyph::ForkMe => fork_me(),
+        Glyph::Gamepad => {
+            // Body with two grips, D-pad on the left, the four coloured buttons on the right.
+            let mut c = Canvas::new(25, 15);
+            c.rounded(2, 2, 21, 8, PAD_RIM);
+            c.disc(6.5, 9.5, 4.5, PAD_RIM);
+            c.disc(18.5, 9.5, 4.5, PAD_RIM);
+            c.rect(6, 4, 1, 5, PAD_TEXT);
+            c.rect(4, 6, 5, 1, PAD_TEXT);
+            for (x, y, col) in [(18, 4, rgb(246, 196, 48)), (16, 6, rgb(70, 132, 236)), (20, 6, rgb(228, 70, 58)), (18, 8, rgb(110, 196, 64))] {
+                c.rect(x, y, 2, 2, col);
             }
-            for (x, y) in [(4, 2), (4, 3), (5, 3), (11, 2), (11, 3), (10, 3), (3, 11), (4, 12), (5, 12)] {
-                c.set(x, y, dark);
-            }
-            c.rect(6, 10, 4, 6, dark);
-            for y in 0..16 {
-                for x in 0..16 {
-                    let (dx, dy) = (x as f32 + 0.5 - 8.0, y as f32 + 0.5 - 8.0);
-                    if dx * dx + dy * dy > 7.7 * 7.7 {
-                        c.set(x, y, CLEAR);
-                    }
-                }
-            }
+            c.rect(10, 5, 2, 1, PAD_BODY);
+            c.rect(13, 5, 2, 1, PAD_BODY);
+            c.outline();
             c
         }
         Glyph::ValueLeft | Glyph::ValueRight => {
@@ -559,7 +654,7 @@ mod tests {
 
     #[test]
     fn all_icons_draw() {
-        for g in [Glyph::Key("ESPACE"), Glyph::Key("↵"), Glyph::PadA, Glyph::PadLT, Glyph::StickR3, Glyph::DpadDown, Glyph::MouseMiddle, Glyph::ValueLeft] {
+        for g in [Glyph::Key("ESPACE"), Glyph::Key("↵"), Glyph::PadA, Glyph::PadLT, Glyph::StickR3, Glyph::DpadDown, Glyph::MouseMiddle, Glyph::ValueLeft, Glyph::Gamepad, Glyph::ForkMe] {
             let c = draw(g);
             assert!(c.px.iter().any(|p| p[3] > 0), "{g:?} empty");
         }

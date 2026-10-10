@@ -134,6 +134,10 @@ impl Ps1Material {
     pub fn from_standard(s: &StandardMaterial) -> Self {
         let mut m = Self::new(s.base_color, s.base_color_texture.clone());
         m.params.emissive = s.emissive.to_vec4();
+        // KHR_materials_unlit (the final panel): its texture as is.
+        if s.unlit {
+            m.params.misc.y = 1.0;
+        }
         m.alpha_mode = s.alpha_mode;
         m
     }

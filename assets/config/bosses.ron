@@ -344,7 +344,7 @@
             // The duo's magician: he keeps his distance and throws glows.
             key: "lamplighter", model: "lamplighter",
             name: (en: "The Wick-Trimmer", fr: "Le Falotier"),
-            max_hp: 1400, phase2_at: 0.4, radius: 0.55, height: 3.0, mass: 4,
+            max_hp: 1820, phase2_at: 0.4, radius: 0.55, height: 3.0, mass: 4,
             walk_speed: 1.9, strafe_speed: 2.0, turn_rate: 160, preferred_range: 8, keep_away: 5,
             stagger_max: 70, stagger_delay: 150, stagger_decay: 8, idle_ticks: (40, 90), aggro_ticks: 200,
             color: (0.35, 1.0, 0.3),
@@ -455,7 +455,7 @@
             // The smith: slow and massive, his anvil-hammer splits the ground.
             key: "anvil", model: "anvil",
             name: (en: "The Anvil", fr: "L'Enclume"),
-            max_hp: 1800, phase2_at: 0.4, radius: 1.1, height: 3.2, mass: 14,
+            max_hp: 3600, phase2_at: 0.4, radius: 1.1, height: 3.2, mass: 14,
             walk_speed: 1.5, strafe_speed: 0.8, turn_rate: 100, preferred_range: 2.8,
             stagger_max: 120, stagger_delay: 180, stagger_decay: 7, idle_ticks: (40, 90), aggro_ticks: 240,
             color: (0.35, 1.0, 0.3),
@@ -540,7 +540,7 @@
                  delay: 40, life: 14, hitstop: 5),
                 // Thrown with arms raised, well above her: they hang for a moment
                 // (you see them coming), then head for their target.
-                (name: "aiguille", kind: Bolt, element: Light, damage: 95, radius: 0.5, reaction: Heavy, speed: 12,
+                (name: "aiguille", kind: Bolt, element: Light, damage: 150, radius: 0.5, reaction: Heavy, speed: 12,
                  homing: 22, delay: 30, life: 150, hitstop: 4),
             ],
             attacks: [
@@ -601,13 +601,14 @@
                     ),
                 ),
                 (
-                    // She knows she's vulnerable: a side hop, throwing two needles.
+                    // She knows she's vulnerable: a side hop, throwing two needles (one from each hand, arms spread).
                     name: "bond_gauche",
                     min_range: 0, max_range: 12, max_angle: 180, weight: 3, cooldown: 260, phases: [1, 2],
                     mv: (
                         anim: "hop", total: 76, track_until: 76, track_rate: 200, iframes: (14, 40), hyperarmor: (0, 44),
                         motion: [(start: 14, end: 40, side: -9.0)],
-                        casts: [(at: 34, spell: "aiguille", from: (0, 8.8, -0.3), aim: Target, count: 2, spread: 16)],
+                        casts: [(at: 34, spell: "aiguille", from: (2.0, 8.2, 0.25), aim: Target),
+                                (at: 34, spell: "aiguille", from: (-2.0, 8.2, 0.25), aim: Target)],
                     ),
                 ),
                 (
@@ -616,7 +617,8 @@
                     mv: (
                         anim: "hop", total: 76, track_until: 76, track_rate: 200, iframes: (14, 40), hyperarmor: (0, 44),
                         motion: [(start: 14, end: 40, side: 9.0)],
-                        casts: [(at: 34, spell: "aiguille", from: (0, 8.8, -0.3), aim: Target, count: 2, spread: 16)],
+                        casts: [(at: 34, spell: "aiguille", from: (2.0, 8.2, 0.25), aim: Target),
+                                (at: 34, spell: "aiguille", from: (-2.0, 8.2, 0.25), aim: Target)],
                     ),
                 ),
                 (
@@ -626,7 +628,8 @@
                     mv: (
                         anim: "hop", total: 76, track_until: 76, track_rate: 200, iframes: (14, 40), hyperarmor: (0, 44),
                         motion: [(start: 14, end: 40, speed: -9.0)],
-                        casts: [(at: 34, spell: "aiguille", from: (0, 8.8, -0.3), aim: Target, count: 2, spread: 16)],
+                        casts: [(at: 34, spell: "aiguille", from: (2.0, 8.2, 0.25), aim: Target),
+                                (at: 34, spell: "aiguille", from: (-2.0, 8.2, 0.25), aim: Target)],
                     ),
                 ),
                 (
@@ -666,9 +669,9 @@
             // around it. Sometimes it rears up and comes down: ice bursts from the ground.
             key: "spine_beast", model: "spine_beast", scale: 1.7,
             name: (en: "The Rimeback", fr: "L'Échine-de-Givre"),
-            max_hp: 4200, phase2_at: 0.5, radius: 2.0, height: 3.0, mass: 24,
+            max_hp: 5880, phase2_at: 0.5, radius: 2.0, height: 3.0, mass: 24,
             walk_speed: 2.4, strafe_speed: 0, turn_rate: 70, heading_slack: 30, preferred_range: 5.0,
-            stagger_max: 150, stagger_delay: 180, stagger_decay: 8, idle_ticks: (30, 70), aggro_ticks: 240,
+            stagger_max: 195, stagger_delay: 180, stagger_decay: 8, idle_ticks: (30, 70), aggro_ticks: 240,
             color: (0.4, 0.85, 1.0),
             groggy: (anim: "groggy", total: 210),
             fatal_received: (anim: "fatal_received", total: 120),
@@ -824,11 +827,11 @@
                 (at: (-0.6, 1.0, 0), r: 0.6, lock: false),
             ],
             spells: [
-                (name: "boule", kind: Bolt, element: Fire, damage: 110, radius: 0.6, reaction: Heavy,
+                (name: "boule", kind: Bolt, element: Fire, damage: 150, radius: 0.6, reaction: Heavy,
                  speed: 11, homing: 35, life: 140, hitstop: 5),
-                (name: "pilier", kind: Eruption, element: Fire, damage: 130, radius: 1.8, reaction: Heavy,
+                (name: "pilier", kind: Eruption, element: Fire, damage: 175, radius: 1.8, reaction: Heavy,
                  delay: 44, life: 24, hitstop: 5),
-                (name: "flammes", kind: Eruption, element: Fire, damage: 115, radius: 1.4, reaction: Heavy,
+                (name: "flammes", kind: Eruption, element: Fire, damage: 155, radius: 1.4, reaction: Heavy,
                  delay: 18, life: 18, hitstop: 5),
             ],
             attacks: [

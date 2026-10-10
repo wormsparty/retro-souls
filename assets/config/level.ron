@@ -14,7 +14,8 @@
 //   the `unique` ones. `group`: they raise the alarm together.
 // - pickups: items glowing on the ground, picked up once and for all.
 // - final_door: the door that opens once all the bosses are defeated (`pos`: its centre on the
-//   ground, `look`: beyond it), and the sign that awaits behind it.
+//   ground, `look`: beyond it).
+// - finale: beyond it, the painted panel floating over the void (x, z), facing the door.
 //
 // The scenery (tools/blender/arena.py) is generated from this file: rerun
 // tools/build_assets.sh after changing the geometry.
@@ -70,7 +71,8 @@
         (shape: Strip(from: (17.6, -134.5, -3.4), to: (27.5, -135.5, -3.4), half_width: 1.3), walled: true, arena: true),
         // Porch of the final door, and beyond it, once it's open: a last terrace.
         (shape: Strip(from: (12, -138.5, -3.4), to: (12, -141.5, -3.4), half_width: 1.6), walled: true, arena: true),
-        (shape: Strip(from: (12, -141.5, -3.4), to: (12, -147.0, -3.4), half_width: 1.6), walled: true, arena: true, sealed: true),
+        // It goes well into the terrace (further than the wall margin, 0.4): otherwise a gap.
+        (shape: Strip(from: (12, -141.5, -3.4), to: (12, -147.8, -3.4), half_width: 1.6), walled: true, arena: true, sealed: true),
         (shape: Ellipse(center: (12, -151), radii: (4.2, 4.2), y: -3.4), walled: true, arena: true, sealed: true),
     ],
 
@@ -157,5 +159,5 @@
     ],
 
     final_door: (pos: (12, -141.5), look: (12, -151)),
-    sign: (12, -153.0),
+    finale: (12, -171.0),
 )

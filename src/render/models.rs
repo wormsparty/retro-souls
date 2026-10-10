@@ -408,6 +408,10 @@ fn on_scene_ready(
         {
             commands.entity(d).insert(super::gates::DoorLeaf { closed: t.rotation, side });
         }
+        // The painted panel beyond the final door: only lit once you're through it (`gates`).
+        if vs.kind == VisualKind::Arena && name.as_str() == "finale_panel" {
+            commands.entity(d).insert((super::gates::FinalePanel::default(), Visibility::Hidden));
+        }
         if vs.kind == VisualKind::Player && name.as_str() == "grip_R" {
             for (i, w) in assets.weapons.iter().enumerate() {
                 commands.entity(d).with_child((

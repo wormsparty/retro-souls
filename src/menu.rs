@@ -33,7 +33,7 @@ use crate::render::preview::{CheckpointPreview, PREVIEW_SIZE};
 use crate::hud::{GEM_ICON, ITEM_ICON, ItemIcons, MenuIcons, WeaponIcons};
 use crate::ui::{Glyph, Hint, Icons, PixelSize, PixelText, Seg, UiFont, hint_node, i, icon_bundle, image_bundle, set_hint, t};
 
-/// The project's repository ("Fork me" entry).
+/// The project's repository ("Fork me" badge of the title screen).
 pub const REPO_URL: &str = "https://github.com/wormsparty/retro-souls";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,8 +138,6 @@ enum Act {
     Back,
     ToTitle,
     Quit,
-    /// Opens the project page on GitHub.
-    Fork,
 }
 
 /// Setting option.
@@ -331,12 +329,12 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
     use Act::*;
     let mut v = match page {
         // With a save, "Continue" comes first (default choice).
-        Page::Title if c.has_save => vec![Entry::Act(Load), Entry::Act(NewGame), Entry::Act(Open(Page::Options)), Entry::Act(Fork)],
-        Page::Title => vec![Entry::Act(NewGame), Entry::Act(Load), Entry::Act(Open(Page::Options)), Entry::Act(Fork)],
+        Page::Title if c.has_save => vec![Entry::Act(Load), Entry::Act(NewGame), Entry::Act(Open(Page::Options))],
+        Page::Title => vec![Entry::Act(NewGame), Entry::Act(Load), Entry::Act(Open(Page::Options))],
         Page::ConfirmNew => vec![Entry::Act(Back), Entry::Act(ConfirmNew)],
         // Icons: the equipment, then the system (cogwheel).
         Page::Pause => vec![Entry::Act(Open(Page::Equipment)), Entry::Act(Open(Page::Status)), Entry::Act(Open(Page::System))],
-        Page::System => vec![Entry::Act(Open(Page::Options)), Entry::Act(Open(Page::Help)), Entry::Act(Fork), Entry::Act(ToTitle)],
+        Page::System => vec![Entry::Act(Open(Page::Options)), Entry::Act(Open(Page::Help)), Entry::Act(ToTitle)],
         // "Leave" first: it's the line selected on opening.
         Page::Checkpoint => vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(Open(Page::Equipment))],
         Page::Travel => (0..32u8).filter(|i| c.found & (1 << i) != 0).map(Entry::Place).chain([Entry::Act(Back)]).collect(),
@@ -401,7 +399,6 @@ fn act_label(a: Act) -> &'static str {
         Act::Back => tr("Back", "Retour"),
         Act::ToTitle => tr("Return to title screen", "Retour à l'écran titre"),
         Act::Quit => tr("Quit game", "Quitter le jeu"),
-        Act::Fork => tr("Fork me", "Forkez-moi"),
     }
 }
 
@@ -639,6 +636,15 @@ fn change(item: Opt, delta: i32, s: &mut Settings, m: Option<&Monitor>) {
 struct MenuRoot;
 #[derive(Component)]
 struct MenuTitle;
+/// The title and, next to it, the "Fork me" badge (title screen).
+#[derive(Component)]
+struct TitleRow;
+/// Holds the badge to the right of the title, without moving it off centre.
+#[derive(Component)]
+struct ForkSlot;
+/// "Fork me" badge: a click opens the project page (mouse only).
+#[derive(Component)]
+struct ForkBadge;
 /// Menu column (title, lines, footer): narrower and centred on the title screen.
 #[derive(Component)]
 struct MenuPanel;
@@ -660,6 +666,9 @@ struct Ash {
 struct TitleGems;
 #[derive(Component)]
 struct TitleGem(u8);
+/// Title screen: note at the bottom recommending a gamepad.
+#[derive(Component)]
+struct TitleNote;
 #[derive(Component)]
 struct MenuInfo;
 #[derive(Component)]
@@ -712,7 +721,7 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(AppState::Title), enter_title)
             .add_systems(
                 Update,
-                (open_on_rest.run_if(in_state(AppState::Playing)), menu_input, refresh_menu, title_backdrop, title_gems)
+                (open_on_rest.run_if(in_state(AppState::Playing)), menu_input, refresh_menu, title_backdrop, title_gems, title_note, fork_badge)
                     .chain()
                     .after(crate::fx::consume_events)
                     .run_if(not(in_state(AppState::Loading))),
@@ -741,9 +750,30 @@ fn spawn_menu(mut commands: Commands, ui_font: Res<UiFont>, preview: Res<Checkpo
         ))
         .with_children(|c| {
             spawn_backdrop(c);
+            c.spawn((
+                Hint::new(1, Color::srgba(0.85, 0.82, 0.75, 0.6)),
+                Node { position_type: PositionType::Absolute, bottom: px(24), display: Display::None, ..hint_node() },
+                TitleNote,
+            ));
             c.spawn((Node { flex_direction: FlexDirection::Column, row_gap: px(6), padding: UiRect::all(px(PANEL_PADDING)), width: px(960), ..default() }, MenuPanel))
                 .with_children(|c| {
-                    c.spawn((ui_font.text("", 2, Color::srgb(0.9, 0.82, 0.62)), TextLayout::linebreak(LineBreak::NoWrap), Node::default(), MenuTitle));
+                    c.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }, TitleRow)).with_children(|c| {
+                        c.spawn((ui_font.text("", 2, Color::srgb(0.9, 0.82, 0.62)), TextLayout::linebreak(LineBreak::NoWrap), Node::default(), MenuTitle));
+                        c.spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: percent(100),
+                                top: px(0),
+                                bottom: px(0),
+                                margin: UiRect::left(px(28)),
+                                align_items: AlignItems::Center,
+                                display: Display::None,
+                                ..default()
+                            },
+                            ForkSlot,
+                        ))
+                        .with_child((Button, Hint::new(2, Color::WHITE), hint_node(), ForkBadge));
+                    });
                     c.spawn((
                         Node { display: Display::None, align_self: AlignSelf::Center, column_gap: px(10), margin: UiRect::bottom(px(24)), ..default() },
                         TitleGems,
@@ -840,10 +870,11 @@ fn title_backdrop(
     menu: Res<MenuState>,
     mut backdrop: Single<&mut Visibility, With<TitleBackdrop>>,
     mut panel: Single<&mut Node, (With<MenuPanel>, Without<Ash>)>,
-    mut title_text: Single<(&mut PixelText, &mut Node), (With<MenuTitle>, Without<MenuPanel>, Without<Ash>)>,
-    mut footer: Single<&mut Node, (With<MenuFooter>, Without<MenuTitle>, Without<MenuPanel>, Without<Ash>)>,
-    mut texts: Query<&mut Node, (Or<(With<MenuInfo>, With<MenuDetail>)>, Without<MenuFooter>, Without<MenuTitle>, Without<MenuPanel>, Without<Ash>)>,
-    mut ashes: Query<(&mut Ash, &mut Node, &mut BackgroundColor), (Without<MenuPanel>, Without<MenuTitle>, Without<MenuFooter>, Without<MenuInfo>, Without<MenuDetail>)>,
+    mut title_text: Single<&mut PixelText, With<MenuTitle>>,
+    mut title_row: Single<&mut Node, (With<TitleRow>, Without<MenuPanel>, Without<Ash>)>,
+    mut footer: Single<&mut Node, (With<MenuFooter>, Without<TitleRow>, Without<MenuPanel>, Without<Ash>)>,
+    mut texts: Query<&mut Node, (Or<(With<MenuInfo>, With<MenuDetail>)>, Without<MenuFooter>, Without<TitleRow>, Without<MenuPanel>, Without<Ash>)>,
+    mut ashes: Query<(&mut Ash, &mut Node, &mut BackgroundColor), (Without<MenuPanel>, Without<TitleRow>, Without<MenuFooter>, Without<MenuInfo>, Without<MenuDetail>)>,
     mut seed: Local<u32>,
 ) {
     let title = menu.open && menu.page == Page::Title;
@@ -857,17 +888,18 @@ fn title_backdrop(
         }
     }
     let size = if title { 4 } else { 2 };
-    if title_text.0.0 != size {
-        title_text.0.0 = size;
+    if title_text.0 != size {
+        title_text.0 = size;
     }
     // Title screen and pause menu (a single row of cards): title and help centred, like the cards.
     let centered = menu.open && matches!(menu.page, Page::Title | Page::Pause);
-    let align = if centered { AlignSelf::Center } else { AlignSelf::Auto };
+    // The title's row hugs it (the badge, next to it, is placed from its right edge).
+    let align = if centered { AlignSelf::Center } else { AlignSelf::FlexStart };
     let margin = if title { UiRect::bottom(px(28)) } else { UiRect::ZERO };
-    if title_text.1.align_self != align || title_text.1.margin != margin {
-        title_text.1.align_self = align;
-        title_text.1.margin = margin;
-        footer.align_self = align;
+    if title_row.align_self != align || title_row.margin != margin {
+        title_row.align_self = align;
+        title_row.margin = margin;
+        footer.align_self = if centered { AlignSelf::Center } else { AlignSelf::Auto };
     }
     let shown = menu.on_title();
     let want = if shown { Visibility::Inherited } else { Visibility::Hidden };
@@ -927,6 +959,49 @@ fn title_gems(
         let want = Color::srgb(c.x, c.y, c.z);
         if img.color != want {
             img.color = want;
+        }
+    }
+}
+
+/// Title screen: "gamepad recommended", with its icon.
+fn title_note(menu: Res<MenuState>, mut note: Single<(&mut Node, &mut Hint), With<TitleNote>>) {
+    let shown = menu.open && menu.page == Page::Title;
+    let want = if shown { Display::Flex } else { Display::None };
+    if note.0.display != want {
+        note.0.display = want;
+    }
+    if shown {
+        set_hint(&mut note.1, vec![i(Glyph::Gamepad), t(tr("Gamepad recommended", "Manette recommandée"))]);
+    }
+}
+
+/// Title screen: "Fork me" badge next to the title, lit when hovered; a click opens the
+/// project page.
+fn fork_badge(
+    menu: Res<MenuState>,
+    mut slot: Single<&mut Node, With<ForkSlot>>,
+    mut badge: Single<(&mut Hint, Ref<Interaction>, Option<&Children>), With<ForkBadge>>,
+    mut images: Query<&mut ImageNode>,
+) {
+    let shown = menu.open && menu.page == Page::Title;
+    let want = if shown { Display::Flex } else { Display::None };
+    if slot.display != want {
+        slot.display = want;
+    }
+    if !shown {
+        return;
+    }
+    let (hint, interaction, children) = &mut *badge;
+    set_hint(hint, vec![i(Glyph::ForkMe)]);
+    if interaction.is_changed() && **interaction == Interaction::Pressed {
+        open_url(REPO_URL);
+    }
+    let tint = if **interaction == Interaction::None { Color::srgb(0.82, 0.8, 0.76) } else { Color::WHITE };
+    for c in children.iter().flat_map(|c| c.iter()) {
+        if let Ok(mut img) = images.get_mut(c)
+            && img.color != tint
+        {
+            img.color = tint;
         }
     }
 }
@@ -1386,7 +1461,6 @@ fn act(w: &mut World, a: Act) {
             // The save is written at the end of the frame (see `save`).
             w.write_message(AppExit::Success);
         }
-        Act::Fork => open_url(REPO_URL),
     }
 }
 
@@ -1542,7 +1616,6 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
         (icon_bundle(&mut icons, &mut images, Glyph::ValueLeft, 1), icon_bundle(&mut icons, &mut images, Glyph::ValueRight, 1))
     });
     let style = (w.resource::<StyleImages>().ps1.clone(), w.resource::<StyleImages>().modern.clone());
-    let github = w.resource_scope(|w, mut icons: Mut<Icons>| icon_bundle(&mut icons, &mut w.resource_mut::<Assets<Image>>(), Glyph::GitHub, 1));
     let item_icon = |w: &World, it: Item| w.get_resource::<ItemIcons>().map(|ic| ic.get(it)).unwrap_or_default();
     let pick_icons: Vec<Option<Handle<Image>>> =
         entries.iter().map(|e| if let Entry::Pick(Some(it)) = e { Some(item_icon(w, *it)) } else { None }).collect();
@@ -1626,7 +1699,7 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
                 BackgroundColor(Color::NONE),
             ))
             .with_children(|c| {
-                // Icon next to the label: offered item (in front), GitHub logo (after).
+                // Icon in front of the label: offered item.
                 let icon = match e {
                     Entry::Pick(Some(_)) => pick_icons[i].clone().map(|h| image_bundle(h, UVec2::splat(ITEM_ICON as u32))),
                     // Empty cell: a transparent icon, to align the labels.
@@ -1635,38 +1708,10 @@ fn build_rows(w: &mut World, list: Entity, entries: &[Entry], page: Page) {
                         b.0.color = Color::NONE;
                         Some(b)
                     }
-                    Entry::Act(Act::Fork) => Some(github.clone()),
                     _ => None,
                 };
                 let label = Node { flex_shrink: 0.0, margin: UiRect::right(px(16)), ..default() };
-                if let (Entry::Act(Act::Fork), Some(icon)) = (e, icon.clone()) {
-                    // The logo overflows the line without enlarging it: all menu lines
-                    // keep the same height.
-                    let width = icon.2.0.x;
-                    // Logo after the label.
-                    let row = Node {
-                        flex_direction: FlexDirection::Row,
-                        align_items: AlignItems::Center,
-                        column_gap: px(8),
-                        margin: UiRect::right(px(16)),
-                        ..default()
-                    };
-                    c.spawn(row).with_children(|c| {
-                        let label = Node { flex_shrink: 0.0, ..default() };
-                        c.spawn((ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::linebreak(LineBreak::NoWrap), label, RowLabel(i)));
-                        // Space reserved for the logo (at its width, without height).
-                        c.spawn((Node { flex_shrink: 0.0, ..default() }, PixelSize(UVec2::new(width, 0))));
-                        c.spawn(Node {
-                            position_type: PositionType::Absolute,
-                            right: px(0),
-                            top: px(0),
-                            bottom: px(0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        })
-                        .with_child(icon);
-                    });
-                } else if let Some(icon) = icon {
+                if let Some(icon) = icon {
                     c.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(8), ..default() }).with_children(|c| {
                         c.spawn(icon);
                         c.spawn((ui_font.text("", 1, Color::srgb(0.85, 0.82, 0.75)), TextLayout::linebreak(LineBreak::NoWrap), label, RowLabel(i)));

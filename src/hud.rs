@@ -25,7 +25,7 @@ use crate::sim::player::{PState, Player};
 use crate::sim::world::Zone;
 use crate::ui::{Glyph, Hint, PixelSize, UiFont, hint_node, i, image_bundle, set_hint, t};
 
-const HP_PX: f32 = 0.6; // px per HP
+const HP_PX: f32 = 0.51; // px per HP
 const ST_PX: f32 = 2.0; // px per stamina point
 const SP_PX: f32 = 0.6; // px per special gauge point
 const SPECIAL: Color = Color::srgb(0.9, 0.7, 0.25);
@@ -1041,10 +1041,9 @@ fn prompt(
                             (tr("Go through the fog", "Traverser la brume"), true)
                         });
                     }
-                    if encounter::near_torch(&tuning, b.pos).is_some_and(|i| enc.is_defeated(i)) {
-                        return Some((tr("Rekindle the torch", "Raviver la torche"), true));
-                    }
-                    (encounter::near_sign(&tuning, b.pos) && encounter::door_open(&tuning, enc.defeated)).then_some((tr("Read", "Lire"), true))
+                    encounter::near_torch(&tuning, b.pos)
+                        .is_some_and(|i| enc.is_defeated(i))
+                        .then_some((tr("Rekindle the torch", "Raviver la torche"), true))
                 }
                 Zone::Arena(i) => {
                     (!enc.active && encounter::near_door(&tuning, i as usize, b.pos)).then_some((tr("Leave through the fog", "Repartir par la brume"), true))
@@ -1224,9 +1223,6 @@ fn outcome(
             }
             SimEvent::DoorOpened => {
                 out.next = Some((("A GREAT DOOR HAS OPENED", "UNE GRANDE PORTE S'EST OUVERTE"), Color::srgb(0.8, 0.85, 0.95)));
-            }
-            SimEvent::SignRead { .. } => {
-                *out = Outcome { text: Some((("THANK YOU FOR PLAYING!", "MERCI D'AVOIR JOUÉ !"), Color::srgb(0.95, 0.85, 0.55))), duration: Some(6.0), ..default() };
             }
             SimEvent::Kindled { .. } => {
                 *out = Outcome { text: Some((("BRAZIER KINDLED", "BRASIER RANIMÉ"), Color::srgb(0.95, 0.78, 0.4))), duration: Some(3.5), ..default() };

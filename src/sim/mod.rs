@@ -91,8 +91,6 @@ pub enum SimEvent {
     Passage { entity: Entity, arena: Option<u8> },
     /// A player wants to rekindle the torch of a defeated boss (the menu asks for confirmation).
     TorchTouched { entity: Entity, arena: u8 },
-    /// A player reads the sign behind the final door.
-    SignRead { entity: Entity },
     /// Rest at the checkpoint (HP, items and stamina restored).
     Rested { entity: Entity },
     /// The fighters have just been (re)created: loading, respawn, travel.

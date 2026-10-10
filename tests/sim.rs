@@ -274,7 +274,7 @@ fn stagger_leads_to_groggy_and_fatal() {
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
     assert!(app.world().get::<Action>(b).unwrap().is(MoveRef::Boss(0, BossMove::FatalReceived)));
     steps(&mut app, 120, IDLE);
-    assert!(hp(&mut app, b) < boss_hp - 300.0);
+    assert!(hp(&mut app, b) < boss_hp - 200.0);
     // The fatal blow doesn't recharge the special gauge.
     assert_eq!(app.world().get::<Player>(p).unwrap().special, special);
 }
@@ -597,14 +597,6 @@ fn the_final_door_opens_once_every_boss_is_defeated() {
         let past = (body(&mut app, p).pos - door).dot(dir);
         let open = defeated == 0b111_1111;
         assert_eq!(past > 3.0, open, "{past}");
-        // Behind it, the sign.
-        if open {
-            app.world_mut().get_mut::<Body>(p).unwrap().pos = encounter::sign_pos(&t) - dir * 1.2;
-            steps(&mut app, 2, IDLE);
-            events(&mut app);
-            step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
-            assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::SignRead { .. })));
-        }
     }
 }
 

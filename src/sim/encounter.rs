@@ -49,10 +49,9 @@ pub const REST_RANGE: f32 = 2.2;
 pub const PICKUP_RANGE: f32 = 1.4;
 /// Collision radius of the checkpoint.
 pub const CHECKPOINT_RADIUS: f32 = 0.6;
-/// Distance to go through a fog, to rekindle a torch, to read the sign.
+/// Distance to go through a fog, to rekindle a torch.
 pub const FOG_RANGE: f32 = 1.8;
 pub const TORCH_RANGE: f32 = 1.6;
-pub const SIGN_RANGE: f32 = 1.8;
 /// A player's persistent progress: this is what the save contains.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Progress {
@@ -130,9 +129,23 @@ pub fn checkpoint_spawn(t: &Tuning, i: usize) -> (Vec3, f32) {
     let c = &t.level.checkpoints[i.min(t.level.checkpoints.len() - 1)];
     let fire = checkpoint_pos(t, i);
     let yaw = math::yaw_of(Vec3::new(c.look[0], 0.0, c.look[1]) - fire);
-    let p = fire + math::forward(yaw) * 0.5 + math::right(yaw) * 1.4;
+    // The fire on the left if there's room, otherwise on the right: never near an edge.
+    let at = |side: f32| fire + math::forward(yaw) * 0.5 + math::right(yaw) * 1.4 * side;
+    let p = [1.0, -1.0].into_iter().map(at).find(|p| clear(t, *p, SPAWN_CLEARANCE)).unwrap_or_else(|| at(1.0));
     let y = world::floor_at(t, p.x, p.z, p.y).unwrap_or(p.y);
     (Vec3::new(p.x, y, p.z), yaw)
+}
+
+/// Floor all around a respawn point, at least this far (m).
+pub const SPAWN_CLEARANCE: f32 = 1.5;
+
+/// Floor at about the same height everywhere within `r` of `p`.
+pub fn clear(t: &Tuning, p: Vec3, r: f32) -> bool {
+    let Some(y) = world::floor_at(t, p.x, p.z, p.y) else { return false };
+    (0..16).all(|k| {
+        let d = math::forward(std::f32::consts::TAU * k as f32 / 16.0) * r;
+        world::floor_at(t, p.x + d.x, p.z + d.z, y).is_some_and(|fy| (fy - y).abs() < world::STEP_UP)
+    })
 }
 
 /// Checkpoint within resting range.
@@ -211,15 +224,6 @@ pub fn near_torch(t: &Tuning, pos: Vec3) -> Option<u8> {
     (0..t.arenas.len()).find(|&i| within(pos, torch_pos(t, i), TORCH_RANGE)).map(|i| i as u8)
 }
 
-/// The sign behind the final door, on the ground.
-pub fn sign_pos(t: &Tuning) -> Vec3 {
-    let [x, z] = t.level.sign;
-    Vec3::new(x, world::floor_at(t, x, z, 0.0).unwrap_or(0.0), z)
-}
-
-pub fn near_sign(t: &Tuning, pos: Vec3) -> bool {
-    within(pos, sign_pos(t), SIGN_RANGE)
-}
 
 /// Bosses waiting in the arena a player went into; the fight starts at once (the fog closes
 /// behind them); victory; the arena empties once everyone has left it; respawn.
@@ -389,6 +393,7 @@ mod tests {
             let (p, _) = checkpoint_spawn(&t, i);
             assert_eq!(near_checkpoint(&t, p), Some(i as u8));
             assert!(world::floor_at(&t, p.x, p.z, p.y).is_some());
+            assert!(clear(&t, p, SPAWN_CLEARANCE), "checkpoint {i}: spawn {p:?} too close to an edge");
         }
     }
 
@@ -411,8 +416,6 @@ mod tests {
             let [x, z] = t.arenas[i].boss_spawn;
             assert_eq!(world::zone_at(&t, Vec3::new(x, 0.0, z)), Zone::Arena(i as u8), "boss {i}");
         }
-        let s = sign_pos(&t);
-        assert!(world::floor_at(&t, s.x, s.z, 0.0).is_some());
         assert!(!door_open(&t, 0) && door_open(&t, u32::MAX));
     }
 }

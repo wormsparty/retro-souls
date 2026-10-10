@@ -804,10 +804,6 @@ fn try_passage(p: &mut Player, body: &mut Body, enc: &Encounter, ctx: &mut Ctx) 
                 p.buffer.consume(btn::INTERACT);
                 ctx.events.push(SimEvent::TorchTouched { entity, arena: i });
                 return true;
-            } else if encounter::near_sign(t, body.pos) && encounter::door_open(t, enc.defeated) {
-                p.buffer.consume(btn::INTERACT);
-                ctx.events.push(SimEvent::SignRead { entity });
-                return true;
             } else {
                 None
             }

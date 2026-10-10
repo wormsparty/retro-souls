@@ -213,6 +213,22 @@ class MeshBuilder:
             loop[self.uv].uv = (u * uv_scale[0], v * uv_scale[1])
         return f
 
+    def split_face(self, corners, mat, uvs, size=2.0):
+        """Quad given by its 4 corners (coordinates) and their UVs, split into a grid of cells of
+        at most `size` metres, positions and UVs interpolated: the texture looks the same, but
+        the affine distortion (PS1) and the per-vertex lighting stay confined to each cell."""
+        import mathutils
+        p = [mathutils.Vector(c) for c in corners]
+        q = [mathutils.Vector(t) for t in uvs]
+        nu = max(1, math.ceil(max((p[1] - p[0]).length, (p[2] - p[3]).length) / size - 1e-6))
+        nv = max(1, math.ceil(max((p[3] - p[0]).length, (p[2] - p[1]).length) / size - 1e-6))
+        at = lambda c, u, v: c[0].lerp(c[1], u).lerp(c[3].lerp(c[2], u), v)
+        grid = [[self.bm.verts.new(at(p, i / nu, j / nv)) for j in range(nv + 1)] for i in range(nu + 1)]
+        for i in range(nu):
+            for j in range(nv):
+                cell = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
+                self._face([grid[a][b] for a, b in cell], mat, uvs=[tuple(at(q, a / nu, b / nv)) for a, b in cell])
+
     def _quad(self, verts, mat, uv_scale=(1, 1)):
         """Four-vertex face, split according to `cell` (see the class)."""
         if not self.cell or len(verts) != 4:
@@ -327,7 +343,9 @@ class MeshBuilder:
             self._quad((r0[j], r0[i], r1[i], r1[j]), mat)
 
     def cylinder(self, center, radius, height, mat, sides=8, radius_top=None, uv_scale=(1, 1),
-                 caps=True, axis="Z"):
+                 caps=True, axis="Z", split=None):
+        """`split` (metres, Z axis only): its sides are split into cells of at most that size
+        (see `split_face`), for a tall cylinder seen up close."""
         cx, cy, cz = center
         rt = radius if radius_top is None else radius_top
         bot, top = [], []
@@ -343,7 +361,10 @@ class MeshBuilder:
         for i in range(sides):
             j = (i + 1) % sides
             uvs = [(i / sides, 0), (j / sides, 0), (j / sides, 1), (i / sides, 1)]
-            if axis == "Z":
+            if axis == "Z" and split:
+                self.split_face([v.co for v in (bot[i], bot[j], top[j], top[i])], mat,
+                                [(u * uv_scale[0], v * uv_scale[1]) for u, v in uvs], split)
+            elif axis == "Z":
                 self._face((bot[i], bot[j], top[j], top[i]), mat, uvs, uv_scale)
             else:
                 self._face((bot[j], bot[i], top[i], top[j]), mat, uvs, uv_scale)

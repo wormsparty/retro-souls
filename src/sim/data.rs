@@ -715,9 +715,10 @@ pub struct LevelDef {
     pub enemies: Vec<EnemySpawn>,
     #[serde(default)]
     pub pickups: Vec<PickupDef>,
-    /// The door that opens once all the bosses are defeated, and the sign beyond it (x, z).
+    /// The door that opens once all the bosses are defeated, and the painted panel that awaits
+    /// beyond it, floating over the void (x, z; tools/blender/arena.py).
     pub final_door: PortalDef,
-    pub sign: [f32; 2],
+    pub finale: [f32; 2],
 }
 
 /// Enemy type (dog, puppet…).

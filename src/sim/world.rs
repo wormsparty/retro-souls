@@ -258,6 +258,9 @@ pub fn arena_bounds(a: &ArenaDef) -> (Vec3, f32) {
     (Vec3::new(c.x, 0.0, c.y), (hi - lo).length() * 0.5)
 }
 
+/// Height of the balustrade around a walled platform of the level (tools/blender/arena.py).
+const BALUSTRADE: f32 = 0.95;
+
 /// First wall crossed by the segment `from` → `to` (seen from above): fraction of the segment where it
 /// is hit (`None`: nothing in the way). Walls: the edges of walled platforms (the arenas) and the
 /// sides of walled strips (stairs, corridors). Used by the camera, which must not go behind them.
@@ -269,23 +272,28 @@ pub fn wall_hit(t: &Tuning, from: Vec3, to: Vec3) -> Option<f32> {
             best = Some(s);
         }
     };
-    let walled: Vec<&FloorDef> = pieces(t).map(|(_, f)| f).filter(|f| f.walled).collect();
+    let walled: Vec<(Zone, &FloorDef)> = pieces(t).filter(|(_, f)| f.walled).collect();
     // Inside a walled platform (the threshold of a strip that enters it doesn't count).
     let in_room = |p: Vec2| {
-        walled.iter().any(|f| matches!(f.shape, Shape::Ellipse { .. }) && fit(&f.shape, Vec3::new(p.x, 0.0, p.y), 0.0).dist <= EPS)
+        walled.iter().any(|(_, f)| matches!(f.shape, Shape::Ellipse { .. }) && fit(&f.shape, Vec3::new(p.x, 0.0, p.y), 0.0).dist <= EPS)
     };
-    for f in &walled {
+    for &(zone, f) in &walled {
         match f.shape {
-            Shape::Ellipse { center: [cx, cz], radii: [rx, rz], .. } => {
+            Shape::Ellipse { center: [cx, cz], radii: [rx, rz], y } => {
                 // In the frame where the ellipse is the unit circle: |a' + s·d'| = 1.
                 let a2 = Vec2::new((a.x - cx) / rx, (a.y - cz) / rz);
                 let d2 = Vec2::new(d.x / rx, d.y / rz);
                 let (qa, qb, qc) = (d2.dot(d2), 2.0 * a2.dot(d2), a2.dot(a2) - 1.0);
                 let disc = qb * qb - 4.0 * qa * qc;
+                // In the level, only a low balustrade (the last terrace): you see over it.
+                let over = |s: f32| zone == Zone::Level && from.y + (to.y - from.y) * s > y + BALUSTRADE;
                 if qa > 1e-8 && disc >= 0.0 {
                     let sq = math::sqrt(disc);
-                    hit((-qb - sq) / (2.0 * qa));
-                    hit((-qb + sq) / (2.0 * qa));
+                    for s in [(-qb - sq) / (2.0 * qa), (-qb + sq) / (2.0 * qa)] {
+                        if !over(s) {
+                            hit(s);
+                        }
+                    }
                 }
             }
             Shape::Strip { from: [x0, z0, _], to: [x1, z1, _], half_width } => {
@@ -318,7 +326,6 @@ pub fn obstacles(t: &Tuning, checkpoint_radius: f32) -> Vec<[f32; 3]> {
     for a in &t.arenas {
         v.push([a.torch[0], a.torch[1], TORCH_RADIUS]);
     }
-    v.push([t.level.sign[0], t.level.sign[1], SIGN_RADIUS]);
     for p in &t.level.props {
         let yaw = p.yaw.to_radians();
         for [dx, dz, r] in p.kind.colliders() {
@@ -329,9 +336,8 @@ pub fn obstacles(t: &Tuning, checkpoint_radius: f32) -> Vec<[f32; 3]> {
     v
 }
 
-/// Collision radius of a boss torch, and of the final sign.
+/// Collision radius of a boss torch.
 pub const TORCH_RADIUS: f32 = 0.25;
-pub const SIGN_RADIUS: f32 = 0.3;
 
 /// Ground point of a fog passage (centre of the fog), and the direction in which you go through it.
 pub fn portal(t: &Tuning, p: &PortalDef) -> (Vec3, Vec3) {
@@ -471,6 +477,12 @@ mod tests {
         assert_eq!(wall_hit(&t, Vec3::new(0.0, -2.0, -23.0), Vec3::new(0.5, -1.0, -28.5)), None);
         // On the stairs, camera from the side: the stair wall.
         assert!(wall_hit(&t, Vec3::new(0.0, -1.0, -20.0), Vec3::new(5.0, 0.0, -21.0)).is_some());
+        // On the last terrace, camera beyond its balustrade: over it, nothing; below it, the balustrade.
+        let [sx, sz] = terrace(&t);
+        let y = floor_at(&t, sx, sz, 0.0).unwrap();
+        let (eye, out) = (Vec3::new(sx, y + 1.6, sz), Vec3::new(sx + 8.0, y + 2.5, sz));
+        assert_eq!(wall_hit(&t, eye, out), None);
+        assert!(wall_hit(&t, eye, Vec3::new(sx + 8.0, y - 0.5, sz)).is_some());
     }
 
     #[test]
@@ -509,6 +521,36 @@ mod tests {
         };
         assert!(walk(false) < 0.01);
         assert!(walk(true) > 4.0);
+    }
+
+    /// Centre of the last terrace, behind the final door.
+    fn terrace(t: &Tuning) -> [f32; 2] {
+        t.level.floors.iter().find_map(|f| match f.shape {
+            Shape::Ellipse { center, .. } if f.sealed => Some(center),
+            _ => None,
+        }).expect("a terrace behind the final door")
+    }
+
+    #[test]
+    fn the_open_final_door_leads_to_the_terrace() {
+        let t = Tuning::builtin();
+        let (door, _) = portal(&t, &t.level.final_door);
+        let [sx, sz] = terrace(&t);
+        let goal = Vec3::new(sx, door.y, sz - 1.5);
+        let m = Mover::Player { zone: Zone::Level, door_open: true };
+        // Not only down the middle: anywhere across the porch.
+        for dx in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            let target = goal + Vec3::X * dx;
+            let mut pos = door + Vec3::X * dx;
+            for _ in 0..200 {
+                let to = target - pos;
+                if math::flat_len(to) < 0.1 {
+                    break;
+                }
+                pos = ground(step(&t, pos + to.normalize_or_zero() * 0.1, 0.4, m));
+            }
+            assert!(math::flat_len(target - pos) < 1.0, "stuck at {pos:?}, aiming at {goal:?}");
+        }
     }
 
     #[test]

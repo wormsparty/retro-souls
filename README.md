@@ -85,10 +85,11 @@ menu shows the controls of the last device used (gamepad, or keyboard and mouse)
 - **Title screen**: the centred title, on a background of embers and ash rising above the glow
   of a brazier. With a save, the final door's medallions under the title, lit in their colour
   for the defeated bosses. Continue, New game (asks for
-  confirmation if a save exists), Options, *Fork me* (opens the project page on GitHub), Quit.
+  confirmation if a save exists), Options, Quit. Next to the title, a *Fork me* badge (GitHub logo on a ribbon) opens the
+  project page when clicked (mouse only).
 - **Pause** (Esc / Start): three icons, Equipment (helm), Status (scroll: hit points,
   stamina, attack of the weapon in hand, damage reduction, healing flasks) and System
-  (cogwheel: Options, Help, *Fork me*, Return to title screen, Quit). Esc / (B) closes the menu. While paused,
+  (cogwheel: Options, Help, Return to title screen, Quit). Esc / (B) closes the menu. While paused,
   characters and spells are frozen; particles keep going.
 - **Checkpoint** (when resting there): Leave (selected by default), Travel (to another brazier
   already kindled, with a view of the place), Equipment.

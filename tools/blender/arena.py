@@ -4,7 +4,7 @@
   platforms and walkways of the path, their decor, and far off in the void a few street lamps
   lost on floating rocks;
 - at the end of a corridor per boss, a gateway (its fog and portcullis are made by the game)
-  and a torch in front of it; at the end of the path, the final door and the sign beyond it;
+  and a torch in front of it; at the end of the path, the final door and the painted panel beyond it;
 - far away, out of sight, the bosses' arenas, each in its own style: first the circular
   courtyard of a ruined fairground theatre (the Automaton's), set on a base of rock that sinks
   into the void. Their objects are named `arena_<i>_*`: the game only draws the arena the player
@@ -271,8 +271,9 @@ def platform(mb, f, seed):
     (cx, cz), (rx, rz), y = e["center"], e["radii"], e["y"]
     bx, by, _ = B(cx, cz)
     k = rz / rx
-    # Top in rings (no face too large: the affine texture would get distorted).
-    sides = 40
+    # Top in rings (no face too large: the affine texture would get distorted). The walled
+    # terrace is small: fewer sides (its balustrade follows them).
+    sides = 16 if f.get("walled") else 40
     step = 1.6
     rings = [0.0]
     while rings[-1] + step < rx - 0.3:
@@ -307,19 +308,6 @@ def platform(mb, f, seed):
             p0 = (bx + (rx + 0.2) * math.cos(a0), by + (rx + 0.2) * k * math.sin(a0))
             p1 = (bx + (rx + 0.2) * math.cos(a1), by + (rx + 0.2) * k * math.sin(a1))
             mb.seg((p0[0], p0[1], y + 0.45), (p1[0], p1[1], y + 0.45), 0.4, 1.0, STONE)
-        return
-    # Border of low stones (not a railing: a few stones, with gaps).
-    r = random.Random(seed)
-    for i in range(sides):
-        if r.random() < 0.35:
-            continue
-        a = 2 * math.pi * (i + 0.5) / sides
-        px, py = bx + (rx - 0.18) * math.cos(a), by + (rx - 0.18) * k * math.sin(a)
-        # No stone where a path starts.
-        gx, gz = px, -py
-        if any(near_strip_end(g, gx, gz) for g in LEVEL["floors"] if "Strip" in g["shape"]):
-            continue
-        mb.box((px, py, y + 0.06), (0.32, 0.32, 0.12), STONE, taper=(0.8, 0.8))
 
 
 def ellipse_at(x, z):
@@ -529,15 +517,6 @@ def strip(mb, f, idx):
                        taper=(0.5, 0.6))
                 # Corbelling under the deck.
                 mb.box((c[0], c[1], c[2] - 0.5), (2 * hw + 0.2, 1.6, 1.0), STONE, taper=(1.15, 1.4))
-            # Edge stones, with gaps.
-            r = random.Random(idx * 31)
-            for side in (-hw + 0.15, hw - 0.15):
-                t = a + 0.5
-                while t < b - 0.3:
-                    if r.random() > 0.4:
-                        c = P(t, side)
-                        mb.box((c[0], c[1], c[2] + 0.04), (0.28, 0.28, 0.1), STONE, taper=(0.8, 0.8))
-                    t += 0.9 + r.random() * 0.8
     if walled:
         # Balustrades on either side (arena stairs).
         for side in (-hw - 0.2, hw + 0.2):
@@ -906,6 +885,9 @@ def torches():
         obj(f"torch_{i}", torch_post, loc=B(x, z, floor_at(x, z) or 0.0))
 
 
+WALL_FOOT = 4.0  # how far the final wall goes down below its door
+
+
 def final_door():
     """The door that opens once every boss is defeated: a wall with a double door, and above it a
     medallion socket per boss (the game sets the medallions in them). The leaves are separate
@@ -913,19 +895,21 @@ def final_door():
     (x, z, y), (dx, dz) = portal(LEVEL["final_door"])
     hw = LEVEL["final_door"]["half_width"]
     yaw = yaw_of(dx, dz)
-    width, height = 11.0, 8.0
+    # Wide enough to hide the painted panel beyond it from anywhere on the parvis (camera included).
+    width, height = 21.0, 8.0
 
     def wall(mb):
         t0, t1 = -0.4, 1.0
         side = width / 2
+        # The wings go down into the rock below (they'd float over the void otherwise).
+        low = -WALL_FOOT
         for sx in (-1, 1):
             x0 = hw + 0.15
-            mb.slab((sx * (x0 + side) / 2, (t0 + t1) / 2, height / 2), (side - x0, t1 - t0, height), BRICK)
+            mb.slab((sx * (x0 + side) / 2, (t0 + t1) / 2, (height + low) / 2), (side - x0, t1 - t0, height - low), BRICK)
             mb.box((sx * (hw + 0.4), t0 - 0.12, DOOR_HEIGHT / 2), (0.5, 0.35, DOOR_HEIGHT), STONE)
-            # Buttresses, and a statue niche.
-            mb.box((sx * (side - 0.4), t0 - 0.4, height / 2), (0.9, 1.0, height), STONE, taper=(0.8, 0.6))
-            mb.box((sx * (hw + 2.0), t0 - 0.05, 2.6), (1.1, 0.2, 2.6), VOID)
-            mb.box((sx * (hw + 2.0), t0 - 0.35, 1.25), (1.3, 0.6, 0.15), STONE)
+            # Buttresses: framing the door, and at the ends of the wings.
+            for bx in (5.1, side - 0.4):
+                mb.box((sx * bx, t0 - 0.4, (height + low) / 2), (0.9, 1.0, height - low), STONE, taper=(0.8, 0.6))
         mb.slab((0, (t0 + t1) / 2, (DOOR_HEIGHT + height) / 2), (2 * hw + 0.3, t1 - t0, height - DOOR_HEIGHT), BRICK)
         mb.box((0, t0 - 0.15, DOOR_HEIGHT + 0.2), (2 * hw + 1.4, 0.4, 0.4), STONE)
         # Band of the medallions, and their sockets.
@@ -935,8 +919,8 @@ def final_door():
             mx = (k - (n - 1) / 2) * MEDALLION_SPACING
             mb.cylinder((mx, t0 - 0.06, MEDALLION_HEIGHT), 0.25, 0.1, STONE, sides=10, axis="Y")
         # Pediment.
-        mb.box((0, (t0 + t1) / 2, height + 0.6), (width - 1.0, t1 - t0 + 0.2, 1.2), STONE, taper=(0.15, 1.0))
-        rock_cone(mb, 0, 0.3, -0.4, width / 2 + 0.4, 1.8, 10, seed=777, sides=10)
+        mb.box((0, (t0 + t1) / 2, height + 0.6), (10.0, t1 - t0 + 0.2, 1.2), STONE, taper=(0.15, 1.0))
+        rock_cone(mb, 0, 0.3, low + 0.3, width / 2 + 0.6, 2.4, 12, seed=777, sides=18)
 
     obj("final_wall", wall, loc=B(x, z, y), yaw=yaw)
 
@@ -957,25 +941,52 @@ def final_door():
         obj(f"final_door_{k}", leaf(sign), loc=B(hx + dx * 0.3, hz + dz * 0.3, y), yaw=yaw)
 
 
-def sign_post():
-    """The sign behind the final door, facing the door."""
-    x, z = LEVEL["sign"]
-    (dx_, dz_) = portal(LEVEL["final_door"])[1]
+FINALE_WIDTH = 16.0  # height from the image's proportions; big: the game renders at 240 lines
+FINALE_BOTTOM = 2.0  # above the floor of the last terrace
+
+
+def finale_panel():
+    """Beyond the last terrace (level.ron `finale`), floating over the void and facing the door: a painted panel, thanks
+    (tools/blender/finale_art.py), unlit so that it reads in the dark, in a stone frame."""
+    import finale_art
+    x, z = LEVEL["finale"]
+    (_, _, y), (dx, dz) = portal(LEVEL["final_door"])
+    px = finale_art.image([tuple(c) for c in COLORS])
+    w, h = finale_art.W, finale_art.H
+    img = bpy.data.images.new("finale_tex", w, h, alpha=False)
+    flat = []
+    for row in reversed(px):  # Blender: bottom row first
+        for c in row:
+            flat.extend((*c, 1.0))
+    img.pixels.foreach_set(flat)
+    img.pack()
+    # Unlit for the glTF export (KHR_materials_unlit): the texture straight into the output.
+    m = bpy.data.materials.new("a_finale")
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.remove(nt.nodes.get("Principled BSDF"))
+    node = nt.nodes.new("ShaderNodeTexImage")
+    node.image = img
+    node.interpolation = "Closest"
+    nt.links.new(node.outputs["Color"], nt.nodes.get("Material Output").inputs["Surface"])
+
+    pw, ph = FINALE_WIDTH, FINALE_WIDTH * h / w
 
     def build(mb):
-        mb.box((0, 0, 0.8), (0.14, 0.14, 1.6), WOOD)
-        mb.box((0, -0.1, 1.35), (1.5, 0.08, 0.75), PLANKS)
-        mb.box((0, -0.1, 1.76), (1.6, 0.12, 0.08), WOOD)
-        # Painted letters (a few strokes).
-        r = random.Random(5)
-        for row, zz in enumerate((1.5, 1.22)):
-            xx = -0.58
-            while xx < 0.58:
-                w = 0.04 + r.random() * 0.1
-                mb.box((xx + w / 2, -0.15, zz), (w, 0.01, 0.16), CREAM)
-                xx += w + 0.04 + (0.08 if r.random() < 0.2 else 0)
-        mb.box((0.25, -0.2, 0.1), (0.5, 0.4, 0.2), STONE)
-    obj("sign", build, loc=B(x, z, floor_at(x, z) or 0.0), yaw=yaw_of(-dx_, -dz_))
+        # Its front faces local -Y (towards the door); cells of 1 m (affine texturing).
+        mb.split_face([(-pw / 2, 0, 0), (pw / 2, 0, 0), (pw / 2, 0, ph), (-pw / 2, 0, ph)], m,
+                      [(0, 0), (1, 0), (1, 1), (0, 1)], size=1.0)
+        # Nothing right behind it: with the vertex snapping, a surface a few centimetres back
+        # pokes through the image (flickering). The back plate stands well behind; the frame's
+        # bars stand in front of its edges (only stars there).
+        back = 0.8
+        mb.box((0, back, ph / 2), (pw + 0.7, 0.3, ph + 0.7), DARKSTONE)
+        f, d = 0.35, back + 0.2  # bar width, depth (from in front of the image to the plate)
+        for cx, cz, sx, sz in ((0, -f / 2 + 0.1, pw + 0.7, f), (0, ph + f / 2 - 0.1, pw + 0.7, f),
+                               (-pw / 2 - f / 2 + 0.1, ph / 2, f, ph), (pw / 2 + f / 2 - 0.1, ph / 2, f, ph)):
+            mb.box((cx, d / 2 - 0.15, cz), (sx, d, sz), DARKSTONE)
+        rock_cone(mb, 0, back / 2, -0.25, pw / 2 + 0.3, 0.6, 5, seed=1989, sides=10, rings=3)
+    obj("finale_panel", build, loc=B(x, z, y + FINALE_BOTTOM), yaw=yaw_of(dx, dz))
 
 
 # ----------------------------------------------------------------------------- the arenas, far away
@@ -1028,12 +1039,18 @@ def room_wall(mb, cx, cz, rx, rz, door, hw, height, mat, seed, ruin=0.0, top=STO
                 p.append(B(cx + (rx + off) * math.cos(a), cz + (rz + off) * math.sin(a)))
         (i0, o0), (i1, o1) = (p[0], p[1]), (p[2], p[3])
         v = lambda q, zz: mb.bm.verts.new((q[0], q[1], zz))
+
+        # Its faces are tall (down into a moat, a ditch): split into small cells, or the
+        # affine texturing goes haywire up close or at a grazing angle.
+        def side(a, b, z0, z1, mat):
+            mb.split_face([(a[0], a[1], z0), (b[0], b[1], z0), (b[0], b[1], z1), (a[0], a[1], z1)], mat,
+                          [(0, 0), (1, 0), (1, (z1 - z0) / 2.5), (0, (z1 - z0) / 2.5)])
         if low is not None and bottom < 0:
-            mb._face([v(i1, bottom), v(i0, bottom), v(i0, 0), v(i1, 0)], low, uv_scale=(1, -bottom / 2.5))
-            mb._face([v(i1, 0), v(i0, 0), v(i0, h), v(i1, h)], m, uv_scale=(1, h / 2.5))
+            side(i1, i0, bottom, 0, low)
+            side(i1, i0, 0, h, m)
         else:
-            mb._face([v(i1, bottom), v(i0, bottom), v(i0, h), v(i1, h)], m, uv_scale=(1, (h - bottom) / 2.5))
-        mb._face([v(o0, min(bottom, -1.5)), v(o1, min(bottom, -1.5)), v(o1, h), v(o0, h)], m, uv_scale=(1, (h - min(bottom, -1.5)) / 2.5))
+            side(i1, i0, bottom, h, m)
+        side(o0, o1, min(bottom, -1.5), h, m)
         mb._face([v(i0, h), v(o0, h), v(o1, h), v(i1, h)], top)
         if merlons and i % 2 == 0:
             c = B(cx + (rx + 0.9) * math.cos(am), cz + (rz + 0.9) * math.sin(am))
@@ -1199,9 +1216,8 @@ def theme_summit(i, a, cx, cz, rx, rz, pil, seed, style):
         for k in range(sides):
             a0, a1 = 2 * math.pi * k / sides, 2 * math.pi * (k + 1) / sides
             p = [(bx + rx * math.cos(q), by - rz * math.sin(q)) for q in (a0, a1)]
-            v = [mb.bm.verts.new((p[0][0], p[0][1], 0)), mb.bm.verts.new((p[1][0], p[1][1], 0)),
-                 mb.bm.verts.new((p[1][0], p[1][1], moat * 0.6)), mb.bm.verts.new((p[0][0], p[0][1], moat * 0.6))]
-            mb._face(v, CASTLE_DARK, uv_scale=(1, 3))
+            mb.split_face([(p[0][0], p[0][1], 0), (p[1][0], p[1][1], 0), (p[1][0], p[1][1], moat * 0.6),
+                           (p[0][0], p[0][1], moat * 0.6)], CASTLE_DARK, [(0, 0), (1, 0), (1, 3), (0, 3)])
         rock_cone(mb, bx, by, moat * 0.6, rx, rz, 20, seed=seed, sides=20, rings=4)
         # Pale coping stones along the edge (low, with gaps): you see where the void starts.
         r = random.Random(seed)
@@ -1284,7 +1300,7 @@ def theme_summit(i, a, cx, cz, rx, rz, pil, seed, style):
 
 def tower(mb, x, y, r, h, bottom, mat):
     """Round castle tower (Blender coordinates), from `bottom` up, crenellated, a slate roof."""
-    mb.cylinder((x, y, (h + bottom) / 2), r, h - bottom, mat, sides=10, uv_scale=(3, (h - bottom) / 3))
+    mb.cylinder((x, y, (h + bottom) / 2), r, h - bottom, mat, sides=10, uv_scale=(3, (h - bottom) / 3), split=2.0)
     mb.cylinder((x, y, h + 0.2), r + 0.3, 0.4, STONE, sides=10)
     for k in range(10):
         if k % 2:
@@ -1447,7 +1463,7 @@ def theme_guignol(i, a, cx, cz, rx, rz, pil, seed, style):
 
 
 def theme_cistern(i, a, cx, cz, rx, rz, pil, seed, style):
-    """The Rimeback: a frozen cistern, broken columns crusted with ice, icicles."""
+    """The Rimeback: a frozen cistern, broken columns crusted with ice, icicles. Blue fires."""
     def build(mb):
         rr = random.Random(seed)
         for k, (x, z, r) in enumerate(pil):
@@ -1471,7 +1487,8 @@ def theme_cistern(i, a, cx, cz, rx, rz, pil, seed, style):
             bx2, by2, _ = B(cx + d * math.cos(ang), cz + d * math.sin(ang))
             mb.box((bx2, by2, 0.35), (0.9, 0.8, 0.7), ICE, taper=(0.6, 0.7))
     obj(f"arena_{i}_decor", build)
-    room_braziers(i, cx, cz, rx, rz, a["door"], count=4, high=True)
+    # Its fires burn in the Rimeback's icy blue, none orange.
+    room_braziers(i, cx, cz, rx, rz, a["door"], count=4, high=True, tinted=True)
 
 
 def theme_hearth(i, a, cx, cz, rx, rz, pil, seed, style):
@@ -1537,7 +1554,7 @@ checkpoints()
 boss_gates()
 torches()
 final_door()
-sign_post()
+finale_panel()
 for i, a in enumerate(ARENAS):
     if i > 0:
         arena_room(i, a)

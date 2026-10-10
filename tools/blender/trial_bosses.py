@@ -1296,8 +1296,11 @@ def marionette():
 
     # Leap: the strings lift her and set her down further away; in the air, she raises her arms and throws
     # two needles.
-    hop = [(0, BASE), (8, hang(LIMP, -0.25)), ("c0-14", hang(NEEDLES_UP, 1.4, 6)), ("c0", hang(NEEDLES_UP, 1.8, -2)),
-           ("c0+6", hang(NEEDLES_THROWN, 1.8, -4)), (48, hang(LIMP, 0.6, 2)),
+    # Arms spread wide: one needle in each hand, at her left and right (the casts' `from`, bosses.ron).
+    NEEDLES_SPREAD = merge(NEEDLES_UP, arm("R", (-160, -40, 0), (-10, 0, 0)), arm("L", (-160, 40, 0), (-10, 0, 0)))
+    NEEDLES_SPREAD_THROWN = merge(NEEDLES_THROWN, arm("R", (-70, -24, 0), (-10, 0, 0)), arm("L", (-70, 24, 0), (-10, 0, 0)))
+    hop = [(0, BASE), (8, hang(LIMP, -0.25)), ("c0-14", hang(NEEDLES_SPREAD, 1.4, 6)), ("c0", hang(NEEDLES_SPREAD, 1.8, -2)),
+           ("c0+6", hang(NEEDLES_SPREAD_THROWN, 1.8, -4)), (48, hang(LIMP, 0.6, 2)),
            (56, hang(add(LIMP, thigh_R=(-20, 0, 0), thigh_L=(-20, 0, 0)), -0.15)), ("T", BASE)]
 
     # Hoisted: the strings pull her straight up, very high, then drop her on the spot.
