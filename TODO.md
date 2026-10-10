@@ -1,9 +1,7 @@
 # TODO
 
-- choix arme
+- more weapons?
 - classes?
-- sorts?
-- lvl up
-- editeur de niveau?
-- license
-- publish
+- spells?
+- leveling / souls?
+- level editor?
