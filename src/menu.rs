@@ -310,20 +310,20 @@ fn help_lines(device: Device) -> Vec<(&'static str, Vec<Seg>)> {
             ),
             (tr("Camera", "Caméra"), vec![i(Glyph::MouseMove), t(tr("(click to capture)", "(clic pour capturer)"))]),
             (tr("Light attack", "Attaque légère"), vec![i(Glyph::MouseLeft)]),
-            (tr("Heavy attack (hold: charge)", "Attaque lourde (maintenir : charge)"), vec![i(Glyph::MouseRight)]),
-            (
-                tr("Guard (well-timed: perfect)", "Garde (au bon moment : parfaite)"),
-                vec![i(Glyph::Key("Q")), or(), i(Glyph::Key(tr("SHIFT", "MAJ"))), t("AZERTY"), i(Glyph::Key("A"))],
-            ),
-            (tr("Special attack", "Attaque spéciale"), vec![i(Glyph::Key("E"))]),
+            (tr("Heavy attack (hold: charge)", "Attaque lourde (maintenir : charge)"), vec![i(Glyph::Key(tr("SHIFT", "MAJ"))), t("+"), i(Glyph::MouseLeft)]),
+            (tr("Guard (well-timed: perfect)", "Garde (au bon moment : parfaite)"), vec![i(Glyph::MouseRight)]),
+            (tr("Special attack", "Attaque spéciale"), vec![i(Glyph::Key(tr("SHIFT", "MAJ"))), t("+"), i(Glyph::MouseRight)]),
             (tr("Dodge (hold: sprint)", "Esquive (maintenir : course)"), vec![i(Glyph::Key(tr("SPACE", "ESPACE")))]),
-            (tr("Use item", "Utiliser l'objet"), vec![i(Glyph::Key("F"))]),
-            (tr("Next item", "Objet suivant"), vec![i(Glyph::Key("C"))]),
-            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::Key("R"))]),
-            (tr("Lock on", "Verrouillage"), vec![i(Glyph::Key("TAB")), or(), i(Glyph::MouseMiddle)]),
+            (tr("Use item", "Utiliser l'objet"), vec![i(Glyph::Key("R"))]),
+            (tr("Next item", "Objet suivant"), vec![i(Glyph::Key("↓"))]),
+            (tr("Switch weapon", "Changer d'arme"), vec![i(Glyph::Key("→"))]),
+            (
+                tr("Lock on", "Verrouillage"),
+                vec![i(Glyph::Key("Q")), or(), i(Glyph::MouseMiddle), t("AZERTY"), i(Glyph::Key("A"))],
+            ),
             (tr("Switch target (locked on)", "Changer de cible (verrouillé)"), vec![i(Glyph::MouseMove), t(tr("4 directions (up: higher)", "4 directions (haut : plus haut)"))]),
-            (tr("Rest (checkpoint)", "Se reposer (checkpoint)"), vec![i(Glyph::Key("G"))]),
-            (tr("Jump, then attack: jump attack", "Sauter, puis frapper : attaque sautée"), vec![i(Glyph::Key("G")), t("+"), i(Glyph::MouseLeft)]),
+            (tr("Interact, rest (checkpoint)", "Interagir, se reposer (checkpoint)"), vec![i(Glyph::Key("E"))]),
+            (tr("Jump, then attack: jump attack", "Sauter, puis frapper : attaque sautée"), vec![i(Glyph::Key("F")), t("+"), i(Glyph::MouseLeft)]),
             (tr("Menu", "Menu"), vec![i(Glyph::Key("ESC"))]),
             (tr("Tuning (debug)", "Réglages (debug)"), vec![i(Glyph::Key("F1")), t(tr("to", "à")), i(Glyph::Key("F5"))]),
         ]
@@ -492,7 +492,10 @@ fn nearest(values: &[f32], v: f32) -> usize {
         .unwrap_or(0)
 }
 
-const SENSITIVITIES: [f32; 12] = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0];
+/// Steps of 0.1 up to 2, then coarser.
+const SENSITIVITIES: [f32; 24] = [
+    0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.5, 3.0, 4.0, 5.0,
+];
 
 fn display_modes() -> Vec<DisplayMode> {
     if crate::settings::exclusive_supported() {
@@ -581,7 +584,7 @@ fn choices(item: Opt, s: &Settings, m: Option<&Monitor>) -> Option<Choices> {
         Opt::Master => Choices { labels: steps01().iter().map(|v| pct(*v)).collect(), current: nearest(&steps01(), s.master_volume), enabled: true },
         Opt::Effects => Choices { labels: steps01().iter().map(|v| pct(*v)).collect(), current: nearest(&steps01(), s.effects_volume), enabled: true },
         Opt::Sensitivity => Choices {
-            labels: SENSITIVITIES.iter().map(|v| format!("{v:.2}")).collect(),
+            labels: SENSITIVITIES.iter().map(|v| format!("{v:.1}")).collect(),
             current: nearest(&SENSITIVITIES, s.sensitivity),
             enabled: true,
         },

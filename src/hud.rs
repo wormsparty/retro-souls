@@ -1043,7 +1043,7 @@ fn update_item(
         set_text(&mut t, item.map_or("—", Item::name));
     }
     let (use_key, next_key) =
-        if *device == Device::Gamepad { (Glyph::PadX, Glyph::DpadDown) } else { (Glyph::Key("F"), Glyph::Key("C")) };
+        if *device == Device::Gamepad { (Glyph::PadX, Glyph::DpadDown) } else { (Glyph::Key("R"), Glyph::Key("↓")) };
     let equipped = inv.slots.iter().filter(|s| s.is_some()).count();
     for mut h in &mut hint {
         let mut segs = vec![i(use_key), t(tr("use", "utiliser"))];
@@ -1153,7 +1153,7 @@ fn prompt(
         *vis = if show { Visibility::Inherited } else { Visibility::Hidden };
         for c in children {
             if let (Ok(mut h), Some((l, key))) = (hints.get_mut(*c), label) {
-                let glyph = if *device == Device::Gamepad { Glyph::PadA } else { Glyph::Key("G") };
+                let glyph = if *device == Device::Gamepad { Glyph::PadA } else { Glyph::Key("E") };
                 set_hint(&mut h, if key { vec![i(glyph), t(l)] } else { vec![t(l)] });
             }
         }
@@ -1214,7 +1214,7 @@ fn update_weapon(
     for mut t in &mut name {
         set_text(&mut t, tuning.weapons[w].name.get());
     }
-    let key = if *device == Device::Gamepad { Glyph::DpadRight } else { Glyph::Key("R") };
+    let key = if *device == Device::Gamepad { Glyph::DpadRight } else { Glyph::Key("→") };
     for mut h in &mut hint {
         set_hint(&mut h, if tuning.weapons.len() > 1 { vec![i(key), t(tr("switch", "changer"))] } else { vec![] });
     }

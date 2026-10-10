@@ -63,36 +63,35 @@ fn keyboard_buttons(
     let check_m = |m: MouseButton| {
         mouse.is_some_and(|mouse| if pressed { mouse.just_pressed(m) } else { mouse.pressed(m) })
     };
+    // Elden Ring layout: Shift turns the mouse buttons into heavy attack / special.
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let mut b = 0;
-    if check_k(KeyCode::KeyG) {
-        b |= btn::INTERACT;
-    }
-    if check_k(KeyCode::KeyC) {
-        b |= btn::NEXT_ITEM;
-    }
     if check_m(MouseButton::Left) {
-        b |= btn::LIGHT;
+        b |= if shift { btn::HEAVY } else { btn::LIGHT };
     }
     if check_m(MouseButton::Right) {
-        b |= btn::HEAVY;
-    }
-    if check_k(KeyCode::KeyQ) || check_k(KeyCode::ShiftLeft) {
-        b |= btn::GUARD;
-    }
-    if check_k(KeyCode::KeyE) {
-        b |= btn::SPECIAL;
+        b |= if shift { btn::SPECIAL } else { btn::GUARD };
     }
     if check_k(KeyCode::Space) {
         b |= btn::DODGE;
     }
-    if check_k(KeyCode::Tab) || check_m(MouseButton::Middle) {
-        b |= btn::LOCK;
+    if check_k(KeyCode::KeyF) {
+        b |= btn::JUMP;
+    }
+    if check_k(KeyCode::KeyE) {
+        b |= btn::INTERACT;
     }
     if check_k(KeyCode::KeyR) {
+        b |= btn::ITEM;
+    }
+    if check_k(KeyCode::ArrowDown) {
+        b |= btn::NEXT_ITEM;
+    }
+    if check_k(KeyCode::ArrowRight) {
         b |= btn::SWITCH;
     }
-    if check_k(KeyCode::KeyF) {
-        b |= btn::ITEM;
+    if check_k(KeyCode::KeyQ) || check_m(MouseButton::Middle) {
+        b |= btn::LOCK;
     }
     b
 }
@@ -128,7 +127,7 @@ fn gamepad_buttons(g: &Gamepad, pressed: bool) -> u16 {
         b |= btn::NEXT_ITEM;
     }
     if check(GamepadButton::South) {
-        b |= btn::INTERACT;
+        b |= btn::INTERACT | btn::JUMP;
     }
     if check(GamepadButton::LeftThumb) {
         b |= btn::SPRINT;
@@ -327,7 +326,8 @@ fn read_look(
         return;
     }
     if cursor.grab_mode != CursorGrabMode::None {
-        d += motion.delta * 0.0025;
+        // Radians per pixel at sensitivity 1 (a bit livelier than the stick, at the same setting).
+        d += motion.delta * 0.00275;
     }
     for g in &gamepads {
         let s = g.right_stick();

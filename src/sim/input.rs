@@ -28,7 +28,9 @@ pub mod btn {
     /// Lockable point higher or lower (a large boss's head, its legs).
     pub const TARGET_UP: u16 = 1 << 13;
     pub const TARGET_DOWN: u16 = 1 << 14;
-    pub const COUNT: usize = 15;
+    /// Jump. The gamepad sends it with INTERACT (same button): interacting takes precedence.
+    pub const JUMP: u16 = 1 << 15;
+    pub const COUNT: usize = 16;
 }
 
 /// A player's compact input for one tick (7 bytes, ready to be serialised for the network).

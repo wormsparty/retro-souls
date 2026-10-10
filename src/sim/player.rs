@@ -559,7 +559,9 @@ pub fn player_act(
                         air_control(&mut p, &mut body, stick_len, move_dir, t);
                     }
                 } else if try_interact(&mut p, &mut body, &mut health, &mut encounter, &mut ctx) {
-                    // Rest, item picked up, fog crossed…: nothing else this tick.
+                    // Rest, item picked up, fog crossed…: nothing else this tick (nor a jump,
+                    // the gamepad sends it on the same button).
+                    p.buffer.consume(btn::JUMP);
                 } else if try_jump(&mut p, &mut body, &mut ctx) {
                     air_control(&mut p, &mut body, stick_len, move_dir, t);
                 } else if try_defensive(&mut p, &mut body, &mut action, &mut ctx)
@@ -722,7 +724,7 @@ fn use_item_effect(p: &mut Player, health: &mut Health, entity: Entity, ctx: &mu
 
 /// Interact: recover your embers or pick up the item in range, otherwise rest at the checkpoint,
 /// go through a boss's fog, rekindle the torch of a defeated boss, read the sign.
-/// Nothing in range: the button is left to the jump.
+/// Nothing in range: on the gamepad, the button is left to the jump.
 fn try_interact(p: &mut Player, body: &mut Body, health: &mut Health, enc: &mut Encounter, ctx: &mut Ctx) -> bool {
     if !p.buffer.buffered(btn::INTERACT, ctx.now, ctx.t.player.input_buffer) {
         return false;
@@ -810,12 +812,13 @@ fn try_passage(p: &mut Player, body: &mut Body, enc: &Encounter, ctx: &mut Ctx) 
     true
 }
 
-/// Jump (the interact button, when there's nothing in range). It requires stamina.
+/// Jump (on the gamepad, the interact button when there's nothing in range). It requires stamina.
 fn try_jump(p: &mut Player, body: &mut Body, ctx: &mut Ctx) -> bool {
     let jd = &ctx.t.player.jump;
-    if !p.buffer.buffered(btn::INTERACT, ctx.now, ctx.t.player.input_buffer) || !p.can_act() {
+    if !p.buffer.buffered(btn::JUMP, ctx.now, ctx.t.player.input_buffer) || !p.can_act() {
         return false;
     }
+    p.buffer.consume(btn::JUMP);
     p.buffer.consume(btn::INTERACT);
     p.spend_stamina(jd.stamina, ctx.t);
     p.state = PState::Free;

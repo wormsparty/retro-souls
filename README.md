@@ -34,23 +34,24 @@ Blender 5.x and Python 3 are only needed to regenerate the assets.
 | Action | Gamepad | Keyboard / mouse |
 |---|---|---|
 | Light attack | RB / R1 | Left click |
-| Heavy attack (hold = charge) | RT / R2 | Right click |
-| Guard (perfect guard = right timing) | LB / L1 | Q or Left Shift |
-| Weapon special attack | LT / L2 | E |
+| Heavy attack (hold = charge) | RT / R2 | Shift + left click |
+| Guard (perfect guard = right timing) | LB / L1 | Right click |
+| Weapon special attack | LT / L2 | Shift + right click |
 | Dodge (hold = sprint) | B / ○ | Space |
 | Sprint (one click, as long as the stick is pushed) | L3 | — |
-| Lock on | R3 | Tab or middle click |
+| Lock on | R3 | Q or middle click |
 | Switch target (locked on): next point to the left / right, higher / lower (a large boss's head) | right stick ← → ↑ ↓ | mouse ← → ↑ ↓ |
-| Switch weapon | D-pad → | R |
+| Switch weapon | D-pad → | → |
 | Jump attack (more damage, the jump's stamina almost covers it) | RB / RT in the air | click in the air |
-| Use the selected item | X / □ | F |
-| Next item (quick slots) | D-pad ↓ | C |
-| Interact (pick up, rest); otherwise jump | A / ✕ | G |
+| Use the selected item | X / □ | R |
+| Next item (quick slots) | D-pad ↓ | ↓ |
+| Interact (pick up, rest) | A / ✕ | E |
+| Jump (gamepad: when there's nothing to interact with) | A / ✕ | F |
 | Move / camera | sticks | WASD / mouse |
 | Menu | Start | Esc |
 
 Keys are read by physical position (QWERTY/QWERTZ layout): on an AZERTY keyboard, movement is
-on ZQSD and guard on A.
+on ZQSD and lock on on A. The keyboard layout follows Elden Ring's defaults.
 
 Click in the window to capture the mouse, Esc to release it. The **Help** page of the pause
 menu shows the controls of the last device used (gamepad, or keyboard and mouse).

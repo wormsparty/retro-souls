@@ -1132,7 +1132,7 @@ fn jumping_in_place_lands_back_and_costs_stamina() {
     steps(&mut app, 2, IDLE);
     events(&mut app);
     let y = body(&mut app, p).pos.y;
-    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::JUMP, ..IDLE });
     steps(&mut app, 15, IDLE);
     assert!(body(&mut app, p).pos.y > y + 0.5, "in the air");
     assert!(app.world().get::<Player>(p).unwrap().stamina < t.player.max_stamina);
@@ -1167,7 +1167,7 @@ fn a_running_jump_clears_a_gap_that_walking_falls_into() {
         }
         step(&mut app, run);
     }
-    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..run });
+    step(&mut app, PlayerInput { buttons: btn::JUMP, ..run });
     steps(&mut app, 45, IDLE);
     let ev = events(&mut app);
     assert!(!ev.iter().any(|e| matches!(e, SimEvent::Fell { .. })), "no fall");
@@ -1176,7 +1176,7 @@ fn a_running_jump_clears_a_gap_that_walking_falls_into() {
     // A jump over the void, too short: the fall.
     put_player(&mut app, -13.0, -31.5, 0.0);
     steps(&mut app, 2, IDLE);
-    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::JUMP, ..IDLE });
     walk(&mut app, 80, Vec3::X);
     assert!(events(&mut app).iter().any(|e| matches!(e, SimEvent::Fell { .. })));
 }
@@ -1189,11 +1189,25 @@ fn interact_picks_up_instead_of_jumping() {
     let at = t.level.pickups[0].pos;
     put_player(&mut app, at[0] + 0.5, at[1], 0.0);
     steps(&mut app, 2, IDLE);
-    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::INTERACT | btn::JUMP, ..IDLE });
     steps(&mut app, 2, IDLE);
     let ev = events(&mut app);
     assert!(ev.iter().any(|e| matches!(e, SimEvent::PickedUp { pickup: 0, .. })));
     assert!(!ev.iter().any(|e| matches!(e, SimEvent::Jumped { .. })));
+    assert!(!app.world().get::<Player>(p).unwrap().airborne);
+}
+
+#[test]
+fn interact_alone_never_jumps() {
+    // Keyboard: interact (E) and jump (F) are separate keys.
+    let mut app = fresh_app();
+    let p = player(&mut app);
+    put_player(&mut app, 0.0, -31.5, 0.0);
+    steps(&mut app, 2, IDLE);
+    events(&mut app);
+    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    steps(&mut app, 2, IDLE);
+    assert!(!events(&mut app).iter().any(|e| matches!(e, SimEvent::Jumped { .. })));
     assert!(!app.world().get::<Player>(p).unwrap().airborne);
 }
 
@@ -1489,7 +1503,7 @@ fn attacking_in_the_air_is_a_jump_attack_that_lands() {
     put_player(&mut app, 0.0, -31.5, 0.0);
     steps(&mut app, 2, IDLE);
     let y = body(&mut app, p).pos.y;
-    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..IDLE });
+    step(&mut app, PlayerInput { buttons: btn::JUMP, ..IDLE });
     steps(&mut app, 8, IDLE);
     step(&mut app, PlayerInput { buttons: btn::LIGHT, ..IDLE });
     let a = app.world().get::<psx_souls::sim::fighter::Action>(p).unwrap().mv;
@@ -1556,7 +1570,7 @@ fn the_brooch_islet_by_the_belvedere_needs_a_running_jump() {
         }
         step(&mut app, run);
     }
-    step(&mut app, PlayerInput { buttons: btn::INTERACT, ..run });
+    step(&mut app, PlayerInput { buttons: btn::JUMP, ..run });
     steps(&mut app, 40, run);
     steps(&mut app, 20, IDLE);
     let ev = events(&mut app);
