@@ -262,7 +262,6 @@ pub fn spawn_fight(commands: &mut Commands, t: &Tuning, players: u8, progress: &
         };
         let mut p = player::Player::new(id, t);
         p.embers = progress.embers;
-        p.level = progress.level;
         p.weapon = progress.weapon.min(t.weapons.len().saturating_sub(1) as u8);
         p.inventory = progress.inventory.clone();
         p.checkpoint = checkpoint as u8;

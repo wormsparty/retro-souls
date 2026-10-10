@@ -59,14 +59,14 @@ menu shows the controls of the last device used (gamepad, or keyboard and mouse)
 
 - **Title screen**: the centred title, on a background of embers and ash rising above the glow
   of a brazier. With a save, the final door's medallions under the title, lit in their colour
-  for the defeated bosses. Continue (with the character's level), New game (asks for
+  for the defeated bosses. Continue, New game (asks for
   confirmation if a save exists), Options, *Fork me* (opens the project page on GitHub), Quit.
-- **Pause** (Esc / Start): three icons, Equipment (helm), Status (scroll: level, hit points,
+- **Pause** (Esc / Start): three icons, Equipment (helm), Status (scroll: hit points,
   stamina, attack of the weapon in hand, damage reduction, healing flasks, embers) and System
   (cogwheel: Options, Help, *Fork me*, Return to title screen, Quit). Esc / (B) closes the menu. While paused,
   characters and spells are frozen; particles keep going.
 - **Checkpoint** (when resting there): Leave (selected by default), Travel (to another brazier
-  already kindled, with a view of the place), Level up (greyed out, coming soon), Equipment.
+  already kindled, with a view of the place), Equipment.
 - **Rekindle the torch** (interacting with the extinguished torch of a defeated boss): the
   boss's portrait (`assets/ui/boss_<n>.png`, rendered by `tools/blender/boss_icons.py`);
   confirming revives it: it awaits again beyond its fog, at full strength.

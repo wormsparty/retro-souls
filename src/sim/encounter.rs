@@ -84,8 +84,6 @@ pub fn near_dropped(d: &Dropped, pos: Vec3) -> bool {
 pub struct Progress {
     /// Currency (embers).
     pub embers: u32,
-    /// Character level.
-    pub level: u32,
     /// Defeated bosses (bit i: `Tuning::encounters[i]`).
     pub defeated: u32,
     pub weapon: u8,
@@ -111,7 +109,7 @@ pub struct Progress {
 
 impl Progress {
     pub fn new_game(t: &Tuning) -> Self {
-        Self { inventory: Inventory::new_game(t), found: 1, level: 1, ..default() }
+        Self { inventory: Inventory::new_game(t), found: 1, ..default() }
     }
 
     /// State to resume for this player. Dead (or mid-fall): as after the
@@ -148,7 +146,6 @@ impl Progress {
         Self {
             embers,
             dropped,
-            level: p.level,
             defeated: enc.defeated,
             weapon: p.weapon,
             inventory,

@@ -1,4 +1,4 @@
-//! Menus: title screen, pause, checkpoint (travel, level, equipment), settings, help.
+//! Menus: title screen, pause, checkpoint (travel, equipment), settings, help.
 //!
 //! Navigation: up/down to choose, left/right to change a value, Enter / (A)
 //! to confirm, Esc / (B) to go back. Esc / Start opens the pause menu, Start closes it.
@@ -47,7 +47,7 @@ pub enum Page {
     /// Rekindle the torch of a defeated boss (`MenuState::reviving`): it will await again.
     Revive,
     Equipment,
-    /// Character sheet: level, HP, stamina, attack…
+    /// Character sheet: HP, stamina, attack…
     Status,
     /// System: settings, help, back to the title screen, quit.
     System,
@@ -138,8 +138,6 @@ enum Act {
     Back,
     ToTitle,
     Quit,
-    /// Level up (not available yet: shown greyed out).
-    LevelUp,
     /// Opens the project page on GitHub.
     Fork,
 }
@@ -190,7 +188,6 @@ enum Entry {
 /// Line of the character sheet (status page).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stat {
-    Level,
     Hp,
     Stamina,
     Attack,
@@ -200,11 +197,10 @@ enum Stat {
 }
 
 impl Stat {
-    const ALL: [Stat; 7] = [Stat::Level, Stat::Hp, Stat::Stamina, Stat::Attack, Stat::Defense, Stat::Flasks, Stat::Embers];
+    const ALL: [Stat; 6] = [Stat::Hp, Stat::Stamina, Stat::Attack, Stat::Defense, Stat::Flasks, Stat::Embers];
 
     fn label(self) -> &'static str {
         match self {
-            Stat::Level => tr("Level", "Niveau"),
             Stat::Hp => tr("Hit points", "Points de vie"),
             Stat::Stamina => tr("Stamina", "Endurance"),
             Stat::Attack => tr("Attack (weapon in hand)", "Attaque (arme en main)"),
@@ -216,7 +212,6 @@ impl Stat {
 
     fn value(self, p: &Player, t: &Tuning) -> String {
         match self {
-            Stat::Level => p.level.to_string(),
             Stat::Hp => format!("{}", t.player.max_hp.round()),
             Stat::Stamina => format!("{}", t.player.max_stamina.round()),
             Stat::Attack => {
@@ -346,7 +341,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
         Page::Pause => vec![Entry::Act(Open(Page::Equipment)), Entry::Act(Open(Page::Status)), Entry::Act(Open(Page::System))],
         Page::System => vec![Entry::Act(Open(Page::Options)), Entry::Act(Open(Page::Help)), Entry::Act(Fork), Entry::Act(ToTitle)],
         // "Leave" first: it's the line selected on opening.
-        Page::Checkpoint => vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(LevelUp), Entry::Act(Open(Page::Equipment))],
+        Page::Checkpoint => vec![Entry::Act(Leave), Entry::Act(Open(Page::Travel)), Entry::Act(Open(Page::Equipment))],
         Page::Travel => (0..32u8).filter(|i| c.found & (1 << i) != 0).map(Entry::Place).chain([Entry::Act(Back)]).collect(),
         // Grids: go back with Esc / (B).
         Page::Revive => vec![Entry::Boss(c.reviving)],
@@ -386,7 +381,7 @@ fn entries(page: Page, c: &PageCtx) -> Vec<Entry> {
 
 fn selectable(e: Entry, c: &PageCtx) -> bool {
     match e {
-        Entry::Line(..) | Entry::Stat(_) | Entry::Act(Act::LevelUp) => false,
+        Entry::Line(..) | Entry::Stat(_) => false,
         Entry::Place(i) => c.here != Some(i),
         Entry::Act(Act::Load) => c.has_save,
         _ => true,
@@ -409,7 +404,6 @@ fn act_label(a: Act) -> &'static str {
         Act::Back => tr("Back", "Retour"),
         Act::ToTitle => tr("Return to title screen", "Retour à l'écran titre"),
         Act::Quit => tr("Quit game", "Quitter le jeu"),
-        Act::LevelUp => tr("Level up", "Monter de niveau"),
         Act::Fork => tr("Fork me", "Forkez-moi"),
     }
 }
@@ -1392,7 +1386,6 @@ fn act(w: &mut World, a: Act) {
             // The save is written at the end of the frame (see `save`).
             w.write_message(AppExit::Success);
         }
-        Act::LevelUp => {}
         Act::Fork => open_url(REPO_URL),
     }
 }
@@ -1433,17 +1426,12 @@ fn entry_value(e: Entry, c: &PageCtx, s: &Settings, m: Option<&Monitor>, player:
         Entry::Talisman => (player.and_then(|p| p.inventory.talisman).map_or("—", Item::name).into(), true),
         Entry::Pick(Some(it)) if it.kind() == Kind::Consumable => (format!("×{}", player.map_or(0, |p| p.inventory.count(it))), true),
         Entry::Pick(_) => (String::new(), true),
-        // The level of the saved character.
-        Entry::Act(Act::Load) => match save {
-            Some(d) => (format!("{} {}", tr("Level", "Niveau"), d.progress.level), true),
-            None => (tr("No save", "Aucune sauvegarde").into(), false),
-        },
+        Entry::Act(Act::Load) if save.is_none() => (tr("No save", "Aucune sauvegarde").into(), false),
         Entry::Place(i) if c.here == Some(i) => (tr("You are here", "Vous êtes ici").into(), false),
         Entry::Place(_) => (String::new(), true),
         Entry::Boss(_) => (tr("Rekindle", "Raviver").into(), true),
         Entry::Weapon(i) if player.is_some_and(|p| p.weapon == i) => (tr("In hand", "En main").into(), true),
         Entry::Weapon(_) => (String::new(), true),
-        Entry::Act(Act::LevelUp) => (tr("Coming soon", "Bientôt").into(), false),
         Entry::Stat(st) => (player.map_or(String::new(), |p| st.value(p, t)), true),
         Entry::Line(..) | Entry::Lang(_) | Entry::Style(_) | Entry::Act(_) => (String::new(), true),
     }
